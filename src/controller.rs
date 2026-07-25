@@ -47,7 +47,8 @@ impl PidInstanceF32 {
     }
 
     pub fn process(&mut self, in_val: f32) -> f32 {
-        let out = self.state[2] + self.a0 * in_val + self.a1 * self.state[0] + self.a2 * self.state[1];
+        let out =
+            self.state[2] + self.a0 * in_val + self.a1 * self.state[0] + self.a2 * self.state[1];
         self.state[1] = self.state[0];
         self.state[0] = in_val;
         self.state[2] = out;

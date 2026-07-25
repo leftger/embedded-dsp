@@ -2,7 +2,7 @@
 name = "embedded-dsp"
 version = "0.1.0"
 edition = "2021"
-authors = ["Antigravity"]
+authors = ["Gerzain Mata <leftger@gmail.com>"]
 description = "A no_std Rust digital signal processing library for microcontrollers, embedded systems, and real-time signals."
 readme = "README.md"
 license = "MIT OR Apache-2.0"

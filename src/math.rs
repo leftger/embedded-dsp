@@ -74,7 +74,9 @@ impl FloatMath for f32 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point sqrt.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point sqrt."
+            );
         }
     }
 
@@ -90,7 +92,9 @@ impl FloatMath for f32 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point log.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point log."
+            );
         }
     }
 
@@ -106,7 +110,9 @@ impl FloatMath for f32 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point exp.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point exp."
+            );
         }
     }
 
@@ -122,7 +128,9 @@ impl FloatMath for f32 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point atan2.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point atan2."
+            );
         }
     }
 
@@ -138,7 +146,9 @@ impl FloatMath for f32 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point powf.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point powf."
+            );
         }
     }
 
@@ -154,7 +164,9 @@ impl FloatMath for f32 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point tanh.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point tanh."
+            );
         }
     }
 }
@@ -220,7 +232,9 @@ impl FloatMath for f64 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point sqrt.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point sqrt."
+            );
         }
     }
 
@@ -236,7 +250,9 @@ impl FloatMath for f64 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point log.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point log."
+            );
         }
     }
 
@@ -252,7 +268,9 @@ impl FloatMath for f64 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point exp.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point exp."
+            );
         }
     }
 
@@ -268,7 +286,9 @@ impl FloatMath for f64 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point atan2.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point atan2."
+            );
         }
     }
 
@@ -284,7 +304,9 @@ impl FloatMath for f64 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point powf.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point powf."
+            );
         }
     }
 
@@ -300,7 +322,9 @@ impl FloatMath for f64 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point tanh.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point tanh."
+            );
         }
     }
 }

@@ -2,9 +2,15 @@ use embedded_dsp::*;
 use std::time::Instant;
 
 fn main() {
-    println!("=========================================================================================");
-    println!("                  embedded-dsp vs libm Performance Benchmark Comparison                  ");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
+    println!(
+        "                  embedded-dsp vs libm Performance Benchmark Comparison                  "
+    );
+    println!(
+        "========================================================================================="
+    );
     println!();
 
     const ITERATIONS: usize = 1_000_000;
@@ -13,7 +19,10 @@ fn main() {
     // -----------------------------------------------------------------------------------------
     // 1. Scalar Trigonometric Sine Performance (1,000,000 operations)
     // -----------------------------------------------------------------------------------------
-    println!("--- 1. Scalar Math Operations ({} iterations) ---", ITERATIONS);
+    println!(
+        "--- 1. Scalar Math Operations ({} iterations) ---",
+        ITERATIONS
+    );
 
     // libm::sinf
     let start = Instant::now();
@@ -42,15 +51,27 @@ fn main() {
     }
     let duration_dsp_q31_sin = start.elapsed();
 
-    println!("  • libm::sinf         : {:>9.2?}  (sum check: {:.2})", duration_libm_sin, sum_libm);
-    println!("  • embedded-dsp f32   : {:>9.2?}  (sum check: {:.2})", duration_dsp_f32_sin, sum_dsp_f32);
-    println!("  • embedded-dsp q31   : {:>9.2?}  (sum check: {})", duration_dsp_q31_sin, sum_dsp_q31);
+    println!(
+        "  • libm::sinf         : {:>9.2?}  (sum check: {:.2})",
+        duration_libm_sin, sum_libm
+    );
+    println!(
+        "  • embedded-dsp f32   : {:>9.2?}  (sum check: {:.2})",
+        duration_dsp_f32_sin, sum_dsp_f32
+    );
+    println!(
+        "  • embedded-dsp q31   : {:>9.2?}  (sum check: {})",
+        duration_dsp_q31_sin, sum_dsp_q31
+    );
     println!();
 
     // -----------------------------------------------------------------------------------------
     // 2. Square Root Performance (1,000,000 operations)
     // -----------------------------------------------------------------------------------------
-    println!("--- 2. Square Root Operations ({} iterations) ---", ITERATIONS);
+    println!(
+        "--- 2. Square Root Operations ({} iterations) ---",
+        ITERATIONS
+    );
 
     // libm::sqrtf
     let start = Instant::now();
@@ -81,16 +102,28 @@ fn main() {
     }
     let duration_dsp_sqrt_q31 = start.elapsed();
 
-    println!("  • libm::sqrtf        : {:>9.2?}  (sum check: {:.2})", duration_libm_sqrt, sum_libm_sqrt);
-    println!("  • embedded-dsp f32   : {:>9.2?}  (sum check: {:.2})", duration_dsp_sqrt_f32, sum_dsp_sqrt_f32);
-    println!("  • embedded-dsp q31   : {:>9.2?}  (sum check: {})", duration_dsp_sqrt_q31, sum_dsp_sqrt_q31);
+    println!(
+        "  • libm::sqrtf        : {:>9.2?}  (sum check: {:.2})",
+        duration_libm_sqrt, sum_libm_sqrt
+    );
+    println!(
+        "  • embedded-dsp f32   : {:>9.2?}  (sum check: {:.2})",
+        duration_dsp_sqrt_f32, sum_dsp_sqrt_f32
+    );
+    println!(
+        "  • embedded-dsp q31   : {:>9.2?}  (sum check: {})",
+        duration_dsp_sqrt_q31, sum_dsp_sqrt_q31
+    );
     println!();
 
     // -----------------------------------------------------------------------------------------
     // 3. DSP Vector Dot Product (Vector size: 256, 100,000 iterations)
     // -----------------------------------------------------------------------------------------
     const VECTOR_ITERATIONS: usize = 100_000;
-    println!("--- 3. Vector Dot Product (Size: {}, {} iterations) ---", VECTOR_SIZE, VECTOR_ITERATIONS);
+    println!(
+        "--- 3. Vector Dot Product (Size: {}, {} iterations) ---",
+        VECTOR_SIZE, VECTOR_ITERATIONS
+    );
 
     let src_a_f32 = vec![1.5f32; VECTOR_SIZE];
     let src_b_f32 = vec![2.5f32; VECTOR_SIZE];
@@ -125,16 +158,32 @@ fn main() {
     }
     let duration_dot_q15 = start.elapsed();
 
-    println!("  • dot_prod_f32       : {:>9.2?}  (sum check: {:.2})", duration_dot_f32, dot_f32_sum);
-    println!("  • dot_prod_q31       : {:>9.2?}  (sum check: {}, speedup vs f32: {:.2}x)", duration_dot_q31, dot_q31_sum, duration_dot_f32.as_secs_f64() / duration_dot_q31.as_secs_f64());
-    println!("  • dot_prod_q15       : {:>9.2?}  (sum check: {}, speedup vs f32: {:.2}x)", duration_dot_q15, dot_q15_sum, duration_dot_f32.as_secs_f64() / duration_dot_q15.as_secs_f64());
+    println!(
+        "  • dot_prod_f32       : {:>9.2?}  (sum check: {:.2})",
+        duration_dot_f32, dot_f32_sum
+    );
+    println!(
+        "  • dot_prod_q31       : {:>9.2?}  (sum check: {}, speedup vs f32: {:.2}x)",
+        duration_dot_q31,
+        dot_q31_sum,
+        duration_dot_f32.as_secs_f64() / duration_dot_q31.as_secs_f64()
+    );
+    println!(
+        "  • dot_prod_q15       : {:>9.2?}  (sum check: {}, speedup vs f32: {:.2}x)",
+        duration_dot_q15,
+        dot_q15_sum,
+        duration_dot_f32.as_secs_f64() / duration_dot_q15.as_secs_f64()
+    );
     println!();
 
     // -----------------------------------------------------------------------------------------
     // 4. 256-Point Complex FFT (10,000 iterations)
     // -----------------------------------------------------------------------------------------
     const FFT_ITERATIONS: usize = 10_000;
-    println!("--- 4. 256-Point Complex FFT ({} iterations) ---", FFT_ITERATIONS);
+    println!(
+        "--- 4. 256-Point Complex FFT ({} iterations) ---",
+        FFT_ITERATIONS
+    );
 
     let mut fft_data_f32 = vec![0.0f32; 512]; // 256 complex pairs
     let mut fft_data_q31 = vec![0i32; 512];
@@ -171,5 +220,7 @@ fn main() {
     println!("  • cfft_q31 (256-pt)  : {:>9.2?}", duration_cfft_q31);
     println!("  • cfft_q15 (256-pt)  : {:>9.2?}", duration_cfft_q15);
     println!();
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 }

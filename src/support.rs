@@ -152,7 +152,13 @@ pub fn sort_f32(src: &[f32], dst: &mut [f32], dir_ascending: bool) {
 }
 
 /// Compute barycenter of points weighted by given weights.
-pub fn barycenter_f32(in_pts: &[f32], weights: &[f32], out_center: &mut [f32], num_vecs: usize, vec_dim: usize) -> Status {
+pub fn barycenter_f32(
+    in_pts: &[f32],
+    weights: &[f32],
+    out_center: &mut [f32],
+    num_vecs: usize,
+    vec_dim: usize,
+) -> Status {
     if in_pts.len() < num_vecs * vec_dim || weights.len() < num_vecs || out_center.len() < vec_dim {
         return Status::LengthError;
     }

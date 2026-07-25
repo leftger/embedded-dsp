@@ -12,7 +12,11 @@ pub struct MatrixInstance<'a, T> {
 
 impl<'a, T> MatrixInstance<'a, T> {
     pub fn new(num_rows: u16, num_cols: u16, data: &'a [T]) -> Self {
-        Self { num_rows, num_cols, data }
+        Self {
+            num_rows,
+            num_cols,
+            data,
+        }
     }
 }
 
@@ -26,14 +30,26 @@ pub struct MatrixInstanceMut<'a, T> {
 
 impl<'a, T> MatrixInstanceMut<'a, T> {
     pub fn new(num_rows: u16, num_cols: u16, data: &'a mut [T]) -> Self {
-        Self { num_rows, num_cols, data }
+        Self {
+            num_rows,
+            num_cols,
+            data,
+        }
     }
 }
 
 // --- Matrix Addition ---
 
-pub fn mat_add_f32(a: &MatrixInstance<f32>, b: &MatrixInstance<f32>, out: &mut MatrixInstanceMut<f32>) -> Status {
-    if a.num_rows != b.num_rows || a.num_cols != b.num_cols || a.num_rows != out.num_rows || a.num_cols != out.num_cols {
+pub fn mat_add_f32(
+    a: &MatrixInstance<f32>,
+    b: &MatrixInstance<f32>,
+    out: &mut MatrixInstanceMut<f32>,
+) -> Status {
+    if a.num_rows != b.num_rows
+        || a.num_cols != b.num_cols
+        || a.num_rows != out.num_rows
+        || a.num_cols != out.num_cols
+    {
         return Status::SizeMismatch;
     }
     let total = (a.num_rows as usize) * (a.num_cols as usize);
@@ -46,8 +62,16 @@ pub fn mat_add_f32(a: &MatrixInstance<f32>, b: &MatrixInstance<f32>, out: &mut M
     Status::Success
 }
 
-pub fn mat_add_q31(a: &MatrixInstance<q31>, b: &MatrixInstance<q31>, out: &mut MatrixInstanceMut<q31>) -> Status {
-    if a.num_rows != b.num_rows || a.num_cols != b.num_cols || a.num_rows != out.num_rows || a.num_cols != out.num_cols {
+pub fn mat_add_q31(
+    a: &MatrixInstance<q31>,
+    b: &MatrixInstance<q31>,
+    out: &mut MatrixInstanceMut<q31>,
+) -> Status {
+    if a.num_rows != b.num_rows
+        || a.num_cols != b.num_cols
+        || a.num_rows != out.num_rows
+        || a.num_cols != out.num_cols
+    {
         return Status::SizeMismatch;
     }
     let total = (a.num_rows as usize) * (a.num_cols as usize);
@@ -60,8 +84,16 @@ pub fn mat_add_q31(a: &MatrixInstance<q31>, b: &MatrixInstance<q31>, out: &mut M
     Status::Success
 }
 
-pub fn mat_add_q15(a: &MatrixInstance<q15>, b: &MatrixInstance<q15>, out: &mut MatrixInstanceMut<q15>) -> Status {
-    if a.num_rows != b.num_rows || a.num_cols != b.num_cols || a.num_rows != out.num_rows || a.num_cols != out.num_cols {
+pub fn mat_add_q15(
+    a: &MatrixInstance<q15>,
+    b: &MatrixInstance<q15>,
+    out: &mut MatrixInstanceMut<q15>,
+) -> Status {
+    if a.num_rows != b.num_rows
+        || a.num_cols != b.num_cols
+        || a.num_rows != out.num_rows
+        || a.num_cols != out.num_cols
+    {
         return Status::SizeMismatch;
     }
     let total = (a.num_rows as usize) * (a.num_cols as usize);
@@ -76,8 +108,16 @@ pub fn mat_add_q15(a: &MatrixInstance<q15>, b: &MatrixInstance<q15>, out: &mut M
 
 // --- Matrix Subtraction ---
 
-pub fn mat_sub_f32(a: &MatrixInstance<f32>, b: &MatrixInstance<f32>, out: &mut MatrixInstanceMut<f32>) -> Status {
-    if a.num_rows != b.num_rows || a.num_cols != b.num_cols || a.num_rows != out.num_rows || a.num_cols != out.num_cols {
+pub fn mat_sub_f32(
+    a: &MatrixInstance<f32>,
+    b: &MatrixInstance<f32>,
+    out: &mut MatrixInstanceMut<f32>,
+) -> Status {
+    if a.num_rows != b.num_rows
+        || a.num_cols != b.num_cols
+        || a.num_rows != out.num_rows
+        || a.num_cols != out.num_cols
+    {
         return Status::SizeMismatch;
     }
     let total = (a.num_rows as usize) * (a.num_cols as usize);
@@ -90,8 +130,16 @@ pub fn mat_sub_f32(a: &MatrixInstance<f32>, b: &MatrixInstance<f32>, out: &mut M
     Status::Success
 }
 
-pub fn mat_sub_q31(a: &MatrixInstance<q31>, b: &MatrixInstance<q31>, out: &mut MatrixInstanceMut<q31>) -> Status {
-    if a.num_rows != b.num_rows || a.num_cols != b.num_cols || a.num_rows != out.num_rows || a.num_cols != out.num_cols {
+pub fn mat_sub_q31(
+    a: &MatrixInstance<q31>,
+    b: &MatrixInstance<q31>,
+    out: &mut MatrixInstanceMut<q31>,
+) -> Status {
+    if a.num_rows != b.num_rows
+        || a.num_cols != b.num_cols
+        || a.num_rows != out.num_rows
+        || a.num_cols != out.num_cols
+    {
         return Status::SizeMismatch;
     }
     let total = (a.num_rows as usize) * (a.num_cols as usize);
@@ -104,8 +152,16 @@ pub fn mat_sub_q31(a: &MatrixInstance<q31>, b: &MatrixInstance<q31>, out: &mut M
     Status::Success
 }
 
-pub fn mat_sub_q15(a: &MatrixInstance<q15>, b: &MatrixInstance<q15>, out: &mut MatrixInstanceMut<q15>) -> Status {
-    if a.num_rows != b.num_rows || a.num_cols != b.num_cols || a.num_rows != out.num_rows || a.num_cols != out.num_cols {
+pub fn mat_sub_q15(
+    a: &MatrixInstance<q15>,
+    b: &MatrixInstance<q15>,
+    out: &mut MatrixInstanceMut<q15>,
+) -> Status {
+    if a.num_rows != b.num_rows
+        || a.num_cols != b.num_cols
+        || a.num_rows != out.num_rows
+        || a.num_cols != out.num_cols
+    {
         return Status::SizeMismatch;
     }
     let total = (a.num_rows as usize) * (a.num_cols as usize);
@@ -120,7 +176,11 @@ pub fn mat_sub_q15(a: &MatrixInstance<q15>, b: &MatrixInstance<q15>, out: &mut M
 
 // --- Matrix Multiplication ---
 
-pub fn mat_mult_f32(a: &MatrixInstance<f32>, b: &MatrixInstance<f32>, out: &mut MatrixInstanceMut<f32>) -> Status {
+pub fn mat_mult_f32(
+    a: &MatrixInstance<f32>,
+    b: &MatrixInstance<f32>,
+    out: &mut MatrixInstanceMut<f32>,
+) -> Status {
     if a.num_cols != b.num_rows || a.num_rows != out.num_rows || b.num_cols != out.num_cols {
         return Status::SizeMismatch;
     }
@@ -140,7 +200,11 @@ pub fn mat_mult_f32(a: &MatrixInstance<f32>, b: &MatrixInstance<f32>, out: &mut 
     Status::Success
 }
 
-pub fn mat_mult_q31(a: &MatrixInstance<q31>, b: &MatrixInstance<q31>, out: &mut MatrixInstanceMut<q31>) -> Status {
+pub fn mat_mult_q31(
+    a: &MatrixInstance<q31>,
+    b: &MatrixInstance<q31>,
+    out: &mut MatrixInstanceMut<q31>,
+) -> Status {
     if a.num_cols != b.num_rows || a.num_rows != out.num_rows || b.num_cols != out.num_cols {
         return Status::SizeMismatch;
     }
@@ -160,7 +224,11 @@ pub fn mat_mult_q31(a: &MatrixInstance<q31>, b: &MatrixInstance<q31>, out: &mut 
     Status::Success
 }
 
-pub fn mat_mult_q15(a: &MatrixInstance<q15>, b: &MatrixInstance<q15>, out: &mut MatrixInstanceMut<q15>) -> Status {
+pub fn mat_mult_q15(
+    a: &MatrixInstance<q15>,
+    b: &MatrixInstance<q15>,
+    out: &mut MatrixInstanceMut<q15>,
+) -> Status {
     if a.num_cols != b.num_rows || a.num_rows != out.num_rows || b.num_cols != out.num_cols {
         return Status::SizeMismatch;
     }
@@ -182,7 +250,11 @@ pub fn mat_mult_q15(a: &MatrixInstance<q15>, b: &MatrixInstance<q15>, out: &mut 
 
 // --- Matrix Scale ---
 
-pub fn mat_scale_f32(src: &MatrixInstance<f32>, scale: f32, out: &mut MatrixInstanceMut<f32>) -> Status {
+pub fn mat_scale_f32(
+    src: &MatrixInstance<f32>,
+    scale: f32,
+    out: &mut MatrixInstanceMut<f32>,
+) -> Status {
     if src.num_rows != out.num_rows || src.num_cols != out.num_cols {
         return Status::SizeMismatch;
     }
@@ -193,21 +265,41 @@ pub fn mat_scale_f32(src: &MatrixInstance<f32>, scale: f32, out: &mut MatrixInst
     Status::Success
 }
 
-pub fn mat_scale_q31(src: &MatrixInstance<q31>, scale_fract: q31, shift: i8, out: &mut MatrixInstanceMut<q31>) -> Status {
+pub fn mat_scale_q31(
+    src: &MatrixInstance<q31>,
+    scale_fract: q31,
+    shift: i8,
+    out: &mut MatrixInstanceMut<q31>,
+) -> Status {
     if src.num_rows != out.num_rows || src.num_cols != out.num_cols {
         return Status::SizeMismatch;
     }
     let total = (src.num_rows as usize) * (src.num_cols as usize);
-    crate::basic_math::scale_q31(&src.data[..total], scale_fract, shift, &mut out.data[..total]);
+    crate::basic_math::scale_q31(
+        &src.data[..total],
+        scale_fract,
+        shift,
+        &mut out.data[..total],
+    );
     Status::Success
 }
 
-pub fn mat_scale_q15(src: &MatrixInstance<q15>, scale_fract: q15, shift: i8, out: &mut MatrixInstanceMut<q15>) -> Status {
+pub fn mat_scale_q15(
+    src: &MatrixInstance<q15>,
+    scale_fract: q15,
+    shift: i8,
+    out: &mut MatrixInstanceMut<q15>,
+) -> Status {
     if src.num_rows != out.num_rows || src.num_cols != out.num_cols {
         return Status::SizeMismatch;
     }
     let total = (src.num_rows as usize) * (src.num_cols as usize);
-    crate::basic_math::scale_q15(&src.data[..total], scale_fract, shift, &mut out.data[..total]);
+    crate::basic_math::scale_q15(
+        &src.data[..total],
+        scale_fract,
+        shift,
+        &mut out.data[..total],
+    );
     Status::Success
 }
 
@@ -261,7 +353,8 @@ pub fn mat_trans_q15(src: &MatrixInstance<q15>, out: &mut MatrixInstanceMut<q15>
 // --- Matrix Inverse (f32 Gauss-Jordan Elimination with partial pivoting) ---
 
 pub fn mat_inverse_f32(src: &MatrixInstance<f32>, out: &mut MatrixInstanceMut<f32>) -> Status {
-    if src.num_rows != src.num_cols || out.num_rows != out.num_cols || src.num_rows != out.num_rows {
+    if src.num_rows != src.num_cols || out.num_rows != out.num_cols || src.num_rows != out.num_rows
+    {
         return Status::SizeMismatch;
     }
     let n = src.num_rows as usize;

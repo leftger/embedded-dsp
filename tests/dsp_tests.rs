@@ -223,12 +223,7 @@ fn test_convolution_and_correlation() {
 
 #[test]
 fn test_cfft_and_ifft() {
-    let mut data = [
-        1.0f32, 0.0,
-        1.0f32, 0.0,
-        1.0f32, 0.0,
-        1.0f32, 0.0,
-    ];
+    let mut data = [1.0f32, 0.0, 1.0f32, 0.0, 1.0f32, 0.0, 1.0f32, 0.0];
     cfft_f32(&mut data, 4, 0, 1);
     assert!((data[0] - 4.0).abs() < 1e-4);
     assert!((data[1] - 0.0).abs() < 1e-4);
@@ -289,7 +284,11 @@ fn test_matrix_inverse() {
 
     let mut res_data = [0.0f32; 4];
     let mut mat_res = MatrixInstanceMut::new(2, 2, &mut res_data);
-    mat_mult_f32(&mat_a, &MatrixInstance::new(2, 2, mat_inv.data), &mut mat_res);
+    mat_mult_f32(
+        &mat_a,
+        &MatrixInstance::new(2, 2, mat_inv.data),
+        &mut mat_res,
+    );
 
     assert!((mat_res.data[0] - 1.0).abs() < 1e-4);
     assert!((mat_res.data[1] - 0.0).abs() < 1e-4);
@@ -461,7 +460,7 @@ fn test_distance_metrics_exhaustive() {
     assert!((chebyshev_distance_f32(&a, &b) - 3.0).abs() < 1e-4);
     assert!((manhattan_distance_f32(&a, &b) - 9.0).abs() < 1e-4);
     assert!((minkowski_distance_f32(&a, &b, 1.0) - 9.0).abs() < 1e-4);
-    assert!((canberra_distance_f32(&a, &b) - (3.0/5.0 + 3.0/7.0 + 3.0/9.0)).abs() < 1e-4);
+    assert!((canberra_distance_f32(&a, &b) - (3.0 / 5.0 + 3.0 / 7.0 + 3.0 / 9.0)).abs() < 1e-4);
 }
 
 // =========================================================================================

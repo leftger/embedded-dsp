@@ -6,7 +6,9 @@ use crate::math::FloatMath;
 /// Generate Hanning window of length `n`.
 pub fn hanning_f32(dst: &mut [f32]) {
     let n = dst.len();
-    if n == 0 { return; }
+    if n == 0 {
+        return;
+    }
     if n == 1 {
         dst[0] = 1.0;
         return;
@@ -20,7 +22,9 @@ pub fn hanning_f32(dst: &mut [f32]) {
 /// Generate Hamming window of length `n`.
 pub fn hamming_f32(dst: &mut [f32]) {
     let n = dst.len();
-    if n == 0 { return; }
+    if n == 0 {
+        return;
+    }
     if n == 1 {
         dst[0] = 1.0;
         return;
@@ -34,7 +38,9 @@ pub fn hamming_f32(dst: &mut [f32]) {
 /// Generate Blackman window of length `n`.
 pub fn blackman_f32(dst: &mut [f32]) {
     let n = dst.len();
-    if n == 0 { return; }
+    if n == 0 {
+        return;
+    }
     if n == 1 {
         dst[0] = 1.0;
         return;
@@ -49,7 +55,9 @@ pub fn blackman_f32(dst: &mut [f32]) {
 /// Generate Bartlett (Triangular) window of length `n`.
 pub fn bartlett_f32(dst: &mut [f32]) {
     let n = dst.len();
-    if n == 0 { return; }
+    if n == 0 {
+        return;
+    }
     if n == 1 {
         dst[0] = 1.0;
         return;
@@ -63,7 +71,9 @@ pub fn bartlett_f32(dst: &mut [f32]) {
 /// Generate Welch parabolic window of length `n`.
 pub fn welch_f32(dst: &mut [f32]) {
     let n = dst.len();
-    if n == 0 { return; }
+    if n == 0 {
+        return;
+    }
     if n == 1 {
         dst[0] = 1.0;
         return;
@@ -78,7 +88,9 @@ pub fn welch_f32(dst: &mut [f32]) {
 /// Generate Flat-top window of length `n`.
 pub fn flattop_f32(dst: &mut [f32]) {
     let n = dst.len();
-    if n == 0 { return; }
+    if n == 0 {
+        return;
+    }
     if n == 1 {
         dst[0] = 1.0;
         return;
@@ -86,9 +98,7 @@ pub fn flattop_f32(dst: &mut [f32]) {
     let factor = 2.0 * core::f32::consts::PI / ((n - 1) as f32);
     for i in 0..n {
         let a = (i as f32) * factor;
-        dst[i] = 0.21557895
-            - 0.41663158 * a.cos()
-            + 0.277263158 * (2.0 * a).cos()
+        dst[i] = 0.21557895 - 0.41663158 * a.cos() + 0.277263158 * (2.0 * a).cos()
             - 0.083578947 * (3.0 * a).cos()
             + 0.006947368 * (4.0 * a).cos();
     }

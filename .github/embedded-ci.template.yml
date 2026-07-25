@@ -1,0 +1,148 @@
+# Canonical embedded-* CI template.
+#
+# Copy this file to `.github/workflows/ci.yml` in each embedded-* repo and
+# adjust only the env block at the top. Keep the job definitions identical
+# so CI stays consistent across crates.
+#
+# Per-crate env cheat sheet:
+#   embedded-dsp:   MSRV=1.85, NO_STD_CARGO_ARGS="--no-default-features --features libm", BUILD_EXAMPLES=true
+#   embedded-nn:    MSRV=1.85, NO_STD_CARGO_ARGS="--no-default-features"
+#   embedded-audio: MSRV=1.85, NO_STD_CARGO_ARGS="--no-default-features"
+#   embedded-gui:   MSRV=1.87, NO_STD_CARGO_ARGS="--no-default-features --features libm", NEEDS_SDL=true, BUILD_EXAMPLES=true
+#   embedded-3dgfx: see embedded-3dgfx/.github/workflows/ci.yml (extends this with budget jobs)
+#
+# License check: .github/workflows/license.yml runs GitHub's licensee against LICENSE,
+# LICENSE-MIT, and LICENSE-APACHE (see .github/scripts/verify_license.sh).
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  MSRV: "1.85"
+  NO_STD_TARGET: thumbv7em-none-eabihf
+  NO_STD_CARGO_ARGS: "--no-default-features --features libm"
+  CHECK_ARGS: "--lib --all-features"
+  TEST_ARGS: "--all-features"
+  BUILD_EXAMPLES: "true"
+  NEEDS_SDL: "false"
+
+jobs:
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check ${{ env.CHECK_ARGS }}
+
+  check-no-std:
+    name: Check (no_std)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.NO_STD_TARGET }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --lib ${{ env.NO_STD_CARGO_ARGS }} --target ${{ env.NO_STD_TARGET }}
+
+  msrv:
+    name: MSRV check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check ${{ env.CHECK_ARGS }}
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --lib --all-features -- -W clippy::all
+      - run: cargo clippy --lib ${{ env.NO_STD_CARGO_ARGS }} --target ${{ env.NO_STD_TARGET }} -- -W clippy::all
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - if: ${{ env.NEEDS_SDL == 'true' }}
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      - run: cargo test ${{ env.TEST_ARGS }}
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --lib --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  examples:
+    name: Examples
+    if: env.BUILD_EXAMPLES == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - if: ${{ env.NEEDS_SDL == 'true' }}
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      - run: cargo build --examples --all-features
+
+  publish-dry-run:
+    name: Publish dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish --dry-run
+
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -37,7 +37,8 @@ pub fn cfft_f32(data: &mut [f32], n: usize, ifft_flag: u8, bit_reverse_flag: u8)
     let mut len = 2;
     while len <= n {
         let half_len = len / 2;
-        let angle = (if ifft_flag != 0 { 2.0 } else { -2.0 }) * core::f32::consts::PI / (len as f32);
+        let angle =
+            (if ifft_flag != 0 { 2.0 } else { -2.0 }) * core::f32::consts::PI / (len as f32);
         let w_step_re = angle.cos();
         let w_step_im = angle.sin();
 
@@ -85,11 +86,15 @@ pub fn cfft_f32(data: &mut [f32], n: usize, ifft_flag: u8, bit_reverse_flag: u8)
 
 /// In-place Complex FFT for Q31 fixed-point.
 pub fn cfft_q31(data: &mut [q31], n: usize, ifft_flag: u8, _bit_reverse_flag: u8) {
-    if n < 2 { return; }
+    if n < 2 {
+        return;
+    }
     // Convert to f32 scratch, run cfft_f32, convert back
     let mut scratch = [0.0f32; 1024];
     let total = 2 * n;
-    if total > scratch.len() { return; }
+    if total > scratch.len() {
+        return;
+    }
 
     for i in 0..total {
         scratch[i] = data[i] as f32 / 2147483648.0;
@@ -102,10 +107,14 @@ pub fn cfft_q31(data: &mut [q31], n: usize, ifft_flag: u8, _bit_reverse_flag: u8
 
 /// In-place Complex FFT for Q15 fixed-point.
 pub fn cfft_q15(data: &mut [q15], n: usize, ifft_flag: u8, _bit_reverse_flag: u8) {
-    if n < 2 { return; }
+    if n < 2 {
+        return;
+    }
     let mut scratch = [0.0f32; 1024];
     let total = 2 * n;
-    if total > scratch.len() { return; }
+    if total > scratch.len() {
+        return;
+    }
 
     for i in 0..total {
         scratch[i] = data[i] as f32 / 32768.0;
@@ -121,7 +130,9 @@ pub fn cfft_q15(data: &mut [q15], n: usize, ifft_flag: u8, _bit_reverse_flag: u8
 pub fn rfft_f32(src: &[f32], dst: &mut [f32], n: usize, ifft_flag: u8) {
     let len = src.len().min(n);
     let mut c_data = [0.0f32; 1024];
-    if 2 * len > c_data.len() || dst.len() < 2 * len { return; }
+    if 2 * len > c_data.len() || dst.len() < 2 * len {
+        return;
+    }
 
     for i in 0..len {
         c_data[2 * i] = src[i];
@@ -136,7 +147,9 @@ pub fn rfft_f32(src: &[f32], dst: &mut [f32], n: usize, ifft_flag: u8) {
 pub fn rfft_q31(src: &[q31], dst: &mut [q31], n: usize, ifft_flag: u8) {
     let len = src.len().min(n);
     let mut c_data = [0; 1024];
-    if 2 * len > c_data.len() || dst.len() < 2 * len { return; }
+    if 2 * len > c_data.len() || dst.len() < 2 * len {
+        return;
+    }
 
     for i in 0..len {
         c_data[2 * i] = src[i];
@@ -150,7 +163,9 @@ pub fn rfft_q31(src: &[q31], dst: &mut [q31], n: usize, ifft_flag: u8) {
 pub fn rfft_q15(src: &[q15], dst: &mut [q15], n: usize, ifft_flag: u8) {
     let len = src.len().min(n);
     let mut c_data = [0; 1024];
-    if 2 * len > c_data.len() || dst.len() < 2 * len { return; }
+    if 2 * len > c_data.len() || dst.len() < 2 * len {
+        return;
+    }
 
     for i in 0..len {
         c_data[2 * i] = src[i];

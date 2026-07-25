@@ -26,8 +26,8 @@ pub struct SvmInstanceF32<'a> {
     pub num_vector_dim: usize,
     pub num_support_vectors: usize,
     pub intercept: f32,
-    pub dual_coefs: &'a [f32],         // Size num_support_vectors
-    pub support_vectors: &'a [f32],    // Size num_support_vectors * num_vector_dim
+    pub dual_coefs: &'a [f32],      // Size num_support_vectors
+    pub support_vectors: &'a [f32], // Size num_support_vectors * num_vector_dim
     pub kernel_type: SvmKernelType,
     pub gamma: f32,
     pub coef0: f32,

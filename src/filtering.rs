@@ -14,7 +14,11 @@ pub struct FirInstanceF32<'a> {
 impl<'a> FirInstanceF32<'a> {
     pub fn init(num_taps: u16, coeffs: &'a [f32], state: &'a mut [f32]) -> Self {
         state.fill(0.0);
-        Self { num_taps, coeffs, state }
+        Self {
+            num_taps,
+            coeffs,
+            state,
+        }
     }
 }
 
@@ -48,7 +52,11 @@ pub struct FirInstanceQ31<'a> {
 impl<'a> FirInstanceQ31<'a> {
     pub fn init(num_taps: u16, coeffs: &'a [q31], state: &'a mut [q31]) -> Self {
         state.fill(0);
-        Self { num_taps, coeffs, state }
+        Self {
+            num_taps,
+            coeffs,
+            state,
+        }
     }
 }
 
@@ -80,7 +88,11 @@ pub struct FirInstanceQ15<'a> {
 impl<'a> FirInstanceQ15<'a> {
     pub fn init(num_taps: u16, coeffs: &'a [q15], state: &'a mut [q15]) -> Self {
         state.fill(0);
-        Self { num_taps, coeffs, state }
+        Self {
+            num_taps,
+            coeffs,
+            state,
+        }
     }
 }
 
@@ -107,18 +119,26 @@ pub fn fir_q15(instance: &mut FirInstanceQ15, src: &[q15], dst: &mut [q15]) {
 /// Instance structure for the floating-point Biquad Cascade Direct Form I filter.
 pub struct BiquadCascadeInstanceF32<'a> {
     pub num_stages: u8,
-    pub coeffs: &'a [f32], // 5 * num_stages: [b0, b1, b2, a1, a2]
+    pub coeffs: &'a [f32],    // 5 * num_stages: [b0, b1, b2, a1, a2]
     pub state: &'a mut [f32], // 4 * num_stages: [x[n-1], x[n-2], y[n-1], y[n-2]]
 }
 
 impl<'a> BiquadCascadeInstanceF32<'a> {
     pub fn init(num_stages: u8, coeffs: &'a [f32], state: &'a mut [f32]) -> Self {
         state.fill(0.0);
-        Self { num_stages, coeffs, state }
+        Self {
+            num_stages,
+            coeffs,
+            state,
+        }
     }
 }
 
-pub fn biquad_cascade_df1_f32(instance: &mut BiquadCascadeInstanceF32, src: &[f32], dst: &mut [f32]) {
+pub fn biquad_cascade_df1_f32(
+    instance: &mut BiquadCascadeInstanceF32,
+    src: &[f32],
+    dst: &mut [f32],
+) {
     let num_stages = instance.num_stages as usize;
     let block_size = src.len().min(dst.len());
 
@@ -166,13 +186,28 @@ impl<'a> LmsInstanceF32<'a> {
     pub fn init(num_taps: u16, coeffs: &'a mut [f32], state: &'a mut [f32], mu: f32) -> Self {
         state.fill(0.0);
         coeffs.fill(0.0);
-        Self { num_taps, coeffs, state, mu }
+        Self {
+            num_taps,
+            coeffs,
+            state,
+            mu,
+        }
     }
 }
 
-pub fn lms_f32(instance: &mut LmsInstanceF32, src: &[f32], ref_signal: &[f32], out: &mut [f32], err: &mut [f32]) {
+pub fn lms_f32(
+    instance: &mut LmsInstanceF32,
+    src: &[f32],
+    ref_signal: &[f32],
+    out: &mut [f32],
+    err: &mut [f32],
+) {
     let num_taps = instance.num_taps as usize;
-    let block_size = src.len().min(ref_signal.len()).min(out.len()).min(err.len());
+    let block_size = src
+        .len()
+        .min(ref_signal.len())
+        .min(out.len())
+        .min(err.len());
 
     for i in 0..block_size {
         for k in (1..num_taps).rev() {

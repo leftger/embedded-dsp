@@ -74,9 +74,15 @@ pub struct SplineInstanceF32<'a> {
 impl<'a> SplineInstanceF32<'a> {
     pub fn interpolate(&self, x_val: f32) -> f32 {
         let n = self.x.len();
-        if n == 0 { return 0.0; }
-        if x_val <= self.x[0] { return self.y[0]; }
-        if x_val >= self.x[n - 1] { return self.y[n - 1]; }
+        if n == 0 {
+            return 0.0;
+        }
+        if x_val <= self.x[0] {
+            return self.y[0];
+        }
+        if x_val >= self.x[n - 1] {
+            return self.y[n - 1];
+        }
 
         let mut idx = 0;
         for i in 0..(n - 1) {

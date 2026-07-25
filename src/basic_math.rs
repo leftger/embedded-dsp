@@ -244,7 +244,8 @@ pub fn scale_q31(src: &[q31], scale_fract: q31, shift: i8, dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     let k_shift = 31 - shift;
     for i in 0..len {
-        let mult = (src[i] as i64 * scale_fract as i64) >> if k_shift >= 0 { k_shift as u32 } else { 0 };
+        let mult =
+            (src[i] as i64 * scale_fract as i64) >> if k_shift >= 0 { k_shift as u32 } else { 0 };
         let val = if k_shift < 0 {
             mult << (-k_shift as u32)
         } else {
@@ -258,7 +259,8 @@ pub fn scale_q15(src: &[q15], scale_fract: q15, shift: i8, dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     let k_shift = 15 - shift;
     for i in 0..len {
-        let mult = (src[i] as i32 * scale_fract as i32) >> if k_shift >= 0 { k_shift as u32 } else { 0 };
+        let mult =
+            (src[i] as i32 * scale_fract as i32) >> if k_shift >= 0 { k_shift as u32 } else { 0 };
         let val = if k_shift < 0 {
             mult << (-k_shift as u32)
         } else {
@@ -272,7 +274,8 @@ pub fn scale_q7(src: &[q7], scale_fract: q7, shift: i8, dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     let k_shift = 7 - shift;
     for i in 0..len {
-        let mult = (src[i] as i32 * scale_fract as i32) >> if k_shift >= 0 { k_shift as u32 } else { 0 };
+        let mult =
+            (src[i] as i32 * scale_fract as i32) >> if k_shift >= 0 { k_shift as u32 } else { 0 };
         let val = if k_shift < 0 {
             mult << (-k_shift as u32)
         } else {

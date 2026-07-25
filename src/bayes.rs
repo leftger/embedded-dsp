@@ -7,8 +7,8 @@ use crate::math::FloatMath;
 pub struct GaussianNaiveBayesInstanceF32<'a> {
     pub num_classes: usize,
     pub num_features: usize,
-    pub theta: &'a [f32],      // Means array of size num_classes * num_features
-    pub sigma: &'a [f32],      // Variances array of size num_classes * num_features
+    pub theta: &'a [f32],       // Means array of size num_classes * num_features
+    pub sigma: &'a [f32],       // Variances array of size num_classes * num_features
     pub class_prior: &'a [f32], // Class priors array of size num_classes
     pub epsilon: f32,           // Additive variance stabilization
 }
@@ -46,6 +46,10 @@ impl<'a> GaussianNaiveBayesInstanceF32<'a> {
     }
 }
 
-pub fn bayes_predict_f32(instance: &GaussianNaiveBayesInstanceF32, input: &[f32], probs: &mut [f32]) -> usize {
+pub fn bayes_predict_f32(
+    instance: &GaussianNaiveBayesInstanceF32,
+    input: &[f32],
+    probs: &mut [f32],
+) -> usize {
     instance.predict(input, probs)
 }

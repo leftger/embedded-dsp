@@ -26,7 +26,7 @@ fn main() {
     let coeffs = [0.25f32, 0.5, 0.25]; // 3-tap moving average filter
     let mut state = [0.0f32; 3 + 4 - 1];
     let mut fir = FirInstanceF32::init(3, &coeffs, &mut state);
-    
+
     let input_signal = [1.0f32, 2.0, 3.0, 4.0];
     let mut filtered_signal = [0.0f32; 4];
     fir_f32(&mut fir, &input_signal, &mut filtered_signal);
