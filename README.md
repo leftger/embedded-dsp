@@ -2,13 +2,13 @@
 
 [![Crates.io](https://img.shields.io/crates/v/embedded-dsp.svg)](https://crates.io/crates/embedded-dsp)
 [![Documentation](https://docs.rs/embedded-dsp/badge.svg)](https://docs.rs/embedded-dsp)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 
 A **`#![no_std]` Rust Digital Signal Processing library** designed for microcontrollers (Cortex-M, RISC-V, AVR, Xtensa), embedded systems, and real-time digital signal processing applications.
 
 ---
 
-## ⚡ Features
+## Features
 
 - **`#![no_std]` First**: Pure `core` compatibility for bare-metal targets with zero dynamic allocation required.
 - **`libm` Integration**: Unified `FloatMath` trait providing floating-point math routines in `#![no_std]` environments via `libm`.
@@ -31,7 +31,7 @@ A **`#![no_std]` Rust Digital Signal Processing library** designed for microcont
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 Add `embedded-dsp` to your `Cargo.toml`:
 
@@ -70,7 +70,7 @@ fn main() {
 
 ---
 
-## 💻 Running Included Examples
+## Running Included Examples
 
 ```bash
 # Run basic usage example
@@ -82,6 +82,8 @@ cargo run --release --example perf_comparison
 
 ---
 
-## 📜 License
+## License
 
-Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE)).
+Dual-licensed under either of:
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT License ([LICENSE-MIT](LICENSE-MIT))

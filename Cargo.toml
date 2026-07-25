@@ -5,8 +5,8 @@ edition = "2021"
 authors = ["Antigravity"]
 description = "A no_std Rust digital signal processing library for microcontrollers, embedded systems, and real-time signals."
 readme = "README.md"
-license = "Apache-2.0"
-repository = "https://github.com/embedded-dsp/embedded-dsp"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/leftger/embedded-dsp"
 keywords = ["dsp", "embedded", "no_std", "signal-processing", "fft"]
 categories = ["embedded", "no-std", "science"]
 
