@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Pre-commit hook: format, check, check no_std target, clippy, and test.
+set -euo pipefail
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "pre-commit: cargo not found, skipping." >&2
+  exit 0
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
+if [[ -z "$staged_files" ]]; then
+  exit 0
+fi
+
+rust_related=()
+while IFS= read -r file; do
+  if [[ "$file" == *.rs ]] || [[ "$file" == "Cargo.toml" ]]; then
+    rust_related+=("$file")
+  fi
+done <<< "$staged_files"
+
+if [[ "${#rust_related[@]}" -eq 0 ]]; then
+  exit 0
+fi
+
+echo "pre-commit: cargo fmt --all"
+cargo fmt --all
+git add -- "${rust_related[@]}"
+
+echo "pre-commit: cargo check (all-features)"
+cargo check --lib --all-features
+
+echo "pre-commit: cargo check (no_std target)"
+rustup target add thumbv7em-none-eabihf 2>/dev/null || true
+cargo check --lib --no-default-features --target thumbv7em-none-eabihf
+
+echo "pre-commit: cargo clippy"
+cargo clippy --lib --all-features -- -W clippy::all
+
+echo "pre-commit: cargo test"
+cargo test
+
+echo "pre-commit: ok"
