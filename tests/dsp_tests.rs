@@ -467,41 +467,88 @@ fn test_distance_metrics_exhaustive() {
 // 14. MACHINE LEARNING CLASSIFIERS TESTS
 // =========================================================================================
 
+// =========================================================================================
+// 15. FILTER DESIGN TESTS
+// =========================================================================================
+
 #[test]
-fn test_bayes_and_svm_classifiers() {
-    let theta = [0.0f32, 0.0, 5.0, 5.0];
-    let sigma = [1.0f32, 1.0, 1.0, 1.0];
-    let priors = [0.5f32, 0.5];
+fn test_filter_design_coeffs() {
+    let lp = biquad_lowpass_coeffs(1000.0, 48000.0, 0.7071);
+    assert_eq!(lp.len(), 5);
+    assert!(lp[0] > 0.0);
 
-    let gnb = GaussianNaiveBayesInstanceF32 {
-        num_classes: 2,
-        num_features: 2,
-        theta: &theta,
-        sigma: &sigma,
-        class_prior: &priors,
-        epsilon: 1e-9,
-    };
+    let hp = biquad_highpass_coeffs(1000.0, 48000.0, 0.7071);
+    assert_eq!(hp.len(), 5);
 
-    let mut probs = [0.0f32; 2];
-    let cls = gnb.predict(&[4.8, 5.1], &mut probs);
-    assert_eq!(cls, 1);
+    let notch = biquad_notch_coeffs(60.0, 1000.0, 10.0);
+    assert_eq!(notch.len(), 5);
 
-    let sv = [0.0f32, 0.0, 2.0, 2.0];
-    let dual_coefs = [-1.0f32, 1.0];
+    let mut butter = [0.0f32; 10];
+    butterworth_lowpass_biquads(1000.0, 48000.0, 4, &mut butter);
+    assert_ne!(butter[0], 0.0);
+}
 
-    let svm = SvmInstanceF32 {
-        num_vector_dim: 2,
-        num_support_vectors: 2,
-        intercept: 0.0,
-        dual_coefs: &dual_coefs,
-        support_vectors: &sv,
-        kernel_type: SvmKernelType::Linear,
-        gamma: 1.0,
-        coef0: 0.0,
-        degree: 1,
-    };
+// =========================================================================================
+// 17. RESAMPLING & MULTI-RATE TESTS
+// =========================================================================================
 
-    let mut res = 0;
-    assert_eq!(svm.predict(&[3.0, 3.0], &mut res), Status::Success);
-    assert_eq!(res, 1);
+#[test]
+fn test_cic_and_resampling() {
+    let mut decimator = CicDecimator::<3>::new(4);
+    let mut decimated = None;
+    for i in 1..=4 {
+        decimated = decimator.process_sample(i * 10);
+    }
+    assert!(decimated.is_some());
+
+    let mut interpolator = CicInterpolator::<2>::new(4);
+    let mut out_buf = [0i32; 4];
+    interpolator.process_sample(10, &mut out_buf);
+    assert_eq!(out_buf.len(), 4);
+
+    let src = [1.0f32, 2.0, 3.0, 4.0];
+    let mut dst = [0.0f32; 8];
+    resample_linear_f32(&src, &mut dst, 0.5);
+    assert!((dst[0] - 1.0).abs() < 1e-4);
+}
+
+// =========================================================================================
+// 18. KALMAN FILTERING TESTS
+// =========================================================================================
+
+#[test]
+fn test_kalman_1d_and_2d() {
+    let mut kf1d = KalmanFilter1D::new(0.0, 1.0, 0.01, 0.1);
+    kf1d.predict(0.0);
+    let est = kf1d.update(10.0);
+    assert!(est > 0.0);
+
+    let mut kf2d = KalmanFilter2D::new(0.0, 0.0, 0.01, 0.1);
+    kf2d.predict(0.1);
+    let state = kf2d.update(1.0);
+    assert!(state[0] > 0.0);
+}
+
+// =========================================================================================
+// 19. CONST GENERICS TESTS
+// =========================================================================================
+
+#[test]
+fn test_const_generics_wrappers() {
+    let mut fir = FirFilter::<3>::new([0.25, 0.5, 0.25]);
+    let mut dst = [0.0f32; 4];
+    fir.process(&[1.0, 0.0, 0.0, 0.0], &mut dst);
+    assert_eq!(dst, [0.25, 0.5, 0.25, 0.0]);
+
+    let mut biquad = BiquadCascade::<5, 4>::new([1.0, 0.0, 0.0, 0.0, 0.0]);
+    biquad.process(&[1.0, 2.0, 3.0, 4.0], &mut dst);
+    assert_eq!(dst, [1.0, 2.0, 3.0, 4.0]);
+
+    let m1 = Matrix::<2, 2, 4>::new([1.0, 2.0, 3.0, 4.0]);
+    let m2 = Matrix::<2, 2, 4>::new([5.0, 6.0, 7.0, 8.0]);
+    let m3 = m1.add(&m2);
+    assert_eq!(m3.data, [6.0, 8.0, 10.0, 12.0]);
+
+    let m_mul: Matrix<2, 2, 4> = m1.mul_mat(&m2);
+    assert_eq!(m_mul.data, [19.0, 22.0, 43.0, 50.0]);
 }

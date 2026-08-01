@@ -14,9 +14,14 @@ categories = ["embedded", "no-std", "science"]
 default = ["std", "libm"]
 std = []
 libm = ["dep:libm"]
+defmt = ["dep:defmt"]
+serde = ["dep:serde"]
+alloc = []
 
 [dependencies]
 libm = { version = "0.2.11", optional = true }
+defmt = { version = "0.3", optional = true, default-features = false }
+serde = { version = "1.0", optional = true, default-features = false, features = ["derive"] }
 
 [[example]]
 name = "basic_usage"

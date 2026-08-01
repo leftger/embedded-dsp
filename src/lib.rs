@@ -16,50 +16,58 @@
 //! - **Support**: Vector copy, fill, type conversions (Q7, Q15, Q31, F32), sort, barycenter, weighted sum.
 //! - **Matrix**: Matrix addition, subtraction, multiplication, scale, transpose, Gauss-Jordan inverse.
 //! - **Filtering**: FIR, Biquad IIR Direct Form I, LMS adaptive filters, Convolution, Correlation.
-//! - **Transform**: In-place Complex FFT (CFFT), Real FFT (RFFT), DCT-IV, Bit reversal.
+//! - **Filter Design**: Biquad Lowpass, Highpass, Bandpass, Notch, Peaking EQ, Allpass, and Butterworth design.
+//! - **Resampling & Multi-rate**: CIC Decimator & Interpolator, linear fractional resampler.
+//! - **Kalman Filtering**: 1D scalar and 2D position/velocity linear Kalman state estimation.
+//! - **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `BiquadCascade<N>`, and `Matrix<R, C>`.
+//! - **Transform**: In-place Complex FFT (CFFT), Real FFT (RFFT), DCT-IV, Bit reversal, Fixed-point FFT (Q15/Q31).
 //! - **Controller**: PID motor controller, Clarke transform, Park transform, Inverse Clarke/Park.
 //! - **Interpolation**: Linear, Bilinear, Cubic spline interpolation.
 //! - **Quaternion**: Norm, normalization, product, conjugate, inverse, rotation matrix conversion.
 //! - **Window**: Hanning, Hamming, Blackman, Bartlett, Welch, Flat-top window generators.
 //! - **Distance**: Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Jaccard, Hamming, Canberra, Bray-Curtis.
-//! - **Bayes**: Gaussian Naive Bayes classifier.
-//! - **SVM**: Support Vector Machine classifier with Linear, Polynomial, RBF, and Sigmoid kernels.
 
 #[cfg(feature = "std")]
 extern crate std;
 
 pub mod basic_math;
-pub mod bayes;
 pub mod complex_math;
+pub mod const_generics;
 pub mod controller;
 pub mod distance;
 pub mod fast_math;
+#[cfg(any(feature = "std", feature = "libm"))]
+pub mod filter_design;
 pub mod filtering;
 pub mod interpolation;
+pub mod kalman;
 pub mod math;
 pub mod matrix;
 pub mod quaternion;
+pub mod resampling;
 pub mod statistics;
 pub mod support;
-pub mod svm;
 pub mod transform;
 pub mod types;
 pub mod window;
 
 pub use basic_math::*;
-pub use bayes::*;
 pub use complex_math::*;
+pub use const_generics::*;
 pub use controller::*;
 pub use distance::*;
 pub use fast_math::*;
+#[cfg(any(feature = "std", feature = "libm"))]
+pub use filter_design::*;
 pub use filtering::*;
 pub use interpolation::*;
+pub use kalman::*;
 pub use math::*;
 pub use matrix::*;
 pub use quaternion::*;
+pub use resampling::*;
 pub use statistics::*;
 pub use support::*;
-pub use svm::*;
 pub use transform::*;
 pub use types::*;
 pub use window::*;
