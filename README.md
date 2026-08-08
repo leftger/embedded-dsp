@@ -22,7 +22,7 @@ A **`#![no_std]` Rust Digital Signal Processing library** designed for microcont
   5. **Filter Design**: Biquad Low-Pass, High-Pass, Band-Pass, Notch, Peaking EQ, All-Pass, and multi-stage Butterworth design.
   6. **Audio & TinyML**: Goertzel single-frequency detector, Envelope follower (peak & RMS), Mel filterbank, and MFCC feature extraction.
   7. **Resampling & Multi-rate**: Cascaded Integrator-Comb (CIC) Decimator & Interpolator, linear fractional resampler.
-  8. **Kalman Filtering**: 1D scalar and 2D position/velocity linear Kalman state estimators.
+  8. **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, and trait-based Extended Kalman Filter (`EkfModel`).
   9. **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `BiquadCascade<COEFFS, STATE>`, and `Matrix<R, C, N>`.
   10. **Transforms**: In-place Complex FFT (`cfft`), Real FFT (`rfft`), Discrete Cosine Transform (`dct4`), Fixed-Point FFT (`cfft_q15`/`cfft_q31`).
   11. **Matrix Operations**: Matrix addition, subtraction, multiplication, scaling, transpose, Gauss-Jordan inversion.
@@ -74,10 +74,14 @@ fn main() {
     let mut dst = [0.0f32; 4];
     biquad.process(&a, &mut dst);
 
-    // 4. 1D Kalman Sensor Filtering
+    // 4. Kalman Sensor Filtering (1D helper or generic N×M)
     let mut kf = KalmanFilter1D::new(0.0, 1.0, 0.01, 0.1);
     kf.predict(0.0);
     let _filtered_reading = kf.update(10.2);
+
+    let mut kf2 = KalmanFilter::<2, 1>::from_variances([0.0, 0.0], 1.0, 0.01, 0.1);
+    kf2.predict(&[[1.0, 0.1], [0.0, 1.0]]);
+    let _ = kf2.update(&[[1.0, 0.0]], &[1.0]);
 
     // 5. 64-Point Complex FFT
     let mut fft_data = [0.0f32; 128]; // 64 complex pairs [re, im, ...]

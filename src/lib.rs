@@ -18,7 +18,7 @@
 //! - **Filtering**: FIR, Biquad IIR Direct Form I, LMS adaptive filters, Convolution, Correlation.
 //! - **Filter Design**: Biquad Lowpass, Highpass, Bandpass, Notch, Peaking EQ, Allpass, and Butterworth design.
 //! - **Resampling & Multi-rate**: CIC Decimator & Interpolator, linear fractional resampler.
-//! - **Kalman Filtering**: 1D scalar and 2D position/velocity linear Kalman state estimation.
+//! - **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, and trait-based `ExtendedKalmanFilter` (EKF).
 //! - **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `BiquadCascade<N>`, and `Matrix<R, C>`.
 //! - **Transform**: In-place Complex FFT (CFFT), Real FFT (RFFT), DCT-IV, Bit reversal, Fixed-point FFT (Q15/Q31).
 //! - **Controller**: PID motor controller, Clarke transform, Park transform, Inverse Clarke/Park.

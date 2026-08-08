@@ -1,4 +1,12 @@
 //! Kalman filtering and state estimation algorithms for zero-allocation embedded applications.
+//!
+//! Includes convenience 1D/2D filters, a const-generic linear [`KalmanFilter`], and an
+//! [`ExtendedKalmanFilter`] driven by a user [`EkfModel`]. Measurement dimension `M` must be
+//! ≤ 16 (same limit as [`crate::matrix::mat_inverse_f32`]). Covariance updates use
+//! `P ← (I − KH) P`; a Joseph-form update may be added later for improved numerical stability.
+
+use crate::matrix::{mat_inverse_f32, MatrixInstance, MatrixInstanceMut};
+use crate::types::Status;
 
 /// Scalar (1D) Kalman filter for single-variable sensor smoothing and estimation.
 #[derive(Debug, Clone, Copy)]
@@ -99,5 +107,416 @@ impl KalmanFilter2D {
 
         self.p = [p00, p01, p10, p11];
         self.x
+    }
+}
+
+// --- Const-generic linear Kalman & EKF helpers ---
+
+#[inline]
+fn mat_vec_mul<const R: usize, const C: usize>(
+    a: &[[f32; C]; R],
+    x: &[f32; C],
+    out: &mut [f32; R],
+) {
+    for r in 0..R {
+        let mut sum = 0.0f32;
+        for c in 0..C {
+            sum += a[r][c] * x[c];
+        }
+        out[r] = sum;
+    }
+}
+
+#[inline]
+fn mat_mul<const R: usize, const K: usize, const C: usize>(
+    a: &[[f32; K]; R],
+    b: &[[f32; C]; K],
+    out: &mut [[f32; C]; R],
+) {
+    for r in 0..R {
+        for c in 0..C {
+            let mut sum = 0.0f32;
+            for k in 0..K {
+                sum += a[r][k] * b[k][c];
+            }
+            out[r][c] = sum;
+        }
+    }
+}
+
+/// Computes `out = a * b^T` where `a` is R×K and `b` is C×K (so `b^T` is K×C).
+#[inline]
+fn mat_mul_bt<const R: usize, const K: usize, const C: usize>(
+    a: &[[f32; K]; R],
+    b: &[[f32; K]; C],
+    out: &mut [[f32; C]; R],
+) {
+    for r in 0..R {
+        for c in 0..C {
+            let mut sum = 0.0f32;
+            for k in 0..K {
+                sum += a[r][k] * b[c][k];
+            }
+            out[r][c] = sum;
+        }
+    }
+}
+
+#[inline]
+fn mat_add_inplace_nn<const N: usize>(a: &mut [[f32; N]; N], b: &[[f32; N]; N]) {
+    for r in 0..N {
+        for c in 0..N {
+            a[r][c] += b[r][c];
+        }
+    }
+}
+
+#[inline]
+fn mat_add_inplace_mm<const M: usize>(a: &mut [[f32; M]; M], b: &[[f32; M]; M]) {
+    for r in 0..M {
+        for c in 0..M {
+            a[r][c] += b[r][c];
+        }
+    }
+}
+
+#[inline]
+fn identity_n<const N: usize>() -> [[f32; N]; N] {
+    let mut i = [[0.0f32; N]; N];
+    for n in 0..N {
+        i[n][n] = 1.0;
+    }
+    i
+}
+
+/// Invert an `M×M` matrix using [`mat_inverse_f32`]. Requires `M ≤ 16`.
+fn invert_mxm<const M: usize>(s: &[[f32; M]; M], s_inv: &mut [[f32; M]; M]) -> Status {
+    if M == 0 {
+        return Status::SizeMismatch;
+    }
+    if M > 16 {
+        return Status::ArgumentError;
+    }
+
+    let mut flat_src = [0.0f32; 16 * 16];
+    let mut flat_dst = [0.0f32; 16 * 16];
+    for r in 0..M {
+        for c in 0..M {
+            flat_src[r * M + c] = s[r][c];
+        }
+    }
+
+    let src = MatrixInstance::new(M as u16, M as u16, &flat_src[..M * M]);
+    let mut dst = MatrixInstanceMut::new(M as u16, M as u16, &mut flat_dst[..M * M]);
+    let status = mat_inverse_f32(&src, &mut dst);
+    if status != Status::Success {
+        return status;
+    }
+
+    for r in 0..M {
+        for c in 0..M {
+            s_inv[r][c] = flat_dst[r * M + c];
+        }
+    }
+    Status::Success
+}
+
+/// Predict: `x ← F x`, `P ← F P Fᵀ + Q`.
+fn kf_predict_core<const N: usize>(
+    x: &mut [f32; N],
+    p: &mut [[f32; N]; N],
+    q: &[[f32; N]; N],
+    f: &[[f32; N]; N],
+) {
+    let mut x_new = [0.0f32; N];
+    mat_vec_mul(f, x, &mut x_new);
+    *x = x_new;
+
+    let mut fp = [[0.0f32; N]; N];
+    mat_mul(f, p, &mut fp);
+    let mut p_new = [[0.0f32; N]; N];
+    mat_mul_bt(&fp, f, &mut p_new);
+    mat_add_inplace_nn(&mut p_new, q);
+    *p = p_new;
+}
+
+/// Predict with control: `x ← F x + B u`, then same `P` update.
+fn kf_predict_control_core<const N: usize, const U: usize>(
+    x: &mut [f32; N],
+    p: &mut [[f32; N]; N],
+    q: &[[f32; N]; N],
+    f: &[[f32; N]; N],
+    b: &[[f32; U]; N],
+    u: &[f32; U],
+) {
+    let mut x_new = [0.0f32; N];
+    mat_vec_mul(f, x, &mut x_new);
+    let mut bu = [0.0f32; N];
+    mat_vec_mul(b, u, &mut bu);
+    for i in 0..N {
+        x_new[i] += bu[i];
+    }
+    *x = x_new;
+
+    let mut fp = [[0.0f32; N]; N];
+    mat_mul(f, p, &mut fp);
+    let mut p_new = [[0.0f32; N]; N];
+    mat_mul_bt(&fp, f, &mut p_new);
+    mat_add_inplace_nn(&mut p_new, q);
+    *p = p_new;
+}
+
+/// Measurement update with linear `H`. Leaves state unchanged on singular `S`.
+fn kf_update_core<const N: usize, const M: usize>(
+    x: &mut [f32; N],
+    p: &mut [[f32; N]; N],
+    r: &[[f32; M]; M],
+    h: &[[f32; N]; M],
+    z: &[f32; M],
+) -> Status {
+    if M > 16 {
+        return Status::ArgumentError;
+    }
+    if M == 0 {
+        return Status::SizeMismatch;
+    }
+
+    // y = z - H x
+    let mut hx = [0.0f32; M];
+    mat_vec_mul(h, x, &mut hx);
+    let mut y = [0.0f32; M];
+    for i in 0..M {
+        y[i] = z[i] - hx[i];
+    }
+
+    // S = H P Hᵀ + R
+    let mut hp = [[0.0f32; N]; M];
+    mat_mul(h, p, &mut hp);
+    let mut s = [[0.0f32; M]; M];
+    mat_mul_bt(&hp, h, &mut s);
+    mat_add_inplace_mm(&mut s, r);
+
+    let mut s_inv = [[0.0f32; M]; M];
+    let inv_status = invert_mxm(&s, &mut s_inv);
+    if inv_status != Status::Success {
+        return inv_status;
+    }
+
+    // P Hᵀ (N×M): rows of P times columns of Hᵀ (= rows of H)
+    let mut pht = [[0.0f32; M]; N];
+    for i in 0..N {
+        for j in 0..M {
+            let mut sum = 0.0f32;
+            for k in 0..N {
+                sum += p[i][k] * h[j][k];
+            }
+            pht[i][j] = sum;
+        }
+    }
+
+    // K = (P Hᵀ) S⁻¹  (N×M)
+    let mut k = [[0.0f32; M]; N];
+    mat_mul(&pht, &s_inv, &mut k);
+
+    // x ← x + K y
+    let mut ky = [0.0f32; N];
+    mat_vec_mul(&k, &y, &mut ky);
+    let mut x_new = *x;
+    for i in 0..N {
+        x_new[i] += ky[i];
+    }
+
+    // P ← (I - K H) P
+    let mut kh = [[0.0f32; N]; N];
+    mat_mul(&k, h, &mut kh);
+    let mut i_kh = identity_n::<N>();
+    for r in 0..N {
+        for c in 0..N {
+            i_kh[r][c] -= kh[r][c];
+        }
+    }
+    let mut p_new = [[0.0f32; N]; N];
+    mat_mul(&i_kh, p, &mut p_new);
+
+    *x = x_new;
+    *p = p_new;
+    Status::Success
+}
+
+/// Const-generic linear Kalman filter: `x' = F x (+ B u) + w`, `z = H x + v`.
+///
+/// Measurement dimension `M` must be ≤ 16 so the innovation covariance can be inverted
+/// with the crate's stack-limited matrix inverse.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct KalmanFilter<const N: usize, const M: usize> {
+    /// State estimate
+    pub x: [f32; N],
+    /// State covariance `P` (`N×N`)
+    pub p: [[f32; N]; N],
+    /// Process noise covariance `Q` (`N×N`)
+    pub q: [[f32; N]; N],
+    /// Measurement noise covariance `R` (`M×M`)
+    pub r: [[f32; M]; M],
+}
+
+impl<const N: usize, const M: usize> KalmanFilter<N, M> {
+    /// Create a filter with initial state `x0`, covariance `p0`, and noise covariances `q` / `r`.
+    pub fn new(x0: [f32; N], p0: [[f32; N]; N], q: [[f32; N]; N], r: [[f32; M]; M]) -> Self {
+        Self {
+            x: x0,
+            p: p0,
+            q,
+            r,
+        }
+    }
+
+    /// Create a filter with diagonal `P`, `Q`, and `R` initialized from scalar variances.
+    pub fn from_variances(x0: [f32; N], p_var: f32, q_var: f32, r_var: f32) -> Self {
+        let mut p = [[0.0f32; N]; N];
+        let mut q = [[0.0f32; N]; N];
+        let mut r = [[0.0f32; M]; M];
+        for i in 0..N {
+            p[i][i] = p_var;
+            q[i][i] = q_var;
+        }
+        for i in 0..M {
+            r[i][i] = r_var;
+        }
+        Self::new(x0, p, q, r)
+    }
+
+    /// Prediction without control input: `x ← F x`, `P ← F P Fᵀ + Q`.
+    pub fn predict(&mut self, f: &[[f32; N]; N]) {
+        kf_predict_core(&mut self.x, &mut self.p, &self.q, f);
+    }
+
+    /// Prediction with control: `x ← F x + B u`, `P ← F P Fᵀ + Q`.
+    pub fn predict_with_control<const U: usize>(
+        &mut self,
+        f: &[[f32; N]; N],
+        b: &[[f32; U]; N],
+        u: &[f32; U],
+    ) {
+        kf_predict_control_core(&mut self.x, &mut self.p, &self.q, f, b, u);
+    }
+
+    /// Measurement update with observation matrix `H` (`M×N`) and measurement `z`.
+    ///
+    /// On success returns [`Status::Success`] and updates `x` / `P`. If `S` is singular or
+    /// `M > 16`, returns an error status and leaves the filter state unchanged.
+    pub fn update(&mut self, h: &[[f32; N]; M], z: &[f32; M]) -> Status {
+        kf_update_core(&mut self.x, &mut self.p, &self.r, h, z)
+    }
+}
+
+/// User-supplied nonlinear process and measurement model for an EKF (static dispatch).
+pub trait EkfModel<const N: usize, const M: usize> {
+    /// Process model: `out = f(x, dt)`.
+    fn f(&self, x: &[f32; N], dt: f32, out: &mut [f32; N]);
+
+    /// Measurement model: `out = h(x)`.
+    fn h(&self, x: &[f32; N], out: &mut [f32; M]);
+
+    /// Process Jacobian `F = ∂f/∂x` evaluated at `x`.
+    fn jacobian_f(&self, x: &[f32; N], dt: f32, out: &mut [[f32; N]; N]);
+
+    /// Measurement Jacobian `H = ∂h/∂x` evaluated at `x` (`M×N`).
+    fn jacobian_h(&self, x: &[f32; N], out: &mut [[f32; N]; M]);
+}
+
+/// Extended Kalman filter with compile-time dimensions and a user [`EkfModel`].
+///
+/// Measurement dimension `M` must be ≤ 16. Covariance update uses `P ← (I − KH) P`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExtendedKalmanFilter<const N: usize, const M: usize, Model> {
+    /// State estimate
+    pub x: [f32; N],
+    /// State covariance `P` (`N×N`)
+    pub p: [[f32; N]; N],
+    /// Process noise covariance `Q` (`N×N`)
+    pub q: [[f32; N]; N],
+    /// Measurement noise covariance `R` (`M×M`)
+    pub r: [[f32; M]; M],
+    /// Nonlinear process / measurement model
+    pub model: Model,
+}
+
+impl<const N: usize, const M: usize, Model: EkfModel<N, M>> ExtendedKalmanFilter<N, M, Model> {
+    /// Create an EKF with initial state, covariances, and model.
+    pub fn new(
+        x0: [f32; N],
+        p0: [[f32; N]; N],
+        q: [[f32; N]; N],
+        r: [[f32; M]; M],
+        model: Model,
+    ) -> Self {
+        Self {
+            x: x0,
+            p: p0,
+            q,
+            r,
+            model,
+        }
+    }
+
+    /// Create an EKF with diagonal covariances from scalar variances.
+    pub fn from_variances(x0: [f32; N], p_var: f32, q_var: f32, r_var: f32, model: Model) -> Self {
+        let mut p = [[0.0f32; N]; N];
+        let mut q = [[0.0f32; N]; N];
+        let mut r = [[0.0f32; M]; M];
+        for i in 0..N {
+            p[i][i] = p_var;
+            q[i][i] = q_var;
+        }
+        for i in 0..M {
+            r[i][i] = r_var;
+        }
+        Self::new(x0, p, q, r, model)
+    }
+
+    /// EKF predict: `x ← f(x, dt)`, `P ← F P Fᵀ + Q` with `F = ∂f/∂x`.
+    pub fn predict(&mut self, dt: f32) {
+        let mut f_jac = [[0.0f32; N]; N];
+        self.model.jacobian_f(&self.x, dt, &mut f_jac);
+
+        let mut x_new = [0.0f32; N];
+        self.model.f(&self.x, dt, &mut x_new);
+        self.x = x_new;
+
+        let mut fp = [[0.0f32; N]; N];
+        mat_mul(&f_jac, &self.p, &mut fp);
+        let mut p_new = [[0.0f32; N]; N];
+        mat_mul_bt(&fp, &f_jac, &mut p_new);
+        mat_add_inplace_nn(&mut p_new, &self.q);
+        self.p = p_new;
+    }
+
+    /// EKF update with measurement `z`. Linearizes `h` at the current estimate.
+    ///
+    /// On singular innovation covariance or `M > 16`, returns an error and leaves state unchanged.
+    pub fn update(&mut self, z: &[f32; M]) -> Status {
+        if M > 16 {
+            return Status::ArgumentError;
+        }
+        if M == 0 {
+            return Status::SizeMismatch;
+        }
+
+        let mut h_jac = [[0.0f32; N]; M];
+        self.model.jacobian_h(&self.x, &mut h_jac);
+
+        let mut hx = [0.0f32; M];
+        self.model.h(&self.x, &mut hx);
+
+        // Reuse linear update with innovation z' = z - h(x) + H x so that
+        // y = z' - H x = z - h(x).
+        let mut z_equiv = [0.0f32; M];
+        let mut hx_lin = [0.0f32; M];
+        mat_vec_mul(&h_jac, &self.x, &mut hx_lin);
+        for i in 0..M {
+            z_equiv[i] = z[i] - hx[i] + hx_lin[i];
+        }
+
+        kf_update_core(&mut self.x, &mut self.p, &self.r, &h_jac, &z_equiv)
     }
 }

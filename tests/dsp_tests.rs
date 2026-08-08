@@ -529,6 +529,100 @@ fn test_kalman_1d_and_2d() {
     assert!(state[0] > 0.0);
 }
 
+#[test]
+fn test_kalman_generic_1x1_smoother() {
+    let mut kf = KalmanFilter::<1, 1>::from_variances([0.0], 1.0, 0.01, 0.1);
+    let f = [[1.0f32]];
+    let h = [[1.0f32]];
+    kf.predict(&f);
+    assert_eq!(kf.update(&h, &[10.0]), Status::Success);
+    assert!(kf.x[0] > 0.0);
+    assert!(kf.x[0] < 10.0);
+}
+
+#[test]
+fn test_kalman_generic_2x1_constant_velocity() {
+    let mut kf = KalmanFilter::<2, 1>::from_variances([0.0, 0.0], 1.0, 0.01, 0.1);
+    let dt = 0.1f32;
+    let f = [[1.0, dt], [0.0, 1.0]];
+    let h = [[1.0, 0.0]];
+
+    // True trajectory: position = t, velocity = 1
+    for step in 1..=20 {
+        kf.predict(&f);
+        let z = [step as f32 * dt];
+        assert_eq!(kf.update(&h, &z), Status::Success);
+    }
+    assert!((kf.x[0] - 2.0).abs() < 0.5);
+    assert!((kf.x[1] - 1.0).abs() < 0.5);
+}
+
+/// Range-only measurement model: state = [x, y], z = sqrt(x² + y²).
+#[derive(Debug, Clone, Copy)]
+struct RangeOnlyModel;
+
+impl EkfModel<2, 1> for RangeOnlyModel {
+    fn f(&self, x: &[f32; 2], _dt: f32, out: &mut [f32; 2]) {
+        *out = *x;
+    }
+
+    fn h(&self, x: &[f32; 2], out: &mut [f32; 1]) {
+        out[0] = (x[0] * x[0] + x[1] * x[1]).sqrt();
+    }
+
+    fn jacobian_f(&self, _x: &[f32; 2], _dt: f32, out: &mut [[f32; 2]; 2]) {
+        *out = [[1.0, 0.0], [0.0, 1.0]];
+    }
+
+    fn jacobian_h(&self, x: &[f32; 2], out: &mut [[f32; 2]; 1]) {
+        let r = (x[0] * x[0] + x[1] * x[1]).sqrt().max(1e-6);
+        out[0] = [x[0] / r, x[1] / r];
+    }
+}
+
+#[test]
+fn test_ekf_range_measurement() {
+    let truth = [3.0f32, 4.0]; // range = 5
+    let mut ekf = ExtendedKalmanFilter::<2, 1, _>::from_variances(
+        [1.0, 1.0],
+        1.0,
+        0.001,
+        0.05,
+        RangeOnlyModel,
+    );
+
+    let initial_err = {
+        let dx = ekf.x[0] - truth[0];
+        let dy = ekf.x[1] - truth[1];
+        (dx * dx + dy * dy).sqrt()
+    };
+
+    for _ in 0..40 {
+        ekf.predict(0.0);
+        let z = [(truth[0] * truth[0] + truth[1] * truth[1]).sqrt()];
+        assert_eq!(ekf.update(&z), Status::Success);
+    }
+
+    let final_err = {
+        let dx = ekf.x[0] - truth[0];
+        let dy = ekf.x[1] - truth[1];
+        (dx * dx + dy * dy).sqrt()
+    };
+    assert!(final_err < initial_err);
+    assert!(((ekf.x[0] * ekf.x[0] + ekf.x[1] * ekf.x[1]).sqrt() - 5.0).abs() < 0.5);
+}
+
+#[test]
+fn test_kalman_update_singular_leaves_state() {
+    let mut kf = KalmanFilter::<1, 1>::new([1.0], [[0.0]], [[0.0]], [[0.0]]);
+    let x_before = kf.x;
+    let p_before = kf.p;
+    let status = kf.update(&[[1.0]], &[2.0]);
+    assert_eq!(status, Status::Singular);
+    assert_eq!(kf.x, x_before);
+    assert_eq!(kf.p, p_before);
+}
+
 // =========================================================================================
 // 19. CONST GENERICS TESTS
 // =========================================================================================
