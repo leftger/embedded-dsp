@@ -362,12 +362,7 @@ pub struct KalmanFilter<const N: usize, const M: usize> {
 impl<const N: usize, const M: usize> KalmanFilter<N, M> {
     /// Create a filter with initial state `x0`, covariance `p0`, and noise covariances `q` / `r`.
     pub fn new(x0: [f32; N], p0: [[f32; N]; N], q: [[f32; N]; N], r: [[f32; M]; M]) -> Self {
-        Self {
-            x: x0,
-            p: p0,
-            q,
-            r,
-        }
+        Self { x: x0, p: p0, q, r }
     }
 
     /// Create a filter with diagonal `P`, `Q`, and `R` initialized from scalar variances.
