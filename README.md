@@ -22,7 +22,7 @@ A **`#![no_std]` Rust Digital Signal Processing library** designed for microcont
   5. **Filter Design**: Biquad Low-Pass, High-Pass, Band-Pass, Notch, Peaking EQ, All-Pass, and multi-stage Butterworth design.
   6. **Audio & TinyML**: Goertzel single-frequency detector, Envelope follower (peak & RMS), Mel filterbank, and MFCC feature extraction.
   7. **Resampling & Multi-rate**: Cascaded Integrator-Comb (CIC) Decimator & Interpolator, linear fractional resampler.
-  8. **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, and trait-based Extended Kalman Filter (`EkfModel`).
+  8. **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, and trait-based Extended Kalman Filter (`EkfModel`), with `_with_input` variants for models driven by an exogenous input outside the state.
   9. **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `BiquadCascade<COEFFS, STATE>`, and `Matrix<R, C, N>`.
   10. **Transforms**: In-place Complex FFT (`cfft`), Real FFT (`rfft`), Discrete Cosine Transform (`dct4`), Fixed-Point FFT (`cfft_q15`/`cfft_q31`).
   11. **Matrix Operations**: Matrix addition, subtraction, multiplication, scaling, transpose, Gauss-Jordan inversion.

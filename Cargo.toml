@@ -1,6 +1,6 @@
 [package]
 name = "embedded-dsp"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 authors = ["Gerzain Mata <leftger@gmail.com>"]
 description = "A no_std Rust digital signal processing library for microcontrollers, embedded systems, and real-time signals."

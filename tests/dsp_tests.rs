@@ -612,6 +612,119 @@ fn test_ekf_range_measurement() {
     assert!(((ekf.x[0] * ekf.x[0] + ekf.x[1] * ekf.x[1]).sqrt() - 5.0).abs() < 0.5);
 }
 
+/// Constant-acceleration model driven by a commanded acceleration `u = [accel]` that isn't
+/// part of the state, and measured through a position sensor with a known offset `u = [bias]`
+/// that also isn't part of the state. Exercises `EkfModel::f_with_input`/`h_with_input` and
+/// `ExtendedKalmanFilter::predict_with_input`/`update_with_input`.
+#[derive(Debug, Clone, Copy)]
+struct ControlledPositionModel;
+
+impl EkfModel<2, 1> for ControlledPositionModel {
+    fn f(&self, x: &[f32; 2], dt: f32, out: &mut [f32; 2]) {
+        out[0] = x[0] + dt * x[1];
+        out[1] = x[1];
+    }
+
+    fn h(&self, x: &[f32; 2], out: &mut [f32; 1]) {
+        out[0] = x[0];
+    }
+
+    fn jacobian_f(&self, _x: &[f32; 2], dt: f32, out: &mut [[f32; 2]; 2]) {
+        *out = [[1.0, dt], [0.0, 1.0]];
+    }
+
+    fn jacobian_h(&self, _x: &[f32; 2], out: &mut [[f32; 2]; 1]) {
+        *out = [[1.0, 0.0]];
+    }
+
+    fn f_with_input<const U: usize>(
+        &self,
+        x: &[f32; 2],
+        u: &[f32; U],
+        dt: f32,
+        out: &mut [f32; 2],
+    ) {
+        let accel = u[0];
+        out[0] = x[0] + dt * x[1] + 0.5 * dt * dt * accel;
+        out[1] = x[1] + dt * accel;
+    }
+
+    // Jacobian w.r.t. x is unchanged by u: accel enters f affinely, so the default
+    // `jacobian_f_with_input` (which defers to `jacobian_f`) is already exact here. Implemented
+    // explicitly anyway so the test exercises the override path, not just the default.
+    fn jacobian_f_with_input<const U: usize>(
+        &self,
+        x: &[f32; 2],
+        _u: &[f32; U],
+        dt: f32,
+        out: &mut [[f32; 2]; 2],
+    ) {
+        self.jacobian_f(x, dt, out)
+    }
+
+    fn h_with_input<const U: usize>(&self, x: &[f32; 2], u: &[f32; U], out: &mut [f32; 1]) {
+        out[0] = x[0] + u[0];
+    }
+
+    fn jacobian_h_with_input<const U: usize>(
+        &self,
+        x: &[f32; 2],
+        _u: &[f32; U],
+        out: &mut [[f32; 2]; 1],
+    ) {
+        self.jacobian_h(x, out)
+    }
+}
+
+#[test]
+fn test_ekf_predict_with_input_matches_manual_integration() {
+    let mut ekf = ExtendedKalmanFilter::<2, 1, _>::from_variances(
+        [0.0, 0.0],
+        1.0,
+        1e-4,
+        0.01,
+        ControlledPositionModel,
+    );
+
+    let accel = 2.0f32;
+    let dt = 0.5f32;
+    for _ in 0..10 {
+        ekf.predict_with_input(dt, &[accel]);
+    }
+
+    let t = 10.0 * dt;
+    let expected_velocity = accel * t;
+    let expected_position = 0.5 * accel * t * t;
+    assert!((ekf.x[1] - expected_velocity).abs() < 1e-3);
+    assert!((ekf.x[0] - expected_position).abs() < 1e-2);
+}
+
+#[test]
+fn test_ekf_update_with_input_compensates_known_bias() {
+    let mut ekf = ExtendedKalmanFilter::<2, 1, _>::from_variances(
+        [0.0, 0.0],
+        4.0,
+        0.0,
+        0.01,
+        ControlledPositionModel,
+    );
+
+    let true_position = 10.0f32;
+    let sensor_bias = 3.0f32;
+    // The raw sensor reading is offset by `sensor_bias`; feeding it through plain `update`
+    // (which ignores the bias) would converge to the biased reading instead of the truth.
+    let biased_reading = true_position + sensor_bias;
+
+    for _ in 0..20 {
+        assert_eq!(
+            ekf.update_with_input(&[biased_reading], &[sensor_bias]),
+            Status::Success
+        );
+    }
+
+    assert!((ekf.x[0] - true_position).abs() < 0.5);
+}
+
 #[test]
 fn test_kalman_update_singular_leaves_state() {
     let mut kf = KalmanFilter::<1, 1>::new([1.0], [[0.0]], [[0.0]], [[0.0]]);

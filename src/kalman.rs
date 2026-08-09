@@ -4,6 +4,14 @@
 //! [`ExtendedKalmanFilter`] driven by a user [`EkfModel`]. Measurement dimension `M` must be
 //! ≤ 16 (same limit as [`crate::matrix::mat_inverse_f32`]). Covariance updates use
 //! `P ← (I − KH) P`; a Joseph-form update may be added later for improved numerical stability.
+//!
+//! `EkfModel::f`/`h` only see the state (plus `dt` for `f`), which doesn't fit models whose
+//! process or measurement equations depend on an exogenous input that isn't part of the state
+//! (a commanded actuation, a measured current used for an IR-drop correction, etc). For that,
+//! implement the `_with_input` trait methods and drive the filter with
+//! [`ExtendedKalmanFilter::predict_with_input`] / [`ExtendedKalmanFilter::update_with_input`].
+//! Their default implementations ignore `u` and defer to `f`/`h`/the Jacobians, so existing
+//! [`EkfModel`] implementations keep compiling unchanged.
 
 use crate::matrix::{mat_inverse_f32, MatrixInstance, MatrixInstanceMut};
 use crate::types::Status;
@@ -417,6 +425,61 @@ pub trait EkfModel<const N: usize, const M: usize> {
 
     /// Measurement Jacobian `H = ∂h/∂x` evaluated at `x` (`M×N`).
     fn jacobian_h(&self, x: &[f32; N], out: &mut [[f32; N]; M]);
+
+    /// Process model with an explicit exogenous input `u` (a control input,
+    /// measured disturbance, or anything else that drives `f` but isn't
+    /// part of the state): `out = f(x, u, dt)`.
+    ///
+    /// Default: ignores `u` and defers to [`EkfModel::f`], so models that
+    /// don't need an input compile unchanged.
+    fn f_with_input<const U: usize>(
+        &self,
+        x: &[f32; N],
+        u: &[f32; U],
+        dt: f32,
+        out: &mut [f32; N],
+    ) {
+        let _ = u;
+        self.f(x, dt, out)
+    }
+
+    /// Process Jacobian for [`EkfModel::f_with_input`], `F = ∂f/∂x` evaluated at `(x, u)`.
+    ///
+    /// Default: defers to [`EkfModel::jacobian_f`], which is exact whenever `u` enters `f`
+    /// affinely (so it doesn't change the derivative with respect to `x`).
+    fn jacobian_f_with_input<const U: usize>(
+        &self,
+        x: &[f32; N],
+        u: &[f32; U],
+        dt: f32,
+        out: &mut [[f32; N]; N],
+    ) {
+        let _ = u;
+        self.jacobian_f(x, dt, out)
+    }
+
+    /// Measurement model with an explicit exogenous input `u` (e.g. a measured current used
+    /// for an IR-drop correction that isn't part of the state): `out = h(x, u)`.
+    ///
+    /// Default: ignores `u` and defers to [`EkfModel::h`].
+    fn h_with_input<const U: usize>(&self, x: &[f32; N], u: &[f32; U], out: &mut [f32; M]) {
+        let _ = u;
+        self.h(x, out)
+    }
+
+    /// Measurement Jacobian for [`EkfModel::h_with_input`], `H = ∂h/∂x` evaluated at `(x, u)`.
+    ///
+    /// Default: defers to [`EkfModel::jacobian_h`], which is exact whenever `u` enters `h`
+    /// affinely.
+    fn jacobian_h_with_input<const U: usize>(
+        &self,
+        x: &[f32; N],
+        u: &[f32; U],
+        out: &mut [[f32; N]; M],
+    ) {
+        let _ = u;
+        self.jacobian_h(x, out)
+    }
 }
 
 /// Extended Kalman filter with compile-time dimensions and a user [`EkfModel`].
@@ -476,42 +539,99 @@ impl<const N: usize, const M: usize, Model: EkfModel<N, M>> ExtendedKalmanFilter
 
         let mut x_new = [0.0f32; N];
         self.model.f(&self.x, dt, &mut x_new);
-        self.x = x_new;
 
-        let mut fp = [[0.0f32; N]; N];
-        mat_mul(&f_jac, &self.p, &mut fp);
-        let mut p_new = [[0.0f32; N]; N];
-        mat_mul_bt(&fp, &f_jac, &mut p_new);
-        mat_add_inplace_nn(&mut p_new, &self.q);
-        self.p = p_new;
+        ekf_predict_apply(&mut self.x, &mut self.p, &self.q, &f_jac, x_new);
+    }
+
+    /// EKF predict with an exogenous input `u`, via [`EkfModel::f_with_input`] /
+    /// [`EkfModel::jacobian_f_with_input`]. See the [module docs](self) for when this is
+    /// needed instead of [`ExtendedKalmanFilter::predict`].
+    pub fn predict_with_input<const U: usize>(&mut self, dt: f32, u: &[f32; U]) {
+        let mut f_jac = [[0.0f32; N]; N];
+        self.model.jacobian_f_with_input(&self.x, u, dt, &mut f_jac);
+
+        let mut x_new = [0.0f32; N];
+        self.model.f_with_input(&self.x, u, dt, &mut x_new);
+
+        ekf_predict_apply(&mut self.x, &mut self.p, &self.q, &f_jac, x_new);
     }
 
     /// EKF update with measurement `z`. Linearizes `h` at the current estimate.
     ///
     /// On singular innovation covariance or `M > 16`, returns an error and leaves state unchanged.
     pub fn update(&mut self, z: &[f32; M]) -> Status {
-        if M > 16 {
-            return Status::ArgumentError;
-        }
-        if M == 0 {
-            return Status::SizeMismatch;
-        }
-
         let mut h_jac = [[0.0f32; N]; M];
         self.model.jacobian_h(&self.x, &mut h_jac);
 
         let mut hx = [0.0f32; M];
         self.model.h(&self.x, &mut hx);
 
-        // Reuse linear update with innovation z' = z - h(x) + H x so that
-        // y = z' - H x = z - h(x).
-        let mut z_equiv = [0.0f32; M];
-        let mut hx_lin = [0.0f32; M];
-        mat_vec_mul(&h_jac, &self.x, &mut hx_lin);
-        for i in 0..M {
-            z_equiv[i] = z[i] - hx[i] + hx_lin[i];
-        }
-
-        kf_update_core(&mut self.x, &mut self.p, &self.r, &h_jac, &z_equiv)
+        ekf_update_apply(&mut self.x, &mut self.p, &self.r, &h_jac, &hx, z)
     }
+
+    /// EKF update with an exogenous input `u`, via [`EkfModel::h_with_input`] /
+    /// [`EkfModel::jacobian_h_with_input`]. See the [module docs](self) for when this is
+    /// needed instead of [`ExtendedKalmanFilter::update`].
+    ///
+    /// On singular innovation covariance or `M > 16`, returns an error and leaves state unchanged.
+    pub fn update_with_input<const U: usize>(&mut self, z: &[f32; M], u: &[f32; U]) -> Status {
+        let mut h_jac = [[0.0f32; N]; M];
+        self.model.jacobian_h_with_input(&self.x, u, &mut h_jac);
+
+        let mut hx = [0.0f32; M];
+        self.model.h_with_input(&self.x, u, &mut hx);
+
+        ekf_update_apply(&mut self.x, &mut self.p, &self.r, &h_jac, &hx, z)
+    }
+}
+
+/// Shared EKF predict math: `x ← x_new`, `P ← F P Fᵀ + Q`. Factored out so
+/// [`ExtendedKalmanFilter::predict`] and [`ExtendedKalmanFilter::predict_with_input`] (which
+/// differ only in how `x_new`/`f_jac` are computed) don't duplicate the covariance propagation.
+fn ekf_predict_apply<const N: usize>(
+    x: &mut [f32; N],
+    p: &mut [[f32; N]; N],
+    q: &[[f32; N]; N],
+    f_jac: &[[f32; N]; N],
+    x_new: [f32; N],
+) {
+    *x = x_new;
+
+    let mut fp = [[0.0f32; N]; N];
+    mat_mul(f_jac, p, &mut fp);
+    let mut p_new = [[0.0f32; N]; N];
+    mat_mul_bt(&fp, f_jac, &mut p_new);
+    mat_add_inplace_nn(&mut p_new, q);
+    *p = p_new;
+}
+
+/// Shared EKF update math: linearizes around `hx = h(x)` and reuses the linear-filter update
+/// core. Factored out so [`ExtendedKalmanFilter::update`] and
+/// [`ExtendedKalmanFilter::update_with_input`] (which differ only in how `hx`/`h_jac` are
+/// computed) don't duplicate the linearization.
+fn ekf_update_apply<const N: usize, const M: usize>(
+    x: &mut [f32; N],
+    p: &mut [[f32; N]; N],
+    r: &[[f32; M]; M],
+    h_jac: &[[f32; N]; M],
+    hx: &[f32; M],
+    z: &[f32; M],
+) -> Status {
+    if M > 16 {
+        return Status::ArgumentError;
+    }
+    if M == 0 {
+        return Status::SizeMismatch;
+    }
+
+    // Reuse linear update with innovation z' = z - h(x) + H x so that
+    // y = z' - H x = z - h(x).
+    let mut z_equiv = [0.0f32; M];
+    let mut hx_lin = [0.0f32; M];
+    mat_vec_mul(h_jac, x, &mut hx_lin);
+    for i in 0..M {
+        z_equiv[i] = z[i] - hx[i] + hx_lin[i];
+    }
+
+    kf_update_core(x, p, r, h_jac, &z_equiv)
 }
