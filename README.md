@@ -44,10 +44,10 @@ Add `embedded-dsp` to your `Cargo.toml`:
 ```toml
 [dependencies]
 # For bare-metal #![no_std] environments with libm
-embedded-dsp = { version = "0.1", default-features = false, features = ["libm"] }
+embedded-dsp = { version = "0.2.1", default-features = false, features = ["libm"] }
 
 # For standard std environments
-embedded-dsp = "0.1"
+embedded-dsp = "0.2.1"
 ```
 
 ### Basic Example
