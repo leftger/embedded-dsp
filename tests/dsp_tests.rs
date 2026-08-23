@@ -1330,3 +1330,132 @@ fn test_hartley_transform_f32_is_self_inverse() {
         assert!((got - want).abs() < 1e-3, "got {data:?} want {original:?}");
     }
 }
+
+// =========================================================================================
+// 33. GENERALIZED WAVELET TRANSFORM TESTS
+// =========================================================================================
+
+#[test]
+fn test_wavelet_transform_daubechies4_round_trips_and_preserves_energy() {
+    let original = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let mut data = original;
+
+    assert_eq!(
+        wavelet_transform_f32(&mut data, &DAUBECHIES_4),
+        Status::Success
+    );
+
+    // Orthogonal transform: energy (sum of squares) is preserved.
+    let energy_in: f32 = original.iter().map(|v| v * v).sum();
+    let energy_out: f32 = data.iter().map(|v| v * v).sum();
+    assert!((energy_in - energy_out).abs() < 1e-3);
+
+    assert_eq!(
+        inverse_wavelet_transform_f32(&mut data, &DAUBECHIES_4),
+        Status::Success
+    );
+    for (got, want) in data.iter().zip(original.iter()) {
+        assert!((got - want).abs() < 1e-3, "got {data:?} want {original:?}");
+    }
+}
+
+#[test]
+fn test_wavelet_step_rejects_bad_arguments() {
+    let mut data = [1.0f32, 2.0, 3.0];
+    // Not a power of 2.
+    assert_eq!(
+        wavelet_step_f32(&mut data, 3, &DAUBECHIES_4),
+        Status::ArgumentError
+    );
+
+    let mut data8 = [0.0f32; 8];
+    // Odd-length filter is invalid.
+    assert_eq!(
+        wavelet_step_f32(&mut data8, 8, &[1.0, 2.0, 3.0]),
+        Status::ArgumentError
+    );
+}
+
+// =========================================================================================
+// 34. AUDIO COMPANDING TESTS
+// =========================================================================================
+
+#[test]
+fn test_mu_law_and_a_law_companding_round_trip_and_expand_small_signals() {
+    for &x in &[-0.9f32, -0.3, -0.05, 0.0, 0.05, 0.3, 0.9] {
+        let mu_compressed = mu_law_compress_f32(x);
+        assert!((-1.0..=1.0).contains(&mu_compressed));
+        let mu_round_trip = mu_law_expand_f32(mu_compressed);
+        assert!(
+            (mu_round_trip - x).abs() < 1e-4,
+            "mu-law round trip failed for x={x}: got {mu_round_trip}"
+        );
+
+        let a_compressed = a_law_compress_f32(x);
+        assert!((-1.0..=1.0).contains(&a_compressed));
+        let a_round_trip = a_law_expand_f32(a_compressed);
+        assert!(
+            (a_round_trip - x).abs() < 1e-4,
+            "A-law round trip failed for x={x}: got {a_round_trip}"
+        );
+    }
+
+    // Companding expands resolution for small signals: a small input should map to a
+    // proportionally larger compressed magnitude (the whole point of the nonlinearity).
+    let small = 0.01f32;
+    assert!(mu_law_compress_f32(small) > small);
+    assert!(a_law_compress_f32(small) > small);
+}
+
+// =========================================================================================
+// 35. CUSTOM FIR FILTER DESIGN (FREQUENCY SAMPLING) TESTS
+// =========================================================================================
+
+#[test]
+fn test_fir_custom_frequency_sampling_matches_impulse_case() {
+    // A flat, zero-phase desired response (magnitude 1 at every bin) corresponds to an
+    // impulse in the time domain; after centering and windowing, only the center tap should
+    // be nonzero (the Hamming window is exactly 1.0 at its own center).
+    let fft_len = 8;
+    let half_spec = fft_len / 2 + 1;
+    let desired_real = [1.0f32; 5];
+    let desired_imag = [0.0f32; 5];
+    assert_eq!(desired_real.len(), half_spec);
+
+    let mut taps = [0.0f32; 5];
+    let status = fir_custom_frequency_sampling(&desired_real, &desired_imag, fft_len, &mut taps);
+    assert_eq!(status, Status::Success);
+
+    let expected = [0.0f32, 0.0, 1.0, 0.0, 0.0];
+    for (got, want) in taps.iter().zip(expected.iter()) {
+        assert!((got - want).abs() < 1e-4, "got {taps:?} want {expected:?}");
+    }
+}
+
+#[test]
+fn test_fir_custom_frequency_sampling_approximates_lowpass() {
+    // Build a desired lowpass magnitude response (1 below cutoff, 0 above), zero phase.
+    let fft_len = 64;
+    let half_spec = fft_len / 2 + 1;
+    let cutoff_bin = half_spec / 4;
+    let mut desired_real = [0.0f32; 33];
+    let desired_imag = [0.0f32; 33];
+    for (k, v) in desired_real.iter_mut().enumerate().take(half_spec) {
+        *v = if k <= cutoff_bin { 1.0 } else { 0.0 };
+    }
+
+    let mut taps = [0.0f32; 31];
+    let status = fir_custom_frequency_sampling(
+        &desired_real[..half_spec],
+        &desired_imag[..half_spec],
+        fft_len,
+        &mut taps,
+    );
+    assert_eq!(status, Status::Success);
+
+    // Passband (DC) gain should be near 1, stopband (near Nyquist) should be attenuated.
+    let h_dc = fir_frequency_response(&taps, 0.0);
+    let h_stop = fir_frequency_response(&taps, 0.45);
+    assert!((response_magnitude(h_dc) - 1.0).abs() < 0.1);
+    assert!(response_magnitude(h_stop) < 0.3);
+}

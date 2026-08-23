@@ -393,3 +393,133 @@ pub fn hartley_transform_f32(data: &mut [f32]) -> Status {
 
     Status::Success
 }
+
+// --- Generalized Wavelet Transform (Jörg Arndt, "Matters Computational", Ch. 27) ---
+
+/// The Daubechies-4 orthogonal wavelet low-pass filter taps (Ch. 27.1), verified to satisfy
+/// the wavelet conditions `sum(h_j^2) = 1` and `sum(h_j * h_{j+2}) = 0`. Using
+/// `[sqrt(0.5), sqrt(0.5)]` instead recovers the Haar wavelet as a special case.
+pub const DAUBECHIES_4: [f32; 4] = [0.482_962_9, 0.836_516_3, 0.224_143_87, -0.129_409_52];
+
+/// The high-pass filter tap derived from low-pass filter `h` (Ch. 27.1, Eq. 27.1-2):
+/// `g[k] = (-1)^k * h[n - 1 - k]`.
+#[inline(always)]
+fn wavelet_high_pass_tap(h: &[f32], k: usize) -> f32 {
+    let v = h[h.len() - 1 - k];
+    if k % 2 == 0 { v } else { -v }
+}
+
+/// Performs one level of a fast wavelet transform step on the first `m` elements of `data`,
+/// using wavelet filter `h` (low-pass) and its derived high-pass filter. Writes the low-pass
+/// ("scaling") coefficients to `data[0..m/2]` and the high-pass ("wavelet") coefficients to
+/// `data[m/2..m]`; the underlying convolution wraps around cyclically at the block boundary.
+///
+/// `m` must be a power of 2; `h.len()` must be even and `<= m`.
+pub fn wavelet_step_f32(data: &mut [f32], m: usize, h: &[f32]) -> Status {
+    let taps = h.len();
+    if m < 2 || (m & (m - 1)) != 0 || taps == 0 || taps % 2 != 0 || taps > m || data.len() < m {
+        return Status::ArgumentError;
+    }
+    if m > 1024 {
+        return Status::LengthError;
+    }
+
+    let mut scratch = [0.0f32; 1024];
+    let nh = m >> 1;
+    let mut i = 0;
+    while i < m {
+        let mut s = 0.0f32;
+        let mut d = 0.0f32;
+        for k in 0..taps {
+            let idx = (i + k) % m;
+            let x = data[idx];
+            s += h[k] * x;
+            d += wavelet_high_pass_tap(h, k) * x;
+        }
+        let j = i / 2;
+        scratch[j] = s;
+        scratch[nh + j] = d;
+        i += 2;
+    }
+    data[..m].copy_from_slice(&scratch[..m]);
+
+    Status::Success
+}
+
+/// Performs the exact inverse of one [`wavelet_step_f32`] level.
+///
+/// `m` must be a power of 2; `h.len()` must be even and `<= m`.
+pub fn inverse_wavelet_step_f32(data: &mut [f32], m: usize, h: &[f32]) -> Status {
+    let taps = h.len();
+    if m < 2 || (m & (m - 1)) != 0 || taps == 0 || taps % 2 != 0 || taps > m || data.len() < m {
+        return Status::ArgumentError;
+    }
+    if m > 1024 {
+        return Status::LengthError;
+    }
+
+    let mut scratch = [0.0f32; 1024];
+    let nh = m >> 1;
+    for j in 0..nh {
+        let s = data[j];
+        let d = data[nh + j];
+        for k in 0..taps {
+            let idx = (2 * j + k) % m;
+            scratch[idx] += h[k] * s + wavelet_high_pass_tap(h, k) * d;
+        }
+    }
+    data[..m].copy_from_slice(&scratch[..m]);
+
+    Status::Success
+}
+
+/// Performs a full multi-level fast wavelet transform (Ch. 27): repeatedly applies
+/// [`wavelet_step_f32`] to the lower half of the array, halving the active block length each
+/// time, stopping once the block would be smaller than the filter itself (mirroring the Haar
+/// transform's pyramid structure).
+///
+/// `data.len()` must be a power of 2 and `>= h.len()`.
+pub fn wavelet_transform_f32(data: &mut [f32], h: &[f32]) -> Status {
+    let n = data.len();
+    if n < 2 || (n & (n - 1)) != 0 || h.len() > n {
+        return Status::ArgumentError;
+    }
+
+    let mut m = n;
+    while m >= h.len() {
+        let status = wavelet_step_f32(&mut data[..m], m, h);
+        if status != Status::Success {
+            return status;
+        }
+        m >>= 1;
+    }
+
+    Status::Success
+}
+
+/// Performs the exact inverse of [`wavelet_transform_f32`].
+///
+/// `data.len()` must be a power of 2 and `>= h.len()`.
+pub fn inverse_wavelet_transform_f32(data: &mut [f32], h: &[f32]) -> Status {
+    let n = data.len();
+    if n < 2 || (n & (n - 1)) != 0 || h.len() > n {
+        return Status::ArgumentError;
+    }
+
+    let mut smallest = n;
+    while smallest >= h.len() {
+        smallest >>= 1;
+    }
+    smallest <<= 1;
+
+    let mut m = smallest;
+    while m <= n {
+        let status = inverse_wavelet_step_f32(&mut data[..m], m, h);
+        if status != Status::Success {
+            return status;
+        }
+        m <<= 1;
+    }
+
+    Status::Success
+}

@@ -472,3 +472,63 @@ pub fn fir_windowed_sinc_bandstop(
 
     Status::Success
 }
+
+// --- Custom Filter Design via Frequency Sampling (Steven W. Smith, Ch. 17) ---
+
+/// Designs a custom FIR filter kernel matching an arbitrary desired frequency response, using
+/// the frequency-sampling method: build a Hermitian-symmetric spectrum from the desired
+/// positive-frequency samples, inverse FFT it into an aliased impulse response, circularly
+/// shift, truncate, and apply a Hamming window.
+///
+/// `desired_real` / `desired_imag`: the desired frequency response in rectangular form,
+/// sampled at `fft_len / 2 + 1` points evenly spaced from DC (`0`) to Nyquist (`0.5`). For a
+/// well-behaved real filter, `desired_imag[0]` and `desired_imag[fft_len / 2]` should be `0`
+/// (the DC and Nyquist bins have no conjugate partner to mirror against).
+/// `fft_len`: must be a power of 2, `>= out_taps.len()`, and `<= 512`; larger values better
+/// approximate the desired response at the cost of a longer intermediate FFT.
+/// `out_taps`: destination for the resulting FIR kernel; its length `M + 1` must be odd.
+pub fn fir_custom_frequency_sampling(
+    desired_real: &[f32],
+    desired_imag: &[f32],
+    fft_len: usize,
+    out_taps: &mut [f32],
+) -> Status {
+    let m = out_taps.len();
+    if m < 3 || m % 2 == 0 {
+        return Status::ArgumentError;
+    }
+    if fft_len < 2 || (fft_len & (fft_len - 1)) != 0 || fft_len > 512 || fft_len < m {
+        return Status::ArgumentError;
+    }
+    let half_spec = fft_len / 2 + 1;
+    if desired_real.len() < half_spec || desired_imag.len() < half_spec {
+        return Status::LengthError;
+    }
+
+    let mut c_data = [0.0f32; 1024];
+    for k in 0..half_spec {
+        c_data[2 * k] = desired_real[k];
+        c_data[2 * k + 1] = desired_imag[k];
+    }
+    // Hermitian symmetry: negative-frequency bins are the conjugate mirror of the positive
+    // ones, which guarantees a real (not complex) time-domain impulse response.
+    for k in half_spec..fft_len {
+        let mirror = fft_len - k;
+        c_data[2 * k] = desired_real[mirror];
+        c_data[2 * k + 1] = -desired_imag[mirror];
+    }
+
+    crate::transform::cfft_f32(&mut c_data[..2 * fft_len], fft_len, 1, 1);
+
+    // Circular shift right by M/2 so the (aliased, wrapped-around) impulse response is
+    // centered before truncation, then window it.
+    let half = m / 2;
+    let two_pi_over_m = 2.0 * core::f32::consts::PI / (m - 1) as f32;
+    for i in 0..m {
+        let src_idx = (i + fft_len - half) % fft_len;
+        let w = 0.54 - 0.46 * (two_pi_over_m * i as f32).cos();
+        out_taps[i] = c_data[2 * src_idx] * w;
+    }
+
+    Status::Success
+}
