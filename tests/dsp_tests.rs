@@ -1262,3 +1262,71 @@ fn test_recursive_moving_average_matches_naive_average() {
         );
     }
 }
+
+// =========================================================================================
+// 32. HAAR & HARTLEY TRANSFORM TESTS
+// =========================================================================================
+
+#[test]
+fn test_haar_transform_f32_matches_hand_computation_and_round_trips() {
+    // Hand-computed via Jörg Arndt, "Matters Computational", Ch. 24, `haar_inplace`.
+    let mut data = [1.0f32, 0.0, 0.0, 0.0];
+    let status = haar_transform_f32(&mut data);
+    assert_eq!(status, Status::Success);
+    let expected = [0.5f32, core::f32::consts::FRAC_1_SQRT_2, 0.5, 0.0];
+    for (got, want) in data.iter().zip(expected.iter()) {
+        assert!((got - want).abs() < 1e-4, "got {data:?} want {expected:?}");
+    }
+
+    // Energy (Parseval) is preserved: the transform is orthogonal.
+    let energy_out: f32 = data.iter().map(|v| v * v).sum();
+    assert!((energy_out - 1.0).abs() < 1e-4);
+
+    // Forward + inverse round-trips to the original signal.
+    let original = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let mut round_trip = original;
+    assert_eq!(haar_transform_f32(&mut round_trip), Status::Success);
+    assert_eq!(inverse_haar_transform_f32(&mut round_trip), Status::Success);
+    for (got, want) in round_trip.iter().zip(original.iter()) {
+        assert!(
+            (got - want).abs() < 1e-3,
+            "got {round_trip:?} want {original:?}"
+        );
+    }
+}
+
+#[test]
+fn test_haar_transform_i32_is_non_normalized_and_forward_only() {
+    let mut data = [1i32, 2, 3, 4];
+    let status = haar_transform_i32(&mut data);
+    assert_eq!(status, Status::Success);
+    // DC term after the non-normalized transform is the exact sum of the inputs.
+    assert_eq!(data[0], 10);
+    assert_eq!(data, [10, -1, -4, -1]);
+}
+
+#[test]
+fn test_hartley_transform_f32_is_self_inverse() {
+    // A unit impulse's Hartley transform is a constant 1/sqrt(n).
+    let mut impulse = [1.0f32, 0.0, 0.0, 0.0];
+    assert_eq!(hartley_transform_f32(&mut impulse), Status::Success);
+    for &v in impulse.iter() {
+        assert!((v - 0.5).abs() < 1e-4, "impulse response: {impulse:?}");
+    }
+
+    // H[H[a]] == a: applying the transform twice recovers the original signal.
+    let original = [1.0f32, 2.0, 3.0, 4.0];
+    let mut data = original;
+    assert_eq!(hartley_transform_f32(&mut data), Status::Success);
+    let expected_once = [5.0f32, -2.0, -1.0, 0.0];
+    for (got, want) in data.iter().zip(expected_once.iter()) {
+        assert!(
+            (got - want).abs() < 1e-3,
+            "got {data:?} want {expected_once:?}"
+        );
+    }
+    assert_eq!(hartley_transform_f32(&mut data), Status::Success);
+    for (got, want) in data.iter().zip(original.iter()) {
+        assert!((got - want).abs() < 1e-3, "got {data:?} want {original:?}");
+    }
+}

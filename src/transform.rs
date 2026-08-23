@@ -258,3 +258,138 @@ pub fn fwht_i32(data: &mut [i32]) -> Status {
 
     Status::Success
 }
+
+// --- Haar Transform (Jörg Arndt, "Matters Computational", Ch. 24) ---
+
+/// In-place, orthogonal Haar Transform for `f32`: an `O(n)` multiresolution transform using
+/// only additions, subtractions, and a `sqrt(0.5)` scale factor per stage, with no
+/// trigonometric factors at all (unlike the Fourier/Hartley transforms).
+///
+/// `data.len()` must be a power of 2 (e.g. 2, 4, 8, ..., 1024).
+pub fn haar_transform_f32(data: &mut [f32]) -> Status {
+    let n = data.len();
+    if n < 2 || (n & (n - 1)) != 0 {
+        return Status::ArgumentError;
+    }
+
+    let s2 = (0.5f32).sqrt();
+    let mut v = 1.0f32;
+    let mut js = 2;
+    while js <= n {
+        v *= s2;
+        let half = js >> 1;
+        let mut j = 0;
+        while j < n {
+            let t = j + half;
+            let x = data[j];
+            let y = data[t];
+            data[j] = x + y;
+            data[t] = (x - y) * v;
+            j += js;
+        }
+        js <<= 1;
+    }
+    data[0] *= v; // v == 1 / sqrt(n)
+
+    Status::Success
+}
+
+/// In-place Inverse Haar Transform for `f32`, undoing [`haar_transform_f32`].
+pub fn inverse_haar_transform_f32(data: &mut [f32]) -> Status {
+    let n = data.len();
+    if n < 2 || (n & (n - 1)) != 0 {
+        return Status::ArgumentError;
+    }
+
+    let s2 = 2.0f32.sqrt();
+    let mut v = 1.0f32 / (n as f32).sqrt();
+    data[0] *= v;
+
+    let mut js = n;
+    while js >= 2 {
+        let half = js >> 1;
+        let mut j = 0;
+        while j < n {
+            let t = j + half;
+            let x = data[j];
+            let y = data[t] * v;
+            data[j] = x + y;
+            data[t] = x - y;
+            j += js;
+        }
+        v *= s2;
+        js >>= 1;
+    }
+
+    Status::Success
+}
+
+/// In-place, non-normalized Haar Transform for `i32`: a forward-only, integer-exact
+/// decomposition using only wrapping add/subtract (no scaling), analogous to
+/// [`fwht_i32`]. Because the transform is non-normalized, an exact-integer inverse does not
+/// exist in general (undoing it requires dividing by powers of 2 that may not evenly divide
+/// intermediate sums); use [`haar_transform_f32`] / [`inverse_haar_transform_f32`] when an
+/// invertible round trip is required.
+///
+/// `data.len()` must be a power of 2 (e.g. 2, 4, 8, ..., 1024).
+pub fn haar_transform_i32(data: &mut [i32]) -> Status {
+    let n = data.len();
+    if n < 2 || (n & (n - 1)) != 0 {
+        return Status::ArgumentError;
+    }
+
+    let mut js = 2;
+    while js <= n {
+        let half = js >> 1;
+        let mut j = 0;
+        while j < n {
+            let t = j + half;
+            let x = data[j];
+            let y = data[t];
+            data[j] = x.wrapping_add(y);
+            data[t] = x.wrapping_sub(y);
+            j += js;
+        }
+        js <<= 1;
+    }
+
+    Status::Success
+}
+
+// --- Hartley Transform (Jörg Arndt, "Matters Computational", Ch. 25) ---
+
+/// In-place Discrete Hartley Transform for `f32`.
+///
+/// Computed via the identity relating the Hartley and Fourier transforms (Ch. 25):
+/// `H[a] = (Re(F[a]) - Im(F[a])) / sqrt(n)`, built on top of [`cfft_f32`] rather than a
+/// dedicated real-only butterfly network, so it costs a full complex FFT internally
+/// (`n <= 512`) even though its inputs and outputs are purely real.
+///
+/// The Hartley transform is its own inverse (`H[H[a]] = a`): call this function a second time
+/// on its output to invert it, with no separate inverse routine needed.
+///
+/// `data.len()` must be a power of 2 (e.g. 2, 4, 8, ..., 512).
+pub fn hartley_transform_f32(data: &mut [f32]) -> Status {
+    let n = data.len();
+    if n < 2 || (n & (n - 1)) != 0 {
+        return Status::ArgumentError;
+    }
+    if 2 * n > 1024 {
+        return Status::LengthError;
+    }
+
+    let mut c_data = [0.0f32; 1024];
+    for i in 0..n {
+        c_data[2 * i] = data[i];
+        c_data[2 * i + 1] = 0.0;
+    }
+
+    cfft_f32(&mut c_data[..2 * n], n, 0, 1);
+
+    let inv_sqrt_n = 1.0 / (n as f32).sqrt();
+    for i in 0..n {
+        data[i] = (c_data[2 * i] - c_data[2 * i + 1]) * inv_sqrt_n;
+    }
+
+    Status::Success
+}
