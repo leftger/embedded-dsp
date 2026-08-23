@@ -44,7 +44,9 @@ impl FloatMath for f32 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions."
+            );
         }
     }
 
@@ -60,7 +62,9 @@ impl FloatMath for f32 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions."
+            );
         }
     }
 
@@ -76,7 +80,9 @@ impl FloatMath for f32 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions."
+            );
         }
     }
 
@@ -236,7 +242,9 @@ impl FloatMath for f64 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions."
+            );
         }
     }
 
@@ -252,7 +260,9 @@ impl FloatMath for f64 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions."
+            );
         }
     }
 
@@ -268,7 +278,9 @@ impl FloatMath for f64 {
         }
         #[cfg(all(not(feature = "std"), not(feature = "libm")))]
         {
-            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions.");
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions."
+            );
         }
     }
 

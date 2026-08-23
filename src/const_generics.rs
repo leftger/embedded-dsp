@@ -1,9 +1,9 @@
 //! Const generic safe wrappers for compile-time sized FIR filters, Biquads, and Matrices.
 
-use crate::filtering::{biquad_cascade_df1_f32, fir_f32, BiquadCascadeInstanceF32, FirInstanceF32};
+use crate::filtering::{BiquadCascadeInstanceF32, FirInstanceF32, biquad_cascade_df1_f32, fir_f32};
 use crate::matrix::{
-    mat_add_f32, mat_mult_f32, mat_scale_f32, mat_sub_f32, mat_trans_f32, MatrixInstance,
-    MatrixInstanceMut,
+    MatrixInstance, MatrixInstanceMut, mat_add_f32, mat_mult_f32, mat_scale_f32, mat_sub_f32,
+    mat_trans_f32,
 };
 
 /// Compile-time fixed-size FIR filter holding its own state buffer.

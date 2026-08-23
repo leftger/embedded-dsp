@@ -83,11 +83,7 @@ pub fn jaccard_distance_f32(a: &[f32], b: &[f32]) -> f32 {
             tf += 1.0;
         }
     }
-    if tt + tf > 0.0 {
-        tf / (tt + tf)
-    } else {
-        0.0
-    }
+    if tt + tf > 0.0 { tf / (tt + tf) } else { 0.0 }
 }
 
 /// Hamming distance between float vectors (count of mismatched elements).
@@ -125,9 +121,5 @@ pub fn bray_curtis_distance_f32(a: &[f32], b: &[f32]) -> f32 {
         num += (a[i] - b[i]).abs();
         denom += (a[i] + b[i]).abs();
     }
-    if denom != 0.0 {
-        num / denom
-    } else {
-        0.0
-    }
+    if denom != 0.0 { num / denom } else { 0.0 }
 }

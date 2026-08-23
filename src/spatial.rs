@@ -118,11 +118,7 @@ pub fn convolve2d_f32(
         for &v in kernel {
             sum += v.abs();
         }
-        if sum != 0.0 {
-            sum
-        } else {
-            1.0
-        }
+        if sum != 0.0 { sum } else { 1.0 }
     } else {
         1.0
     };

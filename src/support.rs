@@ -188,11 +188,7 @@ pub fn weighted_sum_f32(in_vals: &[f32], weights: &[f32]) -> f32 {
         sum += in_vals[i] * weights[i];
         w_sum += weights[i];
     }
-    if w_sum != 0.0 {
-        sum / w_sum
-    } else {
-        0.0
-    }
+    if w_sum != 0.0 { sum / w_sum } else { 0.0 }
 }
 
 // --- Pseudo-Random Number Generation & Noise ---

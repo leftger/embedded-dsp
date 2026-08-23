@@ -13,7 +13,7 @@
 //! Their default implementations ignore `u` and defer to `f`/`h`/the Jacobians, so existing
 //! [`EkfModel`] implementations keep compiling unchanged.
 
-use crate::matrix::{mat_inverse_f32, MatrixInstance, MatrixInstanceMut};
+use crate::matrix::{MatrixInstance, MatrixInstanceMut, mat_inverse_f32};
 use crate::types::Status;
 
 /// Scalar (1D) Kalman filter for single-variable sensor smoothing and estimation.
