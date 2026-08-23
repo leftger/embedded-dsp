@@ -1459,3 +1459,146 @@ fn test_fir_custom_frequency_sampling_approximates_lowpass() {
     assert!((response_magnitude(h_dc) - 1.0).abs() < 0.1);
     assert!(response_magnitude(h_stop) < 0.3);
 }
+
+// =========================================================================================
+// 36. AUDIO & TINYML TESTS (GOERTZEL, ENVELOPE FOLLOWERS, MEL FILTERBANK, MFCC)
+// =========================================================================================
+
+#[test]
+fn test_goertzel_detects_target_frequency_and_rejects_others() {
+    let fs = 8000.0f32;
+    let target = 1000.0f32;
+    let amplitude = 0.8f32;
+    let n = 64;
+
+    let mut on_target = GoertzelDetector::new(target, fs);
+    let mut off_target = GoertzelDetector::new(2500.0, fs);
+    for i in 0..n {
+        let x = amplitude * (2.0 * core::f32::consts::PI * target * i as f32 / fs).sin();
+        on_target.process_sample(x);
+        off_target.process_sample(x);
+    }
+
+    assert!((on_target.magnitude() - amplitude).abs() < 1e-3);
+    assert!(off_target.magnitude() < 1e-3);
+}
+
+#[test]
+fn test_peak_and_rms_envelope_followers_converge_to_constant_input() {
+    let mut peak = PeakEnvelopeFollower::new(5.0, 50.0);
+    let mut rms = RmsEnvelopeFollower::new(20.0);
+
+    let mut peak_env = 0.0;
+    let mut rms_env = 0.0;
+    for _ in 0..2000 {
+        peak_env = peak.process(0.5);
+        rms_env = rms.process(0.5);
+    }
+
+    assert!((peak_env - 0.5).abs() < 1e-3);
+    assert!((rms_env - 0.5).abs() < 1e-3);
+
+    peak.reset();
+    rms.reset();
+    assert_eq!(peak.process(0.0), 0.0);
+    assert_eq!(rms.process(0.0), 0.0);
+}
+
+#[test]
+fn test_mel_scale_round_trip() {
+    for &hz in &[100.0f32, 440.0, 1000.0, 4000.0] {
+        let round_trip = mel_to_hz(hz_to_mel(hz));
+        assert!(
+            (round_trip - hz).abs() < 1e-2,
+            "hz={hz} round_trip={round_trip}"
+        );
+    }
+}
+
+#[test]
+fn test_mel_filterbank_impulse_activates_expected_band() {
+    let fft_size = 64;
+    let sample_rate = 8000.0;
+    let num_bins = fft_size / 2 + 1;
+
+    let mut power_spectrum = [0.0f32; 33];
+    power_spectrum[10] = 1.0;
+
+    let mut mel_energies = [0.0f32; 8];
+    let status = mel_filterbank_f32(
+        &power_spectrum[..num_bins],
+        fft_size,
+        sample_rate,
+        0.0,
+        sample_rate / 2.0,
+        &mut mel_energies,
+    );
+    assert_eq!(status, Status::Success);
+
+    // Verified against a from-scratch reference implementation: bin 10 sits exactly at the
+    // peak of filter index 4, which should receive the full impulse energy.
+    let expected = [0.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+    for (got, want) in mel_energies.iter().zip(expected.iter()) {
+        assert!(
+            (got - want).abs() < 1e-4,
+            "got {mel_energies:?} want {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn test_mfcc_f32_produces_finite_distinguishable_coefficients() {
+    let fs = 8000.0f32;
+    let fft_size = 256;
+
+    let make_frame = |freq: f32| {
+        let mut frame = [0.0f32; 256];
+        for (i, x) in frame.iter_mut().enumerate() {
+            *x = (2.0 * core::f32::consts::PI * freq * i as f32 / fs).sin();
+        }
+        let mut window = [0.0f32; 256];
+        hamming_f32(&mut window);
+        apply_window_f32(&mut frame, &window);
+        frame
+    };
+
+    let frame_low = make_frame(300.0);
+    let frame_high = make_frame(2500.0);
+
+    let mut mel_scratch_low = [0.0f32; 26];
+    let mut mfcc_low = [0.0f32; 13];
+    let status_low = mfcc_f32(
+        &frame_low,
+        fs,
+        0.0,
+        fs / 2.0,
+        &mut mel_scratch_low,
+        &mut mfcc_low,
+    );
+    assert_eq!(status_low, Status::Success);
+    assert_eq!(fft_size, frame_low.len());
+
+    let mut mel_scratch_high = [0.0f32; 26];
+    let mut mfcc_high = [0.0f32; 13];
+    let status_high = mfcc_f32(
+        &frame_high,
+        fs,
+        0.0,
+        fs / 2.0,
+        &mut mel_scratch_high,
+        &mut mfcc_high,
+    );
+    assert_eq!(status_high, Status::Success);
+
+    for &v in mfcc_low.iter().chain(mfcc_high.iter()) {
+        assert!(v.is_finite());
+    }
+
+    // Different input frequencies must produce distinguishable feature vectors.
+    let diff: f32 = mfcc_low
+        .iter()
+        .zip(mfcc_high.iter())
+        .map(|(a, b)| (a - b).abs())
+        .sum();
+    assert!(diff > 0.1, "MFCC vectors too similar: diff={diff}");
+}

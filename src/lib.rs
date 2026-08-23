@@ -23,6 +23,7 @@
 //! - **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `BiquadCascade<N>`, and `Matrix<R, C>`.
 //! - **Transform**: In-place Complex FFT (CFFT), Real FFT (RFFT), DCT-IV, Bit reversal, Fixed-point FFT (Q15/Q31), Haar transform, Hartley transform, and a generalized wavelet transform (Daubechies-4).
 //! - **Companding**: µ-law and A-law audio companding (ITU-T G.711 family).
+//! - **Audio & TinyML**: Goertzel single-frequency detector, peak/RMS envelope followers, Mel filterbank, and MFCC feature extraction.
 //! - **Spectral Analysis & PSD**: Welch's method power spectral density estimation (averaged periodograms), single-segment periodograms in linear and dB scale.
 //! - **Spatial & 2D Signal Processing**: 2D DCT/IDCT, 2D Convolution, 2D Non-linear Filtering (Min/Max/Median), Sobel edge detection, 2D Histogram, MSE, PSNR.
 //! - **Controller**: PID motor controller, Clarke transform, Park transform, Inverse Clarke/Park.
@@ -34,6 +35,8 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+#[cfg(any(feature = "std", feature = "libm"))]
+pub mod audio;
 pub mod basic_math;
 pub mod companding;
 pub mod complex_math;
@@ -60,6 +63,8 @@ pub mod transform;
 pub mod types;
 pub mod window;
 
+#[cfg(any(feature = "std", feature = "libm"))]
+pub use audio::*;
 pub use basic_math::*;
 pub use companding::*;
 pub use complex_math::*;
