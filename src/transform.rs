@@ -191,3 +191,70 @@ pub fn dct4_f32(src: &[f32], dst: &mut [f32], n: usize) {
         dst[k] = sum * norm;
     }
 }
+
+// --- Fast Walsh-Hadamard Transform (FWHT) ---
+
+/// In-place Fast Walsh-Hadamard Transform (FWHT) for floating point `f32`.
+///
+/// `data.len()` must be a power of 2 (e.g. 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024).
+pub fn fwht_f32(data: &mut [f32]) -> Status {
+    let n = data.len();
+    if n < 2 || (n & (n - 1)) != 0 {
+        return Status::ArgumentError;
+    }
+
+    let mut h = 1;
+    while h < n {
+        let mut i = 0;
+        while i < n {
+            for j in i..(i + h) {
+                let x = data[j];
+                let y = data[j + h];
+                data[j] = x + y;
+                data[j + h] = x - y;
+            }
+            i += h * 2;
+        }
+        h *= 2;
+    }
+
+    Status::Success
+}
+
+/// In-place Inverse Fast Walsh-Hadamard Transform (IFWHT) for floating point `f32` (normalized by $1/N$).
+pub fn ifwht_f32(data: &mut [f32]) -> Status {
+    let status = fwht_f32(data);
+    if status != Status::Success {
+        return status;
+    }
+    let norm = 1.0f32 / (data.len() as f32);
+    for val in data.iter_mut() {
+        *val *= norm;
+    }
+    Status::Success
+}
+
+/// In-place Fast Walsh-Hadamard Transform (FWHT) for 32-bit integers (`i32`).
+pub fn fwht_i32(data: &mut [i32]) -> Status {
+    let n = data.len();
+    if n < 2 || (n & (n - 1)) != 0 {
+        return Status::ArgumentError;
+    }
+
+    let mut h = 1;
+    while h < n {
+        let mut i = 0;
+        while i < n {
+            for j in i..(i + h) {
+                let x = data[j];
+                let y = data[j + h];
+                data[j] = x.wrapping_add(y);
+                data[j + h] = x.wrapping_sub(y);
+            }
+            i += h * 2;
+        }
+        h *= 2;
+    }
+
+    Status::Success
+}

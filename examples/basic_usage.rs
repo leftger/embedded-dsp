@@ -44,4 +44,45 @@ fn main() {
     }
     cfft_f32(&mut fft_data, 64, 0, 1);
     println!("64-Point Complex FFT processed successfully!");
+
+    // 6. 1D Conditional Median Filtering (Impulse / Spike Rejection)
+    let spiky_signal = [1.0f32, 1.1, 1.0, 100.0, 1.2, 1.1, 1.0];
+    let mut clean_signal = [0.0f32; 7];
+    median_filter_1d_f32(&spiky_signal, &mut clean_signal, 3, 5.0);
+    println!("Conditional Median Filter Out: {:?}", clean_signal);
+
+    // 7. Welch's Method Power Spectral Density (PSD)
+    let mut psd_out = [0.0f32; 32];
+    let mut sine_wave = [0.0f32; 128];
+    for (i, val) in sine_wave.iter_mut().enumerate() {
+        *val = (2.0 * core::f32::consts::PI * 100.0 * (i as f32) / 1000.0).sin();
+    }
+    welch_psd_f32(
+        &sine_wave,
+        &mut psd_out,
+        64,
+        32,
+        1000.0,
+        WelchWindow::Hamming,
+        true,
+    );
+    println!("Welch PSD (dB) at bin 6: {:.2} dB", psd_out[6]);
+
+    // 8. 2D Spatial Processing (2D DCT & Sobel Edge Detection)
+    let img_4x4 = [
+        0.0f32, 0.0, 10.0, 10.0, 0.0, 0.0, 10.0, 10.0, 0.0, 0.0, 10.0, 10.0, 0.0, 0.0, 10.0, 10.0,
+    ];
+    let mut edges = [0.0f32; 16];
+    sobel_edge_detection_f32(&img_4x4, &mut edges, 4, 4, 15.0);
+    println!("2D Sobel Edge Output (4x4): {:?}", edges);
+
+    // 9. Weighted Polynomial Least-Squares Sensor Calibration
+    let x_cal = [0.0f32, 1.0, 2.0, 3.0, 4.0];
+    let y_cal = [2.0f32, 5.0, 8.0, 11.0, 14.0]; // y = 2 + 3x
+    let mut cal_coeffs = [0.0f32; 2];
+    polynomial_least_squares_fit(&x_cal, &y_cal, None, 1, &mut cal_coeffs);
+    println!(
+        "Fitted Sensor Calibration: y = {:.2} + {:.2}*x",
+        cal_coeffs[0], cal_coeffs[1]
+    );
 }

@@ -14,26 +14,28 @@ A **`#![no_std]` Rust Digital Signal Processing library** designed for microcont
 - **`#![no_std]` First**: Pure `core` compatibility for bare-metal targets with zero dynamic allocation required.
 - **`libm`, `defmt`, & `serde` Integrations**: Optional formatting logs via `defmt`, model serialization via `serde`, and floating-point math routines in `#![no_std]` environments via `libm`.
 - **Fixed-Point & Floating-Point**: Complete support for `f32`, `f64`, `q31`, `q15`, `q7`, and `q63` saturating arithmetic.
-- **21 Core DSP Modules**:
+- **23 Core DSP Modules**:
   1. **Basic Math**: Elementwise `add`, `sub`, `mult`, `negate`, `offset`, `scale`, `shift`, `dot_prod`, `clip`, bitwise operations.
   2. **Complex Math**: Complex vector addition, multiplication, magnitude, conjugate, dot product.
-  3. **Fast Math**: Trigonometric `sin`, `cos`, `sin_cos`, `sqrt`, `vsqrt`, `divide`, `log`, `exp`, `atan2`.
-  4. **Filtering**: FIR filters, Biquad IIR cascade, LMS adaptive filters, 1D convolution & correlation.
-  5. **Filter Design**: Biquad Low-Pass, High-Pass, Band-Pass, Notch, Peaking EQ, All-Pass, and multi-stage Butterworth design.
+  3. **Fast Math**: Trigonometric `sin`, `cos`, `tan`, `sin_cos`, `sqrt`, `vsqrt`, `divide`, `log`, `log10`, `exp`, `atan2`.
+  4. **Filtering**: FIR filters, Biquad IIR cascade, LMS adaptive filters, 1D convolution & correlation, FFT fast convolution, 1D conditional/thresholded median filters (`f32`, `q15`, `q31`), and const-generic real-time `CircularBuffer<T, N>`.
+  5. **Filter Design**: Biquad Low-Pass, High-Pass, Band-Pass, Notch, Peaking EQ, All-Pass, multi-stage Butterworth design, continuous-to-discrete Bilinear Transform with cutoff frequency pre-warping, and Windowed-Sinc FIR design (Low-pass, High-pass, Band-pass, Band-stop).
   6. **Audio & TinyML**: Goertzel single-frequency detector, Envelope follower (peak & RMS), Mel filterbank, and MFCC feature extraction.
-  7. **Resampling & Multi-rate**: Cascaded Integrator-Comb (CIC) Decimator & Interpolator, linear fractional resampler.
-  8. **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, and trait-based Extended Kalman Filter (`EkfModel`), with `_with_input` variants for models driven by an exogenous input outside the state.
-  9. **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `BiquadCascade<COEFFS, STATE>`, and `Matrix<R, C, N>`.
-  10. **Transforms**: In-place Complex FFT (`cfft`), Real FFT (`rfft`), Discrete Cosine Transform (`dct4`), Fixed-Point FFT (`cfft_q15`/`cfft_q31`).
-  11. **Matrix Operations**: Matrix addition, subtraction, multiplication, scaling, transpose, Gauss-Jordan inversion.
-  12. **Controller**: PID motor controller, Clarke and Park transforms.
-  13. **Statistics**: Mean, variance, standard deviation, RMS, power, min/max, entropy, KL divergence, logsumexp.
-  14. **Support & Conversions**: Array copy/fill, zero-allocation sorting (`sort_f32`), format conversions (`q15` ↔ `f32` ↔ `q31`).
-  15. **Interpolation**: Linear, Bilinear, and Cubic Spline interpolation.
-  16. **Quaternions**: Norm, normalization, quaternion product, conjugate, inverse, rotation matrix conversion.
-  17. **Window Functions**: Hanning, Hamming, Blackman, Bartlett, Welch, Flat-top generators.
-  18. **Distance Metrics**: Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Jaccard, Hamming, Canberra, Bray-Curtis.
-  19. **Machine Learning**: Support Vector Machine (`SvmInstanceF32`) and Gaussian Naive Bayes (`GaussianNaiveBayesInstanceF32`).
+  7. **Spectral Analysis & PSD**: Welch's method power spectral density estimation (averaged periodograms), single-segment periodograms in linear and dB scale.
+  8. **Spatial & 2D Signal Processing**: 2D DCT-II / IDCT-II, 2D spatial convolution with normalization, 2D non-linear filtering (Min/Max/Median), Sobel edge detection, 2D histogram binning, MSE, and PSNR.
+  9. **Resampling & Multi-rate**: Cascaded Integrator-Comb (CIC) Decimator & Interpolator, linear fractional resampler, spectral 2:1 sinc zero-padding interpolation.
+  10. **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, and trait-based Extended Kalman Filter (`EkfModel`), with `_with_input` variants for models driven by an exogenous input outside the state.
+  11. **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `BiquadCascade<COEFFS, STATE>`, and `Matrix<R, C, N>`.
+  12. **Transforms**: In-place Complex FFT (`cfft`), Real FFT (`rfft`), Discrete Cosine Transform (`dct4`), Fast Walsh-Hadamard Transform (`fwht_f32`/`fwht_i32`), and Fixed-Point FFT (`cfft_q15`/`cfft_q31`).
+  13. **Matrix & Regression**: Matrix addition, subtraction, multiplication, scaling, transpose, Gauss-Jordan inversion, and weighted polynomial least-squares curve fitting.
+  14. **Controller**: PID motor controller, Clarke and Park transforms.
+  15. **Statistics**: Mean, variance, standard deviation, RMS, power, min/max, entropy, KL divergence, logsumexp.
+  16. **Support, PRNG & Noise**: Array copy/fill, zero-allocation sorting (`sort_f32`), format conversions (`q15` ↔ `f32` ↔ `q31`), XorShift64 PRNG, uniform and Box-Muller Gaussian noise generators.
+  17. **Interpolation**: Linear, Bilinear, and Cubic Spline interpolation.
+  18. **Quaternions**: Norm, normalization, quaternion product, conjugate, inverse, rotation matrix conversion.
+  19. **Window Functions**: Hanning, Hamming, Blackman, 4-term Blackman-Harris, Bartlett, Welch, Flat-top generators.
+  20. **Distance Metrics**: Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Jaccard, Hamming, Canberra, Bray-Curtis.
+  21. **Machine Learning**: Support Vector Machine (`SvmInstanceF32`) and Gaussian Naive Bayes (`GaussianNaiveBayesInstanceF32`).
 
 ---
 

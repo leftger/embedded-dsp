@@ -5,8 +5,10 @@ pub trait FloatMath: Sized {
     fn abs(self) -> Self;
     fn sin(self) -> Self;
     fn cos(self) -> Self;
+    fn tan(self) -> Self;
     fn sqrt(self) -> Self;
     fn ln(self) -> Self;
+    fn log10(self) -> Self;
     fn exp(self) -> Self;
     fn atan2(self, x: Self) -> Self;
     fn powf(self, n: Self) -> Self;
@@ -63,6 +65,22 @@ impl FloatMath for f32 {
     }
 
     #[inline(always)]
+    fn tan(self) -> f32 {
+        #[cfg(feature = "std")]
+        {
+            self.tan()
+        }
+        #[cfg(all(not(feature = "std"), feature = "libm"))]
+        {
+            libm::tanf(self)
+        }
+        #[cfg(all(not(feature = "std"), not(feature = "libm")))]
+        {
+            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions.");
+        }
+    }
+
+    #[inline(always)]
     fn sqrt(self) -> f32 {
         #[cfg(feature = "std")]
         {
@@ -94,6 +112,24 @@ impl FloatMath for f32 {
         {
             core::compile_error!(
                 "Either feature 'std' or feature 'libm' must be enabled for floating-point log."
+            );
+        }
+    }
+
+    #[inline(always)]
+    fn log10(self) -> f32 {
+        #[cfg(feature = "std")]
+        {
+            self.log10()
+        }
+        #[cfg(all(not(feature = "std"), feature = "libm"))]
+        {
+            libm::log10f(self)
+        }
+        #[cfg(all(not(feature = "std"), not(feature = "libm")))]
+        {
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point log10."
             );
         }
     }
@@ -221,6 +257,22 @@ impl FloatMath for f64 {
     }
 
     #[inline(always)]
+    fn tan(self) -> f64 {
+        #[cfg(feature = "std")]
+        {
+            self.tan()
+        }
+        #[cfg(all(not(feature = "std"), feature = "libm"))]
+        {
+            libm::tan(self)
+        }
+        #[cfg(all(not(feature = "std"), not(feature = "libm")))]
+        {
+            core::compile_error!("Either feature 'std' or feature 'libm' must be enabled for floating-point trig functions.");
+        }
+    }
+
+    #[inline(always)]
     fn sqrt(self) -> f64 {
         #[cfg(feature = "std")]
         {
@@ -252,6 +304,24 @@ impl FloatMath for f64 {
         {
             core::compile_error!(
                 "Either feature 'std' or feature 'libm' must be enabled for floating-point log."
+            );
+        }
+    }
+
+    #[inline(always)]
+    fn log10(self) -> f64 {
+        #[cfg(feature = "std")]
+        {
+            self.log10()
+        }
+        #[cfg(all(not(feature = "std"), feature = "libm"))]
+        {
+            libm::log10(self)
+        }
+        #[cfg(all(not(feature = "std"), not(feature = "libm")))]
+        {
+            core::compile_error!(
+                "Either feature 'std' or feature 'libm' must be enabled for floating-point log10."
             );
         }
     }

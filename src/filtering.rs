@@ -349,3 +349,302 @@ pub fn correlate_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
         dst[n] = acc.clamp(i16::MIN as i32, i16::MAX as i32) as q15;
     }
 }
+
+// --- Non-linear Filtering (Median & Conditional Median) ---
+
+#[allow(unused_imports)]
+use crate::math::FloatMath;
+use crate::transform::cfft_f32;
+
+/// 1D Conditional / Thresholded Median Filter for f32.
+///
+/// Replaces sample `src[i]` with the local median only if `|src[i] - median| > threshold`.
+/// When `threshold == 0.0`, performs standard median filtering.
+///
+/// `window_len` must be odd and $\le 63$.
+pub fn median_filter_1d_f32(
+    src: &[f32],
+    dst: &mut [f32],
+    window_len: usize,
+    threshold: f32,
+) -> Status {
+    let n = src.len();
+    if n == 0 || dst.len() < n {
+        return Status::LengthError;
+    }
+    if window_len == 0 || window_len % 2 == 0 || window_len > 63 {
+        return Status::ArgumentError;
+    }
+
+    let half = window_len / 2;
+    let mut sort_buf = [0.0f32; 64];
+
+    for i in 0..n {
+        // Populate window with boundary clamping
+        for j in 0..window_len {
+            let idx = (i as isize + j as isize - half as isize).clamp(0, (n - 1) as isize) as usize;
+            sort_buf[j] = src[idx];
+        }
+
+        // Insertion sort on small stack buffer
+        for a in 1..window_len {
+            let mut b = a;
+            while b > 0 && sort_buf[b - 1] > sort_buf[b] {
+                sort_buf.swap(b - 1, b);
+                b -= 1;
+            }
+        }
+
+        let med = sort_buf[half];
+        let center = src[i];
+        if (center - med).abs() >= threshold {
+            dst[i] = med;
+        } else {
+            dst[i] = center;
+        }
+    }
+
+    Status::Success
+}
+
+/// 1D Conditional Median Filter for Q15.
+pub fn median_filter_1d_q15(
+    src: &[q15],
+    dst: &mut [q15],
+    window_len: usize,
+    threshold: q15,
+) -> Status {
+    let n = src.len();
+    if n == 0 || dst.len() < n {
+        return Status::LengthError;
+    }
+    if window_len == 0 || window_len % 2 == 0 || window_len > 63 {
+        return Status::ArgumentError;
+    }
+
+    let half = window_len / 2;
+    let mut sort_buf = [0i16; 64];
+
+    for i in 0..n {
+        for j in 0..window_len {
+            let idx = (i as isize + j as isize - half as isize).clamp(0, (n - 1) as isize) as usize;
+            sort_buf[j] = src[idx];
+        }
+
+        for a in 1..window_len {
+            let mut b = a;
+            while b > 0 && sort_buf[b - 1] > sort_buf[b] {
+                sort_buf.swap(b - 1, b);
+                b -= 1;
+            }
+        }
+
+        let med = sort_buf[half];
+        let center = src[i];
+        let diff = (center as i32 - med as i32).abs();
+        if diff >= threshold as i32 {
+            dst[i] = med;
+        } else {
+            dst[i] = center;
+        }
+    }
+
+    Status::Success
+}
+
+/// 1D Conditional Median Filter for Q31.
+pub fn median_filter_1d_q31(
+    src: &[q31],
+    dst: &mut [q31],
+    window_len: usize,
+    threshold: q31,
+) -> Status {
+    let n = src.len();
+    if n == 0 || dst.len() < n {
+        return Status::LengthError;
+    }
+    if window_len == 0 || window_len % 2 == 0 || window_len > 63 {
+        return Status::ArgumentError;
+    }
+
+    let half = window_len / 2;
+    let mut sort_buf = [0i32; 64];
+
+    for i in 0..n {
+        for j in 0..window_len {
+            let idx = (i as isize + j as isize - half as isize).clamp(0, (n - 1) as isize) as usize;
+            sort_buf[j] = src[idx];
+        }
+
+        for a in 1..window_len {
+            let mut b = a;
+            while b > 0 && sort_buf[b - 1] > sort_buf[b] {
+                sort_buf.swap(b - 1, b);
+                b -= 1;
+            }
+        }
+
+        let med = sort_buf[half];
+        let center = src[i];
+        let diff = (center as i64 - med as i64).abs();
+        if diff >= threshold as i64 {
+            dst[i] = med;
+        } else {
+            dst[i] = center;
+        }
+    }
+
+    Status::Success
+}
+
+// --- FFT Fast Convolution ---
+
+/// Performs fast linear convolution of `signal` and `kernel` via FFT multiplication.
+/// Output length is `signal.len() + kernel.len() - 1`.
+pub fn fast_convolve_f32(signal: &[f32], kernel: &[f32], dst: &mut [f32]) -> Status {
+    let len_sig = signal.len();
+    let len_ker = kernel.len();
+    if len_sig == 0 || len_ker == 0 {
+        return Status::LengthError;
+    }
+    let total_len = len_sig + len_ker - 1;
+    if dst.len() < total_len {
+        return Status::LengthError;
+    }
+
+    // Find next power of 2
+    let mut fft_n = 1;
+    while fft_n < total_len {
+        fft_n <<= 1;
+    }
+
+    if fft_n > 512 {
+        // Fall back to time-domain convolution if size exceeds stack scratch buffer
+        conv_f32(signal, kernel, dst);
+        return Status::Success;
+    }
+
+    let mut sig_buf = [0.0f32; 1024]; // 2 * fft_n
+    let mut ker_buf = [0.0f32; 1024];
+
+    for i in 0..len_sig {
+        sig_buf[2 * i] = signal[i];
+    }
+    for i in 0..len_ker {
+        ker_buf[2 * i] = kernel[i];
+    }
+
+    cfft_f32(&mut sig_buf[..2 * fft_n], fft_n, 0, 1);
+    cfft_f32(&mut ker_buf[..2 * fft_n], fft_n, 0, 1);
+
+    // Pointwise complex multiplication: (a + jb) * (c + jd)
+    for i in 0..fft_n {
+        let a = sig_buf[2 * i];
+        let b = sig_buf[2 * i + 1];
+        let c = ker_buf[2 * i];
+        let d = ker_buf[2 * i + 1];
+        sig_buf[2 * i] = a * c - b * d;
+        sig_buf[2 * i + 1] = a * d + b * c;
+    }
+
+    // Inverse FFT
+    cfft_f32(&mut sig_buf[..2 * fft_n], fft_n, 1, 1);
+
+    for i in 0..total_len {
+        dst[i] = sig_buf[2 * i];
+    }
+
+    Status::Success
+}
+
+// --- Real-time Circular Buffer & Delay Line ---
+
+/// Const-generic zero-allocation circular buffer and delay line for real-time DSP sample streams.
+#[derive(Debug, Clone, Copy)]
+pub struct CircularBuffer<T, const N: usize> {
+    buffer: [T; N],
+    head: usize,
+    count: usize,
+}
+
+impl<T: Copy, const N: usize> CircularBuffer<T, N> {
+    /// Creates a new circular buffer initialized with `init_val`.
+    pub const fn new(init_val: T) -> Self {
+        Self {
+            buffer: [init_val; N],
+            head: 0,
+            count: 0,
+        }
+    }
+
+    /// Pushes a new sample into the buffer, overwriting the oldest sample when full.
+    #[inline(always)]
+    pub fn push(&mut self, sample: T) {
+        if N == 0 {
+            return;
+        }
+        self.buffer[self.head] = sample;
+        self.head = (self.head + 1) % N;
+        if self.count < N {
+            self.count += 1;
+        }
+    }
+
+    /// Gets sample with historical lag $k$, where $k = 0$ is the newest sample (`x[n]`), $k = 1$ is `x[n-1]`, etc.
+    /// Returns `None` if `lag >= self.len()`.
+    #[inline(always)]
+    pub fn get(&self, lag: usize) -> Option<T> {
+        if lag >= self.count || N == 0 {
+            return None;
+        }
+        let idx = (self.head + N - 1 - (lag % N)) % N;
+        Some(self.buffer[idx])
+    }
+
+    /// Returns the most recently pushed sample (`x[n]`).
+    #[inline(always)]
+    pub fn latest(&self) -> Option<T> {
+        self.get(0)
+    }
+
+    /// Returns the oldest sample stored in the buffer.
+    #[inline(always)]
+    pub fn oldest(&self) -> Option<T> {
+        if self.count == 0 {
+            None
+        } else {
+            self.get(self.count - 1)
+        }
+    }
+
+    /// Returns the number of valid samples currently stored in the buffer.
+    #[inline(always)]
+    pub const fn len(&self) -> usize {
+        self.count
+    }
+
+    /// Returns the capacity of the circular buffer (`N`).
+    #[inline(always)]
+    pub const fn capacity(&self) -> usize {
+        N
+    }
+
+    /// Returns `true` if the buffer contains no samples.
+    #[inline(always)]
+    pub const fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    /// Returns `true` if the buffer is filled to capacity `N`.
+    #[inline(always)]
+    pub const fn is_full(&self) -> bool {
+        self.count == N
+    }
+
+    /// Clears the circular buffer, resetting sample count and filling with `reset_val`.
+    pub fn clear(&mut self, reset_val: T) {
+        self.buffer = [reset_val; N];
+        self.head = 0;
+        self.count = 0;
+    }
+}

@@ -113,3 +113,67 @@ pub fn resample_linear_f32(src: &[f32], dst: &mut [f32], ratio: f32) {
         dst[i] = src[idx0] * (1.0 - frac) + src[idx1] * frac;
     }
 }
+
+use crate::transform::cfft_f32;
+use crate::types::Status;
+
+/// Spectral (Sinc) 2:1 Interpolator using frequency-domain zero-padding via FFT/IFFT.
+///
+/// `src` length must be a power of 2 (e.g. 16, 32, 64, 128, 256).
+/// `dst` must have length at least `2 * src.len()`.
+pub fn spectral_interpolate_2x_f32(src: &[f32], dst: &mut [f32]) -> Status {
+    let n = src.len();
+    if n < 4 || (n & (n - 1)) != 0 {
+        return Status::ArgumentError;
+    }
+    if dst.len() < 2 * n {
+        return Status::LengthError;
+    }
+    if 4 * n > 1024 {
+        return Status::LengthError; // Max scratch size limit (256-pt input -> 512-pt complex)
+    }
+
+    let mut c_buf = [0.0f32; 1024];
+
+    // Copy src into complex array (size 2 * 2n)
+    for i in 0..n {
+        c_buf[2 * i] = src[i];
+        c_buf[2 * i + 1] = 0.0;
+    }
+
+    // FFT of size n
+    cfft_f32(&mut c_buf[..2 * n], n, 0, 1);
+
+    // Half Nyquist component
+    let nyq_re = 0.5 * c_buf[n];
+    let nyq_im = 0.5 * c_buf[n + 1];
+    c_buf[n] = nyq_re;
+    c_buf[n + 1] = nyq_im;
+
+    // Shift negative frequencies to upper half and zero middle
+    let mut expanded = [0.0f32; 1024];
+    // Copy 0..=N/2
+    for i in 0..=(n / 2) {
+        expanded[2 * i] = c_buf[2 * i];
+        expanded[2 * i + 1] = c_buf[2 * i + 1];
+    }
+    // Nyquist conjugate mirror at 3N/2
+    expanded[2 * (3 * n / 2)] = nyq_re;
+    expanded[2 * (3 * n / 2) + 1] = nyq_im;
+
+    // Negative frequencies
+    for i in (n / 2 + 1)..n {
+        expanded[2 * (i + n)] = c_buf[2 * i];
+        expanded[2 * (i + n) + 1] = c_buf[2 * i + 1];
+    }
+
+    // IFFT of size 2n
+    cfft_f32(&mut expanded[..4 * n], 2 * n, 1, 1);
+
+    // Copy back scaled real part (factor of 2)
+    for i in 0..(2 * n) {
+        dst[i] = 2.0 * expanded[2 * i];
+    }
+
+    Status::Success
+}

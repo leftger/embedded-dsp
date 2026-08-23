@@ -1,4 +1,4 @@
-//! Window functions (Hanning, Hamming, Blackman, Bartlett, Welch, Flat-top window generators).
+//! Window functions (Hanning, Hamming, Blackman, Blackman-Harris, Bartlett, Welch, Flat-top window generators).
 
 #[allow(unused_imports)]
 use crate::math::FloatMath;
@@ -52,6 +52,24 @@ pub fn blackman_f32(dst: &mut [f32]) {
     }
 }
 
+/// Generate 4-term Blackman-Harris window of length `n` (>92 dB sidelobe rejection).
+pub fn blackman_harris_f32(dst: &mut [f32]) {
+    let n = dst.len();
+    if n == 0 {
+        return;
+    }
+    if n == 1 {
+        dst[0] = 1.0;
+        return;
+    }
+    let factor = 2.0 * core::f32::consts::PI / ((n - 1) as f32);
+    for i in 0..n {
+        let a = (i as f32) * factor;
+        dst[i] =
+            0.35875 - 0.48829 * a.cos() + 0.14128 * (2.0 * a).cos() - 0.01168 * (3.0 * a).cos();
+    }
+}
+
 /// Generate Bartlett (Triangular) window of length `n`.
 pub fn bartlett_f32(dst: &mut [f32]) {
     let n = dst.len();
@@ -98,8 +116,8 @@ pub fn flattop_f32(dst: &mut [f32]) {
     let factor = 2.0 * core::f32::consts::PI / ((n - 1) as f32);
     for i in 0..n {
         let a = (i as f32) * factor;
-        dst[i] = 0.21557895 - 0.41663158 * a.cos() + 0.277263158 * (2.0 * a).cos()
-            - 0.083578947 * (3.0 * a).cos()
+        dst[i] = 0.21557895 - 0.41663158 * a.cos() + 0.277_263_16 * (2.0 * a).cos()
+            - 0.08357895 * (3.0 * a).cos()
             + 0.006947368 * (4.0 * a).cos();
     }
 }

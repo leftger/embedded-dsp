@@ -423,3 +423,121 @@ pub fn mat_inverse_f32(src: &MatrixInstance<f32>, out: &mut MatrixInstanceMut<f3
 
     Status::Success
 }
+
+// --- Polynomial Least Squares Regression & Curve Fitting ---
+
+/// Fits a polynomial of degree `degree` ($y = c_0 + c_1 x + c_2 x^2 + \dots + c_d x^d$) to data points $(x_i, y_i)$
+/// using weighted linear least-squares regression.
+///
+/// `x` and `y`: slices of input coordinates (must have equal non-zero length $N \ge \text{degree} + 1$).
+/// `weights`: optional slice of weights $w_i \ge 0$ for each point. If `None`, uniform weights $w_i = 1$ are used.
+/// `degree`: order of the polynomial fit (e.g. 1 for linear, 2 for quadratic). Maximum supported degree is 15.
+/// `out_coeffs`: destination slice of length at least `degree + 1`, populated with $[c_0, c_1, \dots, c_d]$.
+pub fn polynomial_least_squares_fit(
+    x: &[f32],
+    y: &[f32],
+    weights: Option<&[f32]>,
+    degree: usize,
+    out_coeffs: &mut [f32],
+) -> Status {
+    let n = x.len();
+    let m = degree + 1; // Number of coefficients
+
+    if n == 0 || y.len() != n || out_coeffs.len() < m || n < m {
+        return Status::LengthError;
+    }
+    if let Some(w) = weights {
+        if w.len() != n {
+            return Status::LengthError;
+        }
+    }
+    if degree > 15 {
+        return Status::ArgumentError; // Limit for stack-allocated matrix
+    }
+
+    // Build normal equations H * c = v where H is M x M and v is M x 1
+    // Augmented matrix aug of size M x (M + 1)
+    let mut aug = [0.0f32; 16 * 17];
+    let cols = m + 1;
+
+    for i in 0..n {
+        let w = if let Some(weights_slice) = weights {
+            weights_slice[i]
+        } else {
+            1.0f32
+        };
+        let xi = x[i];
+        let yi = y[i];
+
+        // Precompute powers of xi: xi^0, xi^1, ..., xi^(2*degree)
+        let mut x_powers = [1.0f32; 32];
+        for p in 1..(2 * m) {
+            x_powers[p] = x_powers[p - 1] * xi;
+        }
+
+        for j in 0..m {
+            let w_xi_j = w * x_powers[j];
+            for k in 0..m {
+                aug[j * cols + k] += w_xi_j * x_powers[k];
+            }
+            aug[j * cols + m] += w_xi_j * yi;
+        }
+    }
+
+    // Solve via Gauss-Jordan elimination
+    for i in 0..m {
+        // Partial pivot
+        let mut max_row = i;
+        let mut max_val = aug[i * cols + i].abs();
+        for r in (i + 1)..m {
+            let val = aug[r * cols + i].abs();
+            if val > max_val {
+                max_val = val;
+                max_row = r;
+            }
+        }
+
+        if max_val < 1e-12 {
+            return Status::Singular;
+        }
+
+        if max_row != i {
+            for c in 0..cols {
+                aug.swap(i * cols + c, max_row * cols + c);
+            }
+        }
+
+        let pivot = aug[i * cols + i];
+        for c in 0..cols {
+            aug[i * cols + c] /= pivot;
+        }
+
+        for r in 0..m {
+            if r != i {
+                let factor = aug[r * cols + i];
+                for c in 0..cols {
+                    let sub = factor * aug[i * cols + c];
+                    aug[r * cols + c] -= sub;
+                }
+            }
+        }
+    }
+
+    for i in 0..m {
+        out_coeffs[i] = aug[i * cols + m];
+    }
+
+    Status::Success
+}
+
+/// Evaluates a polynomial $P(x) = c_0 + c_1 x + c_2 x^2 + \dots + c_d x^d$ using Horner's method.
+pub fn polynomial_eval_f32(coeffs: &[f32], x: f32) -> f32 {
+    if coeffs.is_empty() {
+        return 0.0;
+    }
+    let mut result = coeffs[coeffs.len() - 1];
+    for &c in coeffs[..coeffs.len() - 1].iter().rev() {
+        result = result * x + c;
+    }
+    result
+}

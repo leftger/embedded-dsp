@@ -135,8 +135,8 @@ fn test_fast_trig_and_roots() {
     let mut s = 0.0f32;
     let mut c = 0.0f32;
     sin_cos_f32(45.0, &mut s, &mut c);
-    assert!((s - 0.70710678).abs() < 1e-4);
-    assert!((c - 0.70710678).abs() < 1e-4);
+    assert!((s - core::f32::consts::FRAC_1_SQRT_2).abs() < 1e-4);
+    assert!((c - core::f32::consts::FRAC_1_SQRT_2).abs() < 1e-4);
 
     let mut res = 0.0f32;
     assert_eq!(sqrt_f32(16.0, &mut res), Status::Success);
@@ -359,7 +359,7 @@ fn test_statistics_comprehensive() {
 
     let prob = [0.5f32, 0.5];
     let ent = entropy_f32(&prob);
-    assert!((ent - 0.693147).abs() < 1e-4);
+    assert!((ent - core::f32::consts::LN_2).abs() < 1e-4);
 
     let kl = kullback_leibler_f32(&prob, &prob);
     assert!((kl - 0.0).abs() < 1e-5);
@@ -473,11 +473,11 @@ fn test_distance_metrics_exhaustive() {
 
 #[test]
 fn test_filter_design_coeffs() {
-    let lp = biquad_lowpass_coeffs(1000.0, 48000.0, 0.7071);
+    let lp = biquad_lowpass_coeffs(1000.0, 48000.0, core::f32::consts::FRAC_1_SQRT_2);
     assert_eq!(lp.len(), 5);
     assert!(lp[0] > 0.0);
 
-    let hp = biquad_highpass_coeffs(1000.0, 48000.0, 0.7071);
+    let hp = biquad_highpass_coeffs(1000.0, 48000.0, core::f32::consts::FRAC_1_SQRT_2);
     assert_eq!(hp.len(), 5);
 
     let notch = biquad_notch_coeffs(60.0, 1000.0, 10.0);
@@ -758,4 +758,375 @@ fn test_const_generics_wrappers() {
 
     let m_mul: Matrix<2, 2, 4> = m1.mul_mat(&m2);
     assert_eq!(m_mul.data, [19.0, 22.0, 43.0, 50.0]);
+}
+
+// =========================================================================================
+// 20. NON-LINEAR & CONDITIONAL MEDIAN FILTER TESTS
+// =========================================================================================
+
+#[test]
+fn test_median_filter_1d_conditional() {
+    // Signal with an impulse spike at index 3
+    let src = [1.0f32, 1.1, 1.0, 100.0, 1.2, 1.1, 1.0];
+    let mut dst = [0.0f32; 7];
+
+    // Standard median (threshold = 0.0) -> replaces spike with median ~1.1
+    let status = median_filter_1d_f32(&src, &mut dst, 3, 0.0);
+    assert_eq!(status, Status::Success);
+    assert!((dst[3] - 1.1).abs() < 0.15);
+
+    // Conditional median (threshold = 5.0) -> spike (|100 - 1.1| > 5.0) is filtered, normal small variations preserved
+    let mut dst_cond = [0.0f32; 7];
+    let status_cond = median_filter_1d_f32(&src, &mut dst_cond, 3, 5.0);
+    assert_eq!(status_cond, Status::Success);
+    assert!((dst_cond[3] - 1.1).abs() < 0.15);
+    assert_eq!(dst_cond[0], src[0]); // Small noise preserved
+
+    // Q15 conditional median
+    let src_q15 = [1000i16, 1100, 1050, 30000, 1150, 1100, 1000];
+    let mut dst_q15 = [0i16; 7];
+    let status_q15 = median_filter_1d_q15(&src_q15, &mut dst_q15, 3, 5000);
+    assert_eq!(status_q15, Status::Success);
+    assert!(dst_q15[3] < 2000);
+
+    // Q31 conditional median
+    let src_q31 = [
+        100000i32, 110000, 105000, 2000000000, 115000, 110000, 100000,
+    ];
+    let mut dst_q31 = [0i32; 7];
+    let status_q31 = median_filter_1d_q31(&src_q31, &mut dst_q31, 3, 1000000);
+    assert_eq!(status_q31, Status::Success);
+    assert!(dst_q31[3] < 200000);
+}
+
+// =========================================================================================
+// 21. FAST CONVOLUTION & SPECTRAL INTERPOLATION TESTS
+// =========================================================================================
+
+#[test]
+fn test_fast_convolution_and_spectral_interpolation() {
+    let sig = [1.0f32, 2.0, 3.0, 4.0];
+    let ker = [0.5f32, 0.5];
+    let mut dst_fast = [0.0f32; 5];
+    let mut dst_direct = [0.0f32; 5];
+
+    conv_f32(&sig, &ker, &mut dst_direct);
+    let status = fast_convolve_f32(&sig, &ker, &mut dst_fast);
+    assert_eq!(status, Status::Success);
+
+    for i in 0..5 {
+        assert!((dst_fast[i] - dst_direct[i]).abs() < 1e-4);
+    }
+
+    // Spectral 2:1 Sinc Interpolation of a sine wave
+    let mut sine_16 = [0.0f32; 16];
+    for i in 0..16 {
+        sine_16[i] = (2.0 * core::f32::consts::PI * (i as f32) / 16.0).sin();
+    }
+    let mut interp_32 = [0.0f32; 32];
+    let status_interp = spectral_interpolate_2x_f32(&sine_16, &mut interp_32);
+    assert_eq!(status_interp, Status::Success);
+
+    // Check that original points are preserved at even indices
+    for i in 0..16 {
+        assert!((interp_32[2 * i] - sine_16[i]).abs() < 1e-3);
+    }
+}
+
+// =========================================================================================
+// 22. BILINEAR TRANSFORM & PRE-WARPING TESTS
+// =========================================================================================
+
+#[test]
+fn test_bilinear_transform_and_prewarping() {
+    let fc = 1000.0f32;
+    let fs = 48000.0f32;
+    let wp = prewarp_cutoff_f32(fc, fs);
+    assert!(wp > 2.0 * core::f32::consts::PI * fc); // Tan(x) > x for x in (0, pi/2)
+
+    // Standard 2nd order analog low-pass prototype: H(s) = 1 / ( (s/wp)^2 + sqrt(2)*(s/wp) + 1 )
+    let q = core::f32::consts::FRAC_1_SQRT_2;
+    let a0 = wp * wp;
+    let a1 = 0.0f32;
+    let a2 = 0.0f32;
+    let b0 = wp * wp;
+    let b1 = wp / q;
+    let b2 = 1.0f32;
+
+    let biquad_coeffs = bilinear_transform_biquad(a0, a1, a2, b0, b1, b2, fs);
+    assert!(biquad_coeffs[0] > 0.0); // b0
+    assert!(biquad_coeffs[1] > 0.0); // b1
+    assert!(biquad_coeffs[2] > 0.0); // b2
+}
+
+// =========================================================================================
+// 23. WEIGHTED POLYNOMIAL LEAST SQUARES REGRESSION TESTS
+// =========================================================================================
+
+#[test]
+fn test_polynomial_least_squares_fit() {
+    // True line: y = 3.0 + 2.0 * x
+    let x = [0.0f32, 1.0, 2.0, 3.0, 4.0];
+    let y = [3.0f32, 5.0, 7.0, 9.0, 11.0];
+    let mut coeffs = [0.0f32; 2];
+
+    let status = polynomial_least_squares_fit(&x, &y, None, 1, &mut coeffs);
+    assert_eq!(status, Status::Success);
+    assert!((coeffs[0] - 3.0).abs() < 1e-4);
+    assert!((coeffs[1] - 2.0).abs() < 1e-4);
+
+    let val = polynomial_eval_f32(&coeffs, 2.5);
+    assert!((val - 8.0).abs() < 1e-4);
+
+    // Quadratic fit: y = 1.0 - 0.5 * x + 2.0 * x^2
+    let mut y_quad = [0.0f32; 5];
+    for i in 0..5 {
+        y_quad[i] = 1.0 - 0.5 * x[i] + 2.0 * x[i] * x[i];
+    }
+    let mut quad_coeffs = [0.0f32; 3];
+    let status_quad = polynomial_least_squares_fit(&x, &y_quad, None, 2, &mut quad_coeffs);
+    assert_eq!(status_quad, Status::Success);
+    assert!((quad_coeffs[0] - 1.0).abs() < 1e-3);
+    assert!((quad_coeffs[1] - (-0.5)).abs() < 1e-3);
+    assert!((quad_coeffs[2] - 2.0).abs() < 1e-3);
+}
+
+// =========================================================================================
+// 24. 2D SPATIAL & IMAGE PROCESSING TESTS
+// =========================================================================================
+
+#[test]
+fn test_spatial_and_image_processing() {
+    // 4x4 matrix
+    let src = [
+        1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+    ];
+    let mut dct_out = [0.0f32; 16];
+    let mut idct_out = [0.0f32; 16];
+
+    let status_dct = dct2d_f32(&src, &mut dct_out, 4, 4);
+    assert_eq!(status_dct, Status::Success);
+
+    let status_idct = idct2d_f32(&dct_out, &mut idct_out, 4, 4);
+    assert_eq!(status_idct, Status::Success);
+
+    // Verify reconstruction through 2D IDCT(2D DCT)
+    for i in 0..16 {
+        assert!((idct_out[i] - src[i]).abs() < 1e-3);
+    }
+
+    // 2D Convolution with 3x3 Box Blur
+    let kernel_box = [1.0f32, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+    let mut conv_out = [0.0f32; 16];
+    let status_conv = convolve2d_f32(&src, &mut conv_out, 4, 4, &kernel_box, 3, 3, true);
+    assert_eq!(status_conv, Status::Success);
+    assert!(conv_out[5] > 0.0);
+
+    // 2D Non-linear Filter (Median, Min, Max)
+    let mut nonlin_out = [0.0f32; 16];
+    let status_nonlin =
+        nonlin2d_filter_f32(&src, &mut nonlin_out, 4, 4, 3, NonlinFilterType::Median);
+    assert_eq!(status_nonlin, Status::Success);
+    assert!(nonlin_out[5] > 0.0);
+
+    // Sobel Edge Detection
+    let mut edges = [0.0f32; 16];
+    let status_sobel = sobel_edge_detection_f32(&src, &mut edges, 4, 4, 2.0);
+    assert_eq!(status_sobel, Status::Success);
+
+    // 2D Histogram
+    let mut bins = [0usize; 4];
+    let status_hist = histogram_2d_f32(&src, &mut bins, 1.0, 16.0);
+    assert_eq!(status_hist, Status::Success);
+    let total_hist: usize = bins.iter().sum();
+    assert_eq!(total_hist, 16);
+
+    // MSE and PSNR
+    let mse = mse_2d_f32(&src, &idct_out);
+    assert!(mse < 1e-4);
+    let psnr = psnr_2d_f32(&src, &idct_out, 16.0);
+    assert!(psnr > 40.0);
+}
+
+// =========================================================================================
+// 25. SPECTRAL ESTIMATION & WELCH PSD TESTS
+// =========================================================================================
+
+#[test]
+fn test_welch_psd_and_periodogram() {
+    let fs = 1000.0f32;
+    let freq = 100.0f32;
+    let n_samples = 256;
+    let mut signal = [0.0f32; 256];
+    for i in 0..n_samples {
+        signal[i] = (2.0 * core::f32::consts::PI * freq * (i as f32) / fs).sin();
+    }
+
+    let fft_len = 64;
+    let mut psd_linear = [0.0f32; 32];
+    let status = welch_psd_f32(
+        &signal,
+        &mut psd_linear,
+        fft_len,
+        32,
+        fs,
+        WelchWindow::Hamming,
+        false,
+    );
+    assert_eq!(status, Status::Success);
+
+    // Frequency bin spacing: fs / fft_len = 1000 / 64 = 15.625 Hz
+    // Peak expected around index 100 / 15.625 ~ 6 or 7
+    let mut max_idx = 0;
+    let mut max_val = 0.0f32;
+    for (idx, &val) in psd_linear.iter().enumerate() {
+        if val > max_val {
+            max_val = val;
+            max_idx = idx;
+        }
+    }
+    assert!(max_idx == 6 || max_idx == 7);
+
+    // Periodogram in dB
+    let mut psd_db = [0.0f32; 32];
+    let status_db = periodogram_f32(
+        &signal[..64],
+        &mut psd_db,
+        fft_len,
+        fs,
+        WelchWindow::Hanning,
+        true,
+    );
+    assert_eq!(status_db, Status::Success);
+    assert!(psd_db[max_idx] > psd_db[0]);
+}
+
+// =========================================================================================
+// 26. NOISE GENERATION & 4-TERM BLACKMAN-HARRIS TESTS
+// =========================================================================================
+
+#[test]
+fn test_noise_generation_and_blackman_harris() {
+    let mut win_bh = [0.0f32; 64];
+    blackman_harris_f32(&mut win_bh);
+    assert!((win_bh[0] - 0.00006).abs() < 0.01);
+    assert!((win_bh[32] - 1.0).abs() < 0.05);
+
+    let mut seed = 123456789u64;
+    let mut uniform_buf = [0.0f32; 100];
+    uniform_noise_f32(&mut uniform_buf, -1.0, 1.0, &mut seed);
+    for &v in &uniform_buf {
+        assert!((-1.0..=1.0).contains(&v));
+    }
+
+    let mut gaus_buf = [0.0f32; 200];
+    gaussian_noise_f32(&mut gaus_buf, 0.0, 1.0, &mut seed);
+    let mut mean = 0.0f32;
+    mean_f32(&gaus_buf, &mut mean);
+    assert!(mean.abs() < 0.3); // Sample mean close to 0
+}
+
+// =========================================================================================
+// 27. CIRCULAR BUFFER & DELAY LINE TESTS
+// =========================================================================================
+
+#[test]
+fn test_circular_buffer_operations() {
+    let mut cb = CircularBuffer::<f32, 4>::new(0.0);
+    assert!(cb.is_empty());
+    assert!(!cb.is_full());
+    assert_eq!(cb.len(), 0);
+
+    cb.push(10.0);
+    assert_eq!(cb.len(), 1);
+    assert_eq!(cb.latest(), Some(10.0));
+    assert_eq!(cb.get(0), Some(10.0));
+    assert_eq!(cb.get(1), None);
+
+    cb.push(20.0);
+    cb.push(30.0);
+    cb.push(40.0);
+    assert!(cb.is_full());
+    assert_eq!(cb.len(), 4);
+    assert_eq!(cb.latest(), Some(40.0));
+    assert_eq!(cb.oldest(), Some(10.0));
+    assert_eq!(cb.get(0), Some(40.0)); // x[n]
+    assert_eq!(cb.get(1), Some(30.0)); // x[n-1]
+    assert_eq!(cb.get(2), Some(20.0)); // x[n-2]
+    assert_eq!(cb.get(3), Some(10.0)); // x[n-3]
+
+    // Push past capacity (overwrite oldest)
+    cb.push(50.0);
+    assert_eq!(cb.len(), 4);
+    assert_eq!(cb.latest(), Some(50.0));
+    assert_eq!(cb.oldest(), Some(20.0)); // 10.0 was overwritten
+    assert_eq!(cb.get(0), Some(50.0));
+    assert_eq!(cb.get(3), Some(20.0));
+
+    cb.clear(0.0);
+    assert!(cb.is_empty());
+}
+
+// =========================================================================================
+// 28. WINDOWED-SINC FIR FILTER DESIGN TESTS
+// =========================================================================================
+
+#[test]
+fn test_windowed_sinc_fir_design() {
+    let mut taps = [0.0f32; 31];
+
+    // Low-pass design
+    let status_lp = fir_windowed_sinc_lowpass(0.1, &mut taps);
+    assert_eq!(status_lp, Status::Success);
+    let sum_lp: f32 = taps.iter().sum();
+    assert!((sum_lp - 1.0).abs() < 1e-4); // Unity DC gain
+
+    // High-pass design
+    let mut hp_taps = [0.0f32; 31];
+    let status_hp = fir_windowed_sinc_highpass(0.2, &mut hp_taps);
+    assert_eq!(status_hp, Status::Success);
+    let sum_hp: f32 = hp_taps.iter().sum();
+    assert!(sum_hp.abs() < 1e-3); // DC gain ~ 0 for high-pass
+
+    // Band-pass design
+    let mut bp_taps = [0.0f32; 31];
+    let status_bp = fir_windowed_sinc_bandpass(0.1, 0.3, &mut bp_taps);
+    assert_eq!(status_bp, Status::Success);
+
+    // Band-stop design
+    let mut bs_taps = [0.0f32; 31];
+    let status_bs = fir_windowed_sinc_bandstop(0.1, 0.3, &mut bs_taps);
+    assert_eq!(status_bs, Status::Success);
+    let sum_bs: f32 = bs_taps.iter().sum();
+    assert!((sum_bs - 1.0).abs() < 1e-3); // DC gain ~ 1.0 for notch/bandstop
+}
+
+// =========================================================================================
+// 29. FAST WALSH-HADAMARD TRANSFORM (FWHT) TESTS
+// =========================================================================================
+
+#[test]
+fn test_fast_walsh_hadamard_transform() {
+    let mut data_f32 = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let original = data_f32;
+
+    let status_fwht = fwht_f32(&mut data_f32);
+    assert_eq!(status_fwht, Status::Success);
+
+    // Hadamard sum property: first element is sum of all elements
+    let sum_orig: f32 = original.iter().sum();
+    assert_eq!(data_f32[0], sum_orig);
+
+    // Inverse FWHT
+    let status_ifwht = ifwht_f32(&mut data_f32);
+    assert_eq!(status_ifwht, Status::Success);
+    for i in 0..8 {
+        assert!((data_f32[i] - original[i]).abs() < 1e-4);
+    }
+
+    // 32-bit Integer FWHT
+    let mut data_i32 = [1i32, 2, 3, 4];
+    let status_i32 = fwht_i32(&mut data_i32);
+    assert_eq!(status_i32, Status::Success);
+    assert_eq!(data_i32[0], 10); // 1 + 2 + 3 + 4 = 10
 }

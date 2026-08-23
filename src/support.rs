@@ -194,3 +194,68 @@ pub fn weighted_sum_f32(in_vals: &[f32], weights: &[f32]) -> f32 {
         0.0
     }
 }
+
+// --- Pseudo-Random Number Generation & Noise ---
+
+#[allow(unused_imports)]
+use crate::math::FloatMath;
+
+/// Simple deterministic zero-allocation 64-bit XorShift Pseudo-Random Number Generator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct XorShift64 {
+    pub state: u64,
+}
+
+impl XorShift64 {
+    pub const fn new(seed: u64) -> Self {
+        Self {
+            state: if seed == 0 { 0x853c49e6748fea9b } else { seed },
+        }
+    }
+
+    #[inline]
+    pub fn next_u64(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        x
+    }
+
+    #[inline]
+    pub fn next_f32(&mut self) -> f32 {
+        // Generates uniform float in (0, 1]
+        let val = (self.next_u64() >> 40) as u32;
+        ((val as f32) + 1.0) / 16777217.0
+    }
+}
+
+/// Fill destination slice with uniformly distributed random noise in `[min_val, max_val]`.
+pub fn uniform_noise_f32(dst: &mut [f32], min_val: f32, max_val: f32, seed: &mut u64) {
+    let mut rng = XorShift64::new(*seed);
+    let span = max_val - min_val;
+    for x in dst.iter_mut() {
+        *x = min_val + rng.next_f32() * span;
+    }
+    *seed = rng.state;
+}
+
+/// Fill destination slice with Gaussian (White Noise) samples of given `mean` and `std_dev` using the Box-Muller transform.
+pub fn gaussian_noise_f32(dst: &mut [f32], mean: f32, std_dev: f32, seed: &mut u64) {
+    let mut rng = XorShift64::new(*seed);
+    let len = dst.len();
+    let mut i = 0;
+    while i < len {
+        let u1 = rng.next_f32();
+        let u2 = rng.next_f32();
+        let r = (-2.0f32 * u1.ln()).sqrt() * std_dev;
+        let theta = 2.0f32 * core::f32::consts::PI * u2;
+        dst[i] = mean + r * theta.cos();
+        if i + 1 < len {
+            dst[i + 1] = mean + r * theta.sin();
+        }
+        i += 2;
+    }
+    *seed = rng.state;
+}
