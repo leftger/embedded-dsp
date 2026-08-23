@@ -648,3 +648,114 @@ impl<T: Copy, const N: usize> CircularBuffer<T, N> {
         self.count = 0;
     }
 }
+
+// --- Single-Pole Recursive Filter (Steven W. Smith, Ch. 19) ---
+
+/// The cheapest possible IIR filter: a single-pole recursive low-pass or high-pass filter
+/// (Steven W. Smith, Ch. 19, Eq. 19-2 / 19-3), needing only one or two multiplies per sample.
+/// Coefficients are designed from a decay factor `x` (see
+/// [`crate::filter_design::single_pole_decay_from_cutoff`] /
+/// [`crate::filter_design::single_pole_decay_from_time_constant`]).
+#[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SinglePoleFilter {
+    b0: f32,
+    b1: f32,
+    a1: f32,
+    x1: f32,
+    y1: f32,
+}
+
+impl SinglePoleFilter {
+    /// Creates a single-pole low-pass filter from decay factor `x` (`0.0..1.0`); larger `x`
+    /// means slower decay (a lower cutoff frequency).
+    pub fn lowpass(decay: f32) -> Self {
+        Self {
+            b0: 1.0 - decay,
+            b1: 0.0,
+            a1: decay,
+            x1: 0.0,
+            y1: 0.0,
+        }
+    }
+
+    /// Creates a single-pole high-pass filter from the same decay factor `x` used by
+    /// [`SinglePoleFilter::lowpass`].
+    pub fn highpass(decay: f32) -> Self {
+        let b0 = (1.0 + decay) / 2.0;
+        Self {
+            b0,
+            b1: -b0,
+            a1: decay,
+            x1: 0.0,
+            y1: 0.0,
+        }
+    }
+
+    /// Processes a single input sample and returns the filtered output.
+    #[inline(always)]
+    pub fn process(&mut self, x: f32) -> f32 {
+        let y = self.b0 * x + self.b1 * self.x1 + self.a1 * self.y1;
+        self.x1 = x;
+        self.y1 = y;
+        y
+    }
+
+    /// Resets the filter's delay state to zero.
+    pub fn reset(&mut self) {
+        self.x1 = 0.0;
+        self.y1 = 0.0;
+    }
+}
+
+// --- Recursive Moving Average Filter (Steven W. Smith, Ch. 15) ---
+
+/// Const-generic `N`-point moving average filter implemented recursively (Steven W. Smith,
+/// Ch. 15, Eq. 15-3): each sample is updated with a single add and subtract, instead of an
+/// `O(N)` convolution sum.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct RecursiveMovingAverage<const N: usize> {
+    history: CircularBuffer<f32, N>,
+    sum: f32,
+}
+
+impl<const N: usize> RecursiveMovingAverage<N> {
+    /// Creates a new `N`-point recursive moving average filter with empty history.
+    pub const fn new() -> Self {
+        Self {
+            history: CircularBuffer::new(0.0),
+            sum: 0.0,
+        }
+    }
+
+    /// Pushes a new input sample and returns the updated moving average. While fewer than `N`
+    /// samples have been seen, the average is taken over the (growing) window received so far.
+    #[inline(always)]
+    pub fn process(&mut self, x: f32) -> f32 {
+        let oldest = if self.history.is_full() {
+            self.history.oldest().unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        self.sum += x - oldest;
+        self.history.push(x);
+        if self.history.len() == 0 {
+            0.0
+        } else {
+            self.sum / self.history.len() as f32
+        }
+    }
+
+    /// Resets the filter to its initial, empty state.
+    pub fn reset(&mut self) {
+        self.history.clear(0.0);
+        self.sum = 0.0;
+    }
+}
+
+impl<const N: usize> Default for RecursiveMovingAverage<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

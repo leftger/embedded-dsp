@@ -1102,7 +1102,57 @@ fn test_windowed_sinc_fir_design() {
 }
 
 // =========================================================================================
-// 29. FAST WALSH-HADAMARD TRANSFORM (FWHT) TESTS
+// 29. FILTER ANALYSIS TESTS (FREQUENCY RESPONSE, GROUP DELAY, STABILITY)
+// =========================================================================================
+
+#[test]
+fn test_fir_frequency_response_and_group_delay() {
+    // Symmetric linear-phase averaging FIR: constant group delay of (M-1)/2 = 1.0 sample.
+    let taps = [0.25f32, 0.5, 0.25];
+
+    // DC gain should be 1.0 (matches the sum of taps).
+    let h_dc = fir_frequency_response(&taps, 0.0);
+    assert!((response_magnitude(h_dc) - 1.0).abs() < 1e-4);
+    assert!(response_phase(h_dc).abs() < 1e-4);
+
+    // Nyquist (freq_norm = 0.5): H = 0.25 - 0.5 + 0.25 = 0.0, a null.
+    let h_nyquist = fir_frequency_response(&taps, 0.5);
+    assert!(response_magnitude(h_nyquist) < 1e-4);
+
+    for &f in &[0.05f32, 0.15, 0.25, 0.4] {
+        let delay = fir_group_delay(&taps, f);
+        assert!((delay - 1.0).abs() < 1e-3);
+    }
+}
+
+#[test]
+fn test_biquad_frequency_response_and_stability() {
+    let lp = biquad_lowpass_coeffs(1000.0, 48000.0, core::f32::consts::FRAC_1_SQRT_2);
+
+    // A well-formed lowpass biquad must be stable (poles inside the unit circle).
+    assert!(biquad_is_stable(&lp));
+    assert!(biquad_pole_radius(&lp) < 1.0);
+
+    // DC gain of a properly normalized lowpass biquad should be unity.
+    let h_dc = biquad_frequency_response(&lp, 0.0);
+    assert!((response_magnitude(h_dc) - 1.0).abs() < 1e-3);
+
+    // An explicitly unstable section (pole outside the unit circle) must be flagged.
+    let unstable = [1.0f32, 0.0, 0.0, 1.5, 0.0];
+    assert!(!biquad_is_stable(&unstable));
+    assert!(biquad_pole_radius(&unstable) > 1.0);
+
+    let mut butter = [0.0f32; 10];
+    butterworth_lowpass_biquads(1000.0, 48000.0, 4, &mut butter);
+    assert!(biquad_cascade_is_stable(&butter));
+
+    let h_cascade_dc = biquad_cascade_frequency_response(&butter, 0.0);
+    assert!((response_magnitude(h_cascade_dc) - 1.0).abs() < 1e-3);
+    assert!(response_magnitude_db(h_cascade_dc).abs() < 0.1);
+}
+
+// =========================================================================================
+// 30. FAST WALSH-HADAMARD TRANSFORM (FWHT) TESTS
 // =========================================================================================
 
 #[test]
@@ -1129,4 +1179,86 @@ fn test_fast_walsh_hadamard_transform() {
     let status_i32 = fwht_i32(&mut data_i32);
     assert_eq!(status_i32, Status::Success);
     assert_eq!(data_i32[0], 10); // 1 + 2 + 3 + 4 = 10
+}
+
+// =========================================================================================
+// 31. CHEBYSHEV, SINGLE-POLE, & RECURSIVE MOVING AVERAGE FILTER TESTS
+// =========================================================================================
+
+#[test]
+fn test_chebyshev_biquad_stage_matches_book_debug_values() {
+    // Data Set 1 from Steven W. Smith, "The Scientist and Engineer's Guide to DSP", Table 20-6
+    // (low-pass, no ripple, 4-pole filter, pole-pair 1).
+    let stage1 = chebyshev_biquad_stage(0.1, false, 0.0, 4, 1);
+    let expected1 = [0.061885f32, 0.123770, 0.061885, 1.048600, -0.296140];
+    for (got, want) in stage1.iter().zip(expected1.iter()) {
+        assert!(
+            (got - want).abs() < 1e-4,
+            "got {stage1:?} want {expected1:?}"
+        );
+    }
+
+    // Data Set 2 from Table 20-6 (high-pass, 10% ripple, 4-pole filter, pole-pair 2).
+    let stage2 = chebyshev_biquad_stage(0.1, true, 10.0, 4, 2);
+    let expected2 = [0.922920f32, -1.845840, 0.922920, 1.446913, -0.836654];
+    for (got, want) in stage2.iter().zip(expected2.iter()) {
+        assert!(
+            (got - want).abs() < 1e-3,
+            "got {stage2:?} want {expected2:?}"
+        );
+    }
+}
+
+#[test]
+fn test_chebyshev_lowpass_and_highpass_cascade_design() {
+    let mut lp = [0.0f32; 10];
+    chebyshev_lowpass_biquads(0.1, 0.5, 4, &mut lp);
+    assert!(biquad_cascade_is_stable(&lp));
+    let h_dc = biquad_cascade_frequency_response(&lp, 0.0);
+    assert!((response_magnitude(h_dc) - 1.0).abs() < 1e-3);
+
+    let mut hp = [0.0f32; 10];
+    chebyshev_highpass_biquads(0.1, 0.5, 4, &mut hp);
+    assert!(biquad_cascade_is_stable(&hp));
+    let h_nyquist = biquad_cascade_frequency_response(&hp, 0.5);
+    assert!((response_magnitude(h_nyquist) - 1.0).abs() < 1e-3);
+}
+
+#[test]
+fn test_single_pole_filters() {
+    // A step input through a low-pass single-pole filter should settle to unity gain.
+    let decay = single_pole_decay_from_cutoff(0.05);
+    let mut lp = SinglePoleFilter::lowpass(decay);
+    let mut y = 0.0;
+    for _ in 0..500 {
+        y = lp.process(1.0);
+    }
+    assert!((y - 1.0).abs() < 1e-3);
+
+    // A step (DC) input through a high-pass single-pole filter should decay to zero.
+    let mut hp = SinglePoleFilter::highpass(decay);
+    let mut y_hp = 0.0;
+    for _ in 0..500 {
+        y_hp = hp.process(1.0);
+    }
+    assert!(y_hp.abs() < 1e-3);
+}
+
+#[test]
+fn test_recursive_moving_average_matches_naive_average() {
+    let mut rma = RecursiveMovingAverage::<4>::new();
+    let input = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
+    let mut outputs = [0.0f32; 6];
+    for (i, &x) in input.iter().enumerate() {
+        outputs[i] = rma.process(x);
+    }
+
+    // Growing window until full, then a proper 4-point moving average thereafter.
+    let expected = [1.0f32, 1.5, 2.0, 2.5, 3.5, 4.5];
+    for (got, want) in outputs.iter().zip(expected.iter()) {
+        assert!(
+            (got - want).abs() < 1e-4,
+            "got {outputs:?} want {expected:?}"
+        );
+    }
 }

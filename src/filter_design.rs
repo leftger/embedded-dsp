@@ -133,6 +133,161 @@ pub fn butterworth_lowpass_biquads(
     }
 }
 
+// --- Chebyshev Recursive Filter Design (Steven W. Smith, Ch. 20) ---
+
+/// Computes one two-pole Direct Form I biquad stage `[b0, b1, b2, a1, a2]` of a Chebyshev
+/// recursive filter (Steven W. Smith, Ch. 20, Table 20-5), for pole-pair `pole_pair`
+/// (1-indexed, `1..=num_poles / 2`) of a `num_poles`-pole filter.
+///
+/// `cutoff_norm`: cutoff frequency as a fraction of the sample rate (`0.0..0.5`).
+/// `high_pass`: `false` for low-pass, `true` for high-pass.
+/// `ripple_percent`: passband ripple, `0.0..29.0` (`0.0` gives a maximally-flat/Butterworth
+/// response with no ripple).
+/// `num_poles`: total pole count for the filter this stage belongs to; must be even, `2..=20`.
+///
+/// The returned stage is not normalized for unity passband gain; use
+/// [`chebyshev_lowpass_biquads`] / [`chebyshev_highpass_biquads`] to design a complete,
+/// gain-normalized cascade.
+pub fn chebyshev_biquad_stage(
+    cutoff_norm: f32,
+    high_pass: bool,
+    ripple_percent: f32,
+    num_poles: u32,
+    pole_pair: u32,
+) -> [f32; 5] {
+    let pi = core::f32::consts::PI;
+    let np = num_poles as f32;
+    let p = pole_pair as f32;
+
+    // Pole location on the unit circle.
+    let angle = pi / (2.0 * np) + (p - 1.0) * pi / np;
+    let mut rp = -angle.cos();
+    let mut ip = angle.sin();
+
+    // Warp from a circle to an ellipse for a non-zero-ripple Chebyshev response.
+    if ripple_percent != 0.0 {
+        let es = ((100.0 / (100.0 - ripple_percent)).powf(2.0) - 1.0).sqrt();
+        let vx = (1.0 / np) * ((1.0 / es) + ((1.0 / (es * es)) + 1.0).sqrt()).ln();
+        let kx_raw = (1.0 / np) * ((1.0 / es) + ((1.0 / (es * es)) - 1.0).sqrt()).ln();
+        let kx = (kx_raw.exp() + (-kx_raw).exp()) / 2.0;
+        rp *= ((vx.exp() - (-vx).exp()) / 2.0) / kx;
+        ip *= ((vx.exp() + (-vx).exp()) / 2.0) / kx;
+    }
+
+    // s-domain to z-domain conversion.
+    let t = 2.0 * (0.5f32).tan();
+    let w = 2.0 * pi * cutoff_norm;
+    let m = rp * rp + ip * ip;
+    let d = 4.0 - 4.0 * rp * t + m * t * t;
+    let x0 = t * t / d;
+    let x1 = 2.0 * t * t / d;
+    let x2 = t * t / d;
+    let y1 = (8.0 - 2.0 * m * t * t) / d;
+    let y2 = (-4.0 - 4.0 * rp * t - m * t * t) / d;
+
+    // Low-pass-to-low-pass, or low-pass-to-high-pass, frequency transform.
+    let k = if high_pass {
+        -(w / 2.0 + 0.5).cos() / (w / 2.0 - 0.5).cos()
+    } else {
+        (0.5 - w / 2.0).sin() / (0.5 + w / 2.0).sin()
+    };
+
+    let d2 = 1.0 + y1 * k - y2 * k * k;
+    let b0 = (x0 - x1 * k + x2 * k * k) / d2;
+    let mut b1 = (-2.0 * x0 * k + x1 + x1 * k * k - 2.0 * x2 * k) / d2;
+    let b2 = (x0 * k * k - x1 * k + x2) / d2;
+    let mut a1 = (2.0 * k + y1 + y1 * k * k - 2.0 * y2 * k) / d2;
+    let a2 = (-(k * k) - y1 * k + y2) / d2;
+
+    if high_pass {
+        b1 = -b1;
+        a1 = -a1;
+    }
+
+    [b0, b1, b2, a1, a2]
+}
+
+/// Designs a complete, gain-normalized Chebyshev low-pass filter as a cascade of Direct Form I
+/// biquad stages (Steven W. Smith, Ch. 20). `out_coeffs` must be a slice of size
+/// `5 * (num_poles / 2)`. `num_poles` must be even, `2..=20`; `ripple_percent` in `0.0..29.0`.
+/// Larger pole counts amplify `f32` round-off error per the book's own guidance, and should be
+/// used with care (consider `f64` or splitting into explicit two-pole stages for high orders).
+pub fn chebyshev_lowpass_biquads(
+    cutoff_norm: f32,
+    ripple_percent: f32,
+    num_poles: u32,
+    out_coeffs: &mut [f32],
+) {
+    chebyshev_biquads(cutoff_norm, false, ripple_percent, num_poles, out_coeffs);
+}
+
+/// Designs a complete, gain-normalized Chebyshev high-pass filter as a cascade of Direct Form I
+/// biquad stages (Steven W. Smith, Ch. 20). See [`chebyshev_lowpass_biquads`] for parameters.
+pub fn chebyshev_highpass_biquads(
+    cutoff_norm: f32,
+    ripple_percent: f32,
+    num_poles: u32,
+    out_coeffs: &mut [f32],
+) {
+    chebyshev_biquads(cutoff_norm, true, ripple_percent, num_poles, out_coeffs);
+}
+
+fn chebyshev_biquads(
+    cutoff_norm: f32,
+    high_pass: bool,
+    ripple_percent: f32,
+    num_poles: u32,
+    out_coeffs: &mut [f32],
+) {
+    let num_stages = (num_poles / 2) as usize;
+    assert!(
+        out_coeffs.len() >= num_stages * 5,
+        "out_coeffs buffer too small"
+    );
+
+    // Overall passband gain is the product of each stage's gain at the reference frequency
+    // (DC for low-pass, Nyquist for high-pass); normalizing the cascade to unity gain there is
+    // equivalent to dividing any single stage's numerator by that product.
+    let mut total_gain = 1.0f32;
+    for k in 0..num_stages {
+        let stage = chebyshev_biquad_stage(
+            cutoff_norm,
+            high_pass,
+            ripple_percent,
+            num_poles,
+            (k + 1) as u32,
+        );
+        let [b0, b1, b2, a1, a2] = stage;
+        total_gain *= if high_pass {
+            (b0 - b1 + b2) / (1.0 + a1 - a2)
+        } else {
+            (b0 + b1 + b2) / (1.0 - a1 - a2)
+        };
+        out_coeffs[k * 5..(k + 1) * 5].copy_from_slice(&stage);
+    }
+
+    if total_gain != 0.0 {
+        let inv_gain = 1.0 / total_gain;
+        out_coeffs[0] *= inv_gain;
+        out_coeffs[1] *= inv_gain;
+        out_coeffs[2] *= inv_gain;
+    }
+}
+
+// --- Single-Pole Recursive Filter Design (Steven W. Smith, Ch. 19) ---
+
+/// Converts a normalized cutoff frequency (`0.0..0.5`, cycles/sample) to the sample-to-sample
+/// decay factor `x` used to design a single-pole recursive filter (Eq. 19-5).
+pub fn single_pole_decay_from_cutoff(cutoff_norm: f32) -> f32 {
+    (-2.0 * core::f32::consts::PI * cutoff_norm).exp()
+}
+
+/// Converts a time constant (in samples, the time to decay to `1/e` &asymp; 36.8%) to the
+/// sample-to-sample decay factor `x` used to design a single-pole recursive filter (Eq. 19-4).
+pub fn single_pole_decay_from_time_constant(time_constant_samples: f32) -> f32 {
+    (-1.0 / time_constant_samples).exp()
+}
+
 /// Pre-warps continuous cutoff frequency `fc` for the bilinear transform at sampling rate `fs`.
 /// Returns pre-warped analog frequency $\omega_p = 2 f_s \tan(\pi f_c / f_s)$.
 pub fn prewarp_cutoff_f32(fc: f32, fs: f32) -> f32 {

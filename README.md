@@ -14,12 +14,12 @@ A **`#![no_std]` Rust Digital Signal Processing library** designed for microcont
 - **`#![no_std]` First**: Pure `core` compatibility for bare-metal targets with zero dynamic allocation required.
 - **`libm`, `defmt`, & `serde` Integrations**: Optional formatting logs via `defmt`, model serialization via `serde`, and floating-point math routines in `#![no_std]` environments via `libm`.
 - **Fixed-Point & Floating-Point**: Complete support for `f32`, `f64`, `q31`, `q15`, `q7`, and `q63` saturating arithmetic.
-- **23 Core DSP Modules**:
+- **22 Core DSP Modules**:
   1. **Basic Math**: Elementwise `add`, `sub`, `mult`, `negate`, `offset`, `scale`, `shift`, `dot_prod`, `clip`, bitwise operations.
   2. **Complex Math**: Complex vector addition, multiplication, magnitude, conjugate, dot product.
   3. **Fast Math**: Trigonometric `sin`, `cos`, `tan`, `sin_cos`, `sqrt`, `vsqrt`, `divide`, `log`, `log10`, `exp`, `atan2`.
-  4. **Filtering**: FIR filters, Biquad IIR cascade, LMS adaptive filters, 1D convolution & correlation, FFT fast convolution, 1D conditional/thresholded median filters (`f32`, `q15`, `q31`), and const-generic real-time `CircularBuffer<T, N>`.
-  5. **Filter Design**: Biquad Low-Pass, High-Pass, Band-Pass, Notch, Peaking EQ, All-Pass, multi-stage Butterworth design, continuous-to-discrete Bilinear Transform with cutoff frequency pre-warping, and Windowed-Sinc FIR design (Low-pass, High-pass, Band-pass, Band-stop).
+  4. **Filtering**: FIR filters, Biquad IIR cascade, LMS adaptive filters, 1D convolution & correlation, FFT fast convolution, 1D conditional/thresholded median filters (`f32`, `q15`, `q31`), single-pole recursive low/high-pass filters (`SinglePoleFilter`), O(1) recursive moving average (`RecursiveMovingAverage<N>`), and const-generic real-time `CircularBuffer<T, N>`.
+  5. **Filter Design**: Biquad Low-Pass, High-Pass, Band-Pass, Notch, Peaking EQ, All-Pass, multi-stage Butterworth design, multi-stage Chebyshev Low-Pass/High-Pass design, continuous-to-discrete Bilinear Transform with cutoff frequency pre-warping, and Windowed-Sinc FIR design (Low-pass, High-pass, Band-pass, Band-stop).
   6. **Audio & TinyML**: Goertzel single-frequency detector, Envelope follower (peak & RMS), Mel filterbank, and MFCC feature extraction.
   7. **Spectral Analysis & PSD**: Welch's method power spectral density estimation (averaged periodograms), single-segment periodograms in linear and dB scale.
   8. **Spatial & 2D Signal Processing**: 2D DCT-II / IDCT-II, 2D spatial convolution with normalization, 2D non-linear filtering (Min/Max/Median), Sobel edge detection, 2D histogram binning, MSE, and PSNR.
@@ -36,6 +36,7 @@ A **`#![no_std]` Rust Digital Signal Processing library** designed for microcont
   19. **Window Functions**: Hanning, Hamming, Blackman, 4-term Blackman-Harris, Bartlett, Welch, Flat-top generators.
   20. **Distance Metrics**: Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Jaccard, Hamming, Canberra, Bray-Curtis.
   21. **Machine Learning**: Support Vector Machine (`SvmInstanceF32`) and Gaussian Naive Bayes (`GaussianNaiveBayesInstanceF32`).
+  22. **Filter Analysis**: FIR/biquad-cascade frequency response (DTFT) evaluation, magnitude/phase/dB helpers, FIR group delay, and pole-based IIR stability checks.
 
 ---
 

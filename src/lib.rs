@@ -15,8 +15,9 @@
 //! - **Statistics**: Mean, variance, standard deviation, RMS, power, min/max, entropy, Kullback-Leibler, LogSumExp.
 //! - **Support**: Vector copy, fill, type conversions (Q7, Q15, Q31, F32), sort, barycenter, weighted sum.
 //! - **Matrix**: Matrix addition, subtraction, multiplication, scale, transpose, Gauss-Jordan inverse.
-//! - **Filtering**: FIR, Biquad IIR Direct Form I, LMS adaptive filters, Convolution, Correlation.
-//! - **Filter Design**: Biquad Lowpass, Highpass, Bandpass, Notch, Peaking EQ, Allpass, and Butterworth design.
+//! - **Filtering**: FIR, Biquad IIR Direct Form I, LMS adaptive filters, Convolution, Correlation, single-pole recursive filters, and O(1) recursive moving average.
+//! - **Filter Design**: Biquad Lowpass, Highpass, Bandpass, Notch, Peaking EQ, Allpass, Butterworth, and Chebyshev design.
+//! - **Filter Analysis**: Frequency response (DTFT) evaluation for FIR/biquad filters, FIR group delay, and pole-based IIR stability checks.
 //! - **Resampling & Multi-rate**: CIC Decimator & Interpolator, linear fractional resampler.
 //! - **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, and trait-based `ExtendedKalmanFilter` (EKF).
 //! - **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `BiquadCascade<N>`, and `Matrix<R, C>`.
@@ -38,6 +39,8 @@ pub mod const_generics;
 pub mod controller;
 pub mod distance;
 pub mod fast_math;
+#[cfg(any(feature = "std", feature = "libm"))]
+pub mod filter_analysis;
 #[cfg(any(feature = "std", feature = "libm"))]
 pub mod filter_design;
 pub mod filtering;
@@ -61,6 +64,8 @@ pub use const_generics::*;
 pub use controller::*;
 pub use distance::*;
 pub use fast_math::*;
+#[cfg(any(feature = "std", feature = "libm"))]
+pub use filter_analysis::*;
 #[cfg(any(feature = "std", feature = "libm"))]
 pub use filter_design::*;
 pub use filtering::*;
