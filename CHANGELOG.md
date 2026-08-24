@@ -3,6 +3,33 @@
 All notable changes to this project are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- Restored Q16.16 arithmetic (`fixed-point`) and compile-time sin/cos lookup
+  tables (`lut`) from the 0.2.0 tree.
+- Integer (no-FPU) Q15/Q31 kernels: radix-2 `cfft`/`rfft` (per-stage `>>1`),
+  Newton `sqrt_q15`/`sqrt_q31`, CORDIC `sin_cos_q31`/`atan2_q15`/`atan2_q31`,
+  integer `cmplx_mag` / `std` / `rms`, DF1 `biquad_cascade_df1_q15`/`q31`,
+  SOS quantizers `biquad_coeffs_f32_to_q15`/`q31`, and LUT `sin_q16`/`cos_q16`.
+- Per-module Cargo features (plus a `full` meta-feature on by default), matching
+  the 0.2.0 "compile only what you use" model. `types` and `math` stay always-on.
+  FFT-backed helpers (`fast_convolve_f32`, `fir_custom_frequency_sampling`,
+  `spectral_interpolate_2x_f32`) additionally require `transform`.
+
+### Changed
+
+- `default-features = false` no longer compiles every DSP module. Bare-metal
+  installs that want the whole crate should use
+  `features = ["libm", "full"]` (or pick individual modules).
+
+### Removed
+
+- Gaussian Naive Bayes and SVM classifiers. Classical ML inference belongs in
+  `embedded-nn`; this crate keeps the DSP front-end (Mel filterbank, MFCC,
+  Goertzel, envelopes) that those models consume.
+
 ## [0.3.0] - 2026-08-23
 
 ### Added

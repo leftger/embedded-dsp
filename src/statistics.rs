@@ -167,9 +167,7 @@ pub fn std_q31(src: &[q31], result: &mut q31) -> Status {
     let mut v = 0;
     let status = var_q31(src, &mut v);
     if status == Status::Success {
-        let vf = v as f64 / 2147483648.0;
-        let s = vf.sqrt();
-        *result = (s * 2147483647.0).clamp(0.0, 2147483647.0) as q31;
+        let _ = crate::fast_math::sqrt_q31(v, result);
     }
     status
 }
@@ -178,9 +176,7 @@ pub fn std_q15(src: &[q15], result: &mut q15) -> Status {
     let mut v = 0;
     let status = var_q15(src, &mut v);
     if status == Status::Success {
-        let vf = v as f32 / 32768.0;
-        let s = vf.sqrt();
-        *result = (s * 32767.0).clamp(0.0, 32767.0) as q15;
+        let _ = crate::fast_math::sqrt_q15(v, result);
     }
     status
 }
@@ -189,9 +185,8 @@ pub fn std_q7(src: &[q7], result: &mut q7) -> Status {
     let mut v = 0;
     let status = var_q7(src, &mut v);
     if status == Status::Success {
-        let vf = v as f32 / 128.0;
-        let s = vf.sqrt();
-        *result = (s * 127.0).clamp(0.0, 127.0) as q7;
+        let n = (v.max(0) as u32) << 7;
+        *result = crate::math::isqrt_u32(n).min(i8::MAX as u32) as q7;
     }
     status
 }
@@ -219,10 +214,8 @@ pub fn rms_q31(src: &[q31], result: &mut q31) -> Status {
         let v = val as i64;
         sum_sq += ((v * v) >> 31) as u64;
     }
-    let mean_sq = sum_sq / (src.len() as u64);
-    let vf = mean_sq as f64 / 2147483648.0;
-    let r = vf.sqrt();
-    *result = (r * 2147483647.0).clamp(0.0, 2147483647.0) as q31;
+    let mean_sq = (sum_sq / (src.len() as u64)).min(i32::MAX as u64) as q31;
+    let _ = crate::fast_math::sqrt_q31(mean_sq, result);
     Status::Success
 }
 
@@ -235,10 +228,8 @@ pub fn rms_q15(src: &[q15], result: &mut q15) -> Status {
         let v = val as i32;
         sum_sq += ((v * v) >> 15) as u32;
     }
-    let mean_sq = sum_sq / (src.len() as u32);
-    let vf = mean_sq as f32 / 32768.0;
-    let r = vf.sqrt();
-    *result = (r * 32767.0).clamp(0.0, 32767.0) as q15;
+    let mean_sq = (sum_sq / (src.len() as u32)).min(i16::MAX as u32) as q15;
+    let _ = crate::fast_math::sqrt_q15(mean_sq, result);
     Status::Success
 }
 

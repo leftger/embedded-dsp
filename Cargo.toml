@@ -11,17 +11,81 @@ keywords = ["dsp", "embedded", "no_std", "signal-processing", "fft"]
 categories = ["embedded", "no-std", "science"]
 
 [features]
-default = ["std", "libm"]
+# Default matches a "give me the whole crate" install. Opt out with
+# `default-features = false` and pick `libm`/`std` plus the modules you want
+# (or `full` for every algorithm module).
+default = ["std", "libm", "full"]
 std = []
 libm = ["dep:libm"]
 defmt = ["dep:defmt"]
 serde = ["dep:serde"]
 alloc = []
 
+# Enables every algorithm module. Independent of `std`/`libm` so no_std
+# consumers can use `default-features = false, features = ["libm", "full"]`.
+full = [
+    "audio",
+    "basic-math",
+    "companding",
+    "complex-math",
+    "const-generics",
+    "controller",
+    "distance",
+    "fast-math",
+    "filter-analysis",
+    "filter-design",
+    "filtering",
+    "fixed-point",
+    "interpolation",
+    "kalman",
+    "lut",
+    "matrix",
+    "psd",
+    "quaternion",
+    "resampling",
+    "spatial",
+    "statistics",
+    "support",
+    "transform",
+    "window",
+]
+
+# Per-module features: pull in only the algorithms you need.
+audio = ["transform"]
+basic-math = []
+companding = []
+complex-math = []
+const-generics = ["filtering", "matrix"]
+controller = []
+distance = []
+fast-math = []
+filter-analysis = []
+filter-design = []
+filtering = []
+# Q16.16 saturating arithmetic (rasterizer / no-FPU pipelines). Complements
+# the always-on CMSIS-style q7/q15/q31 aliases in `types`.
+fixed-point = []
+interpolation = []
+kalman = ["matrix"]
+# Precomputed 256-entry sin/cos tables (i16), an alternative to `fast-math`.
+lut = []
+matrix = ["basic-math"]
+psd = ["transform", "window"]
+quaternion = []
+resampling = []
+spatial = []
+statistics = []
+support = []
+transform = []
+window = []
+
 [dependencies]
 libm = { version = "0.2.11", optional = true }
 defmt = { version = "0.3", optional = true, default-features = false }
 serde = { version = "1.0", optional = true, default-features = false, features = ["derive"] }
+
+[package.metadata.docs.rs]
+all-features = true
 
 [[example]]
 name = "basic_usage"

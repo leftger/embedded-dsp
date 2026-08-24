@@ -410,3 +410,33 @@ impl FloatMath for f64 {
         }
     }
 }
+
+/// Integer square root of a `u32` (Newton).
+#[inline]
+pub(crate) fn isqrt_u32(n: u32) -> u32 {
+    if n <= 1 {
+        return n;
+    }
+    let mut x = n;
+    let mut y = (x + 1) / 2;
+    while y < x {
+        x = y;
+        y = x.saturating_add(n / x) / 2;
+    }
+    x
+}
+
+/// Integer square root of a `u64` (Newton).
+#[inline]
+pub(crate) fn isqrt_u64(n: u64) -> u64 {
+    if n <= 1 {
+        return n;
+    }
+    let mut x = n;
+    let mut y = (x + 1) / 2;
+    while y < x {
+        x = y;
+        y = x.saturating_add(n / x) / 2;
+    }
+    x
+}

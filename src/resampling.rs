@@ -114,13 +114,18 @@ pub fn resample_linear_f32(src: &[f32], dst: &mut [f32], ratio: f32) {
     }
 }
 
+#[cfg(feature = "transform")]
 use crate::transform::cfft_f32;
+#[cfg(feature = "transform")]
 use crate::types::Status;
 
 /// Spectral (Sinc) 2:1 Interpolator using frequency-domain zero-padding via FFT/IFFT.
 ///
 /// `src` length must be a power of 2 (e.g. 16, 32, 64, 128, 256).
 /// `dst` must have length at least `2 * src.len()`.
+///
+/// Requires the `transform` feature (enabled by `full`).
+#[cfg(feature = "transform")]
 pub fn spectral_interpolate_2x_f32(src: &[f32], dst: &mut [f32]) -> Status {
     let n = src.len();
     if n < 4 || (n & (n - 1)) != 0 {

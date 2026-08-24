@@ -141,20 +141,24 @@ pub fn cmplx_mag_f32(src: &[f32], dst: &mut [f32]) {
 pub fn cmplx_mag_q31(src: &[q31], dst: &mut [q31]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
-        let r = src[2 * i] as f64 / 2147483648.0;
-        let im = src[2 * i + 1] as f64 / 2147483648.0;
-        let mag = (r * r + im * im).sqrt();
-        dst[i] = (mag * 2147483647.0).clamp(0.0, 2147483647.0) as q31;
+        let r = src[2 * i] as i64;
+        let im = src[2 * i + 1] as i64;
+        let mag_sq = ((r * r + im * im) >> 31).clamp(0, i32::MAX as i64) as q31;
+        let mut mag = 0;
+        let _ = crate::fast_math::sqrt_q31(mag_sq, &mut mag);
+        dst[i] = mag;
     }
 }
 
 pub fn cmplx_mag_q15(src: &[q15], dst: &mut [q15]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
-        let r = src[2 * i] as f32 / 32768.0;
-        let im = src[2 * i + 1] as f32 / 32768.0;
-        let mag = (r * r + im * im).sqrt();
-        dst[i] = (mag * 32767.0).clamp(0.0, 32767.0) as q15;
+        let r = src[2 * i] as i32;
+        let im = src[2 * i + 1] as i32;
+        let mag_sq = ((r * r + im * im) >> 15).clamp(0, i16::MAX as i32) as q15;
+        let mut mag = 0;
+        let _ = crate::fast_math::sqrt_q15(mag_sq, &mut mag);
+        dst[i] = mag;
     }
 }
 

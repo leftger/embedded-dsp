@@ -19,7 +19,7 @@ env:
   CARGO_BUILD_JOBS: "1"
   MSRV: "1.88"
   NO_STD_TARGET: thumbv7em-none-eabihf
-  NO_STD_CARGO_ARGS: "--no-default-features --features libm"
+  NO_STD_CARGO_ARGS: "--no-default-features --features libm,full"
   CLIPPY_ARGS: "--lib --all-features"
   DOCS_ARGS: "--lib --no-deps --all-features"
   CHECK_ARGS: "--lib --all-features"

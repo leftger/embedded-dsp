@@ -5,7 +5,7 @@
 [![CI](https://github.com/leftger/embedded-dsp/actions/workflows/ci.yml/badge.svg)](https://github.com/leftger/embedded-dsp/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
-A **`#![no_std]` Rust Digital Signal Processing library** designed for microcontrollers (Cortex-M, RISC-V, AVR, Xtensa), embedded systems, real-time signal processing, and TinyML applications.
+A **`#![no_std]` Rust Digital Signal Processing library** designed for microcontrollers (Cortex-M, RISC-V, AVR, Xtensa), embedded systems, and real-time signal processing. Neural-net and classical ML inference live in [`embedded-nn`](https://github.com/leftger/embedded-nn).
 
 ---
 
@@ -13,14 +13,15 @@ A **`#![no_std]` Rust Digital Signal Processing library** designed for microcont
 
 - **`#![no_std]` First**: Pure `core` compatibility for bare-metal targets with zero dynamic allocation required.
 - **`libm`, `defmt`, & `serde` Integrations**: Optional formatting logs via `defmt`, model serialization via `serde`, and floating-point math routines in `#![no_std]` environments via `libm`.
-- **Fixed-Point & Floating-Point**: Complete support for `f32`, `f64`, `q31`, `q15`, `q7`, and `q63` saturating arithmetic.
-- **23 Core DSP Modules**:
+- **Per-module Cargo features**: Every algorithm module is optional. `full` (in `default`) enables them all; `default-features = false` plus the modules you want keeps firmware images small.
+- **Fixed-Point & Floating-Point**: CMSIS-style `f32`, `f64`, `q31`, `q15`, `q7`, and `q63` saturating arithmetic, plus Q16.16 (`fixed-point`) and a 256-entry sin/cos LUT (`lut`).
+- **22 Core DSP Modules**:
   1. **Basic Math**: Elementwise `add`, `sub`, `mult`, `negate`, `offset`, `scale`, `shift`, `dot_prod`, `clip`, bitwise operations.
   2. **Complex Math**: Complex vector addition, multiplication, magnitude, conjugate, dot product.
   3. **Fast Math**: Trigonometric `sin`, `cos`, `tan`, `sin_cos`, `sqrt`, `vsqrt`, `divide`, `log`, `log10`, `exp`, `atan2`.
   4. **Filtering**: FIR filters, Biquad IIR cascade, LMS adaptive filters, 1D convolution & correlation, FFT fast convolution, 1D conditional/thresholded median filters (`f32`, `q15`, `q31`), single-pole recursive low/high-pass filters (`SinglePoleFilter`), O(1) recursive moving average (`RecursiveMovingAverage<N>`), and const-generic real-time `CircularBuffer<T, N>`.
   5. **Filter Design**: Biquad Low-Pass, High-Pass, Band-Pass, Notch, Peaking EQ, All-Pass, multi-stage Butterworth design, multi-stage Chebyshev Low-Pass/High-Pass design, continuous-to-discrete Bilinear Transform with cutoff frequency pre-warping, Windowed-Sinc FIR design (Low-pass, High-pass, Band-pass, Band-stop), and arbitrary-response FIR design via frequency sampling (`fir_custom_frequency_sampling`).
-  6. **Audio & TinyML**: Goertzel single-frequency detector (`GoertzelDetector`), peak/RMS envelope followers (`PeakEnvelopeFollower`/`RmsEnvelopeFollower`), Mel filterbank (`mel_filterbank_f32`), and MFCC feature extraction (`mfcc_f32`).
+  6. **Audio**: Goertzel single-frequency detector (`GoertzelDetector`), peak/RMS envelope followers (`PeakEnvelopeFollower`/`RmsEnvelopeFollower`), Mel filterbank (`mel_filterbank_f32`), and MFCC feature extraction (`mfcc_f32`).
   7. **Spectral Analysis & PSD**: Welch's method power spectral density estimation (averaged periodograms), single-segment periodograms in linear and dB scale.
   8. **Spatial & 2D Signal Processing**: 2D DCT-II / IDCT-II, 2D spatial convolution with normalization, 2D non-linear filtering (Min/Max/Median), Sobel edge detection, 2D histogram binning, MSE, and PSNR.
   9. **Resampling & Multi-rate**: Cascaded Integrator-Comb (CIC) Decimator & Interpolator, linear fractional resampler, spectral 2:1 sinc zero-padding interpolation.
@@ -35,9 +36,8 @@ A **`#![no_std]` Rust Digital Signal Processing library** designed for microcont
   18. **Quaternions**: Norm, normalization, quaternion product, conjugate, inverse, rotation matrix conversion.
   19. **Window Functions**: Hanning, Hamming, Blackman, 4-term Blackman-Harris, Bartlett, Welch, Flat-top generators.
   20. **Distance Metrics**: Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Jaccard, Hamming, Canberra, Bray-Curtis.
-  21. **Machine Learning**: Support Vector Machine (`SvmInstanceF32`) and Gaussian Naive Bayes (`GaussianNaiveBayesInstanceF32`).
-  22. **Filter Analysis**: FIR/biquad-cascade frequency response (DTFT) evaluation, magnitude/phase/dB helpers, FIR group delay, and pole-based IIR stability checks.
-  23. **Companding**: µ-law and "A"-law audio companding (`mu_law_compress_f32`/`mu_law_expand_f32`, `a_law_compress_f32`/`a_law_expand_f32`), the ITU-T G.711-family nonlinear compression curves.
+  21. **Filter Analysis**: FIR/biquad-cascade frequency response (DTFT) evaluation, magnitude/phase/dB helpers, FIR group delay, and pole-based IIR stability checks.
+  22. **Companding**: µ-law and "A"-law audio companding (`mu_law_compress_f32`/`mu_law_expand_f32`, `a_law_compress_f32`/`a_law_expand_f32`), the ITU-T G.711-family nonlinear compression curves.
 
 ---
 
@@ -47,12 +47,17 @@ Add `embedded-dsp` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-# For bare-metal #![no_std] environments with libm
-embedded-dsp = { version = "0.3.0", default-features = false, features = ["libm"] }
-
-# For standard std environments
+# For standard std environments (all modules)
 embedded-dsp = "0.3.0"
+
+# For bare-metal #![no_std] with libm and every algorithm module
+embedded-dsp = { version = "0.3.0", default-features = false, features = ["libm", "full"] }
+
+# For bare-metal, only the pieces you use (example: FIR/biquad + Q15 math)
+embedded-dsp = { version = "0.3.0", default-features = false, features = ["libm", "filtering", "basic-math"] }
 ```
+
+`types` and `math` (`FloatMath`) are always compiled. Other modules map 1:1 to Cargo features (`filtering`, `transform`, `kalman`, `fixed-point`, `lut`, …). Enabling `kalman` also pulls `matrix` (and thus `basic-math`); enabling `audio` or `psd` also pulls `transform`.
 
 ### Basic Example
 

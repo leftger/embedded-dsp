@@ -2,6 +2,7 @@
 
 #[allow(unused_imports)]
 use crate::math::FloatMath;
+use crate::math::{isqrt_u32, isqrt_u64};
 use crate::types::*;
 
 /// Floating-point sine calculation.
@@ -21,14 +22,111 @@ pub fn sin_cos_f32(theta: f32, sin_val: &mut f32, cos_val: &mut f32) {
     *cos_val = rad.cos();
 }
 
-/// Q31 sine and cosine calculation.
-pub fn sin_cos_q31(theta: q31, sin_val: &mut q31, cos_val: &mut q31) {
-    let theta_f = (theta as f64) / 2147483648.0 * core::f64::consts::PI;
-    let s = theta_f.sin();
-    let c = theta_f.cos();
+const fn atan_taylor(x: f32) -> f32 {
+    let x2 = x * x;
+    let x3 = x2 * x;
+    let x5 = x3 * x2;
+    let x7 = x5 * x2;
+    let x9 = x7 * x2;
+    x - x3 / 3.0 + x5 / 5.0 - x7 / 7.0 + x9 / 9.0
+}
 
-    *sin_val = (s * 2147483647.0).clamp(-2147483648.0, 2147483647.0) as q31;
-    *cos_val = (c * 2147483647.0).clamp(-2147483648.0, 2147483647.0) as q31;
+const fn gen_cordic_atan_q31() -> [i32; 32] {
+    let mut t = [0i32; 32];
+    let mut i = 0;
+    while i < 32 {
+        let x = 1.0f32 / ((1u32 << i) as f32);
+        let a = atan_taylor(x) / core::f32::consts::PI * 2147483648.0;
+        t[i] = a as i32;
+        i += 1;
+    }
+    t
+}
+
+/// `atan(2^-i) / π` in Q1.31 (CORDIC angle table).
+const CORDIC_ATAN_Q31: [i32; 32] = gen_cordic_atan_q31();
+
+/// CORDIC K ≈ 0.607252935 in Q1.31.
+const CORDIC_K_Q31: i32 = 1_304_063_564;
+
+fn cordic_rotate_q31(theta: i32) -> (i32, i32) {
+    let mut x = CORDIC_K_Q31;
+    let mut y = 0i32;
+    let mut z = theta;
+    let mut i = 0;
+    while i < 31 {
+        let x_sh = x >> i;
+        let y_sh = y >> i;
+        if z >= 0 {
+            x = x.saturating_sub(y_sh);
+            y = y.saturating_add(x_sh);
+            z = z.saturating_sub(CORDIC_ATAN_Q31[i]);
+        } else {
+            x = x.saturating_add(y_sh);
+            y = y.saturating_sub(x_sh);
+            z = z.saturating_add(CORDIC_ATAN_Q31[i]);
+        }
+        i += 1;
+    }
+    (x, y)
+}
+
+/// First-quadrant `atan(y/x) / π` in Q1.31. `x` and `y` must be `>= 0`.
+fn cordic_atan_first_q31(mut x: i32, mut y: i32) -> i32 {
+    if x == 0 {
+        return if y == 0 { 0 } else { 1 << 30 }; // 0.5 → π/2
+    }
+    if y == 0 {
+        return 0;
+    }
+    while x < (1 << 30) && y < (1 << 30) && (x > 0 || y > 0) {
+        let nx = x.saturating_mul(2);
+        let ny = y.saturating_mul(2);
+        if nx / 2 != x || ny / 2 != y {
+            break;
+        }
+        x = nx;
+        y = ny;
+    }
+    let mut z = 0i32;
+    let mut i = 0;
+    while i < 31 {
+        let x_sh = x >> i;
+        let y_sh = y >> i;
+        if y >= 0 {
+            x = x.saturating_add(y_sh);
+            y = y.saturating_sub(x_sh);
+            z = z.saturating_add(CORDIC_ATAN_Q31[i]);
+        } else {
+            x = x.saturating_sub(y_sh);
+            y = y.saturating_add(x_sh);
+            z = z.saturating_sub(CORDIC_ATAN_Q31[i]);
+        }
+        i += 1;
+    }
+    z.max(0)
+}
+
+fn atan2_from_xy_q31(y: i32, x: i32) -> i32 {
+    if x == 0 && y == 0 {
+        return 0;
+    }
+    let ax = if x == i32::MIN { i32::MAX } else { x.abs() };
+    let ay = if y == i32::MIN { i32::MAX } else { y.abs() };
+    let a = cordic_atan_first_q31(ax, ay);
+    match (x >= 0, y >= 0) {
+        (true, true) => a,
+        (true, false) => a.saturating_neg(),
+        (false, true) => i32::MAX.saturating_sub(a),
+        (false, false) => a.saturating_sub(i32::MAX),
+    }
+}
+
+/// Q31 sine and cosine. `theta` is in CMSIS units: `[-1, 1) → [-π, π)`.
+pub fn sin_cos_q31(theta: q31, sin_val: &mut q31, cos_val: &mut q31) {
+    let (c, s) = cordic_rotate_q31(theta);
+    *cos_val = c;
+    *sin_val = s;
 }
 
 /// Q31 sine function.
@@ -58,28 +156,26 @@ pub fn sqrt_f32(in_val: f32, out_val: &mut f32) -> Status {
     }
 }
 
-/// Q31 square root function.
+/// Q31 square root (`sqrt(x / 2^31) * 2^31`).
 pub fn sqrt_q31(in_val: q31, out_val: &mut q31) -> Status {
     if in_val < 0 {
         *out_val = 0;
         Status::ArgumentError
     } else {
-        let f = in_val as f64 / 2147483648.0;
-        let res = f.sqrt();
-        *out_val = (res * 2147483647.0).clamp(0.0, 2147483647.0) as q31;
+        let n = (in_val as u64) << 31;
+        *out_val = isqrt_u64(n).min(i32::MAX as u64) as q31;
         Status::Success
     }
 }
 
-/// Q15 square root function.
+/// Q15 square root (`sqrt(x / 2^15) * 2^15`).
 pub fn sqrt_q15(in_val: q15, out_val: &mut q15) -> Status {
     if in_val < 0 {
         *out_val = 0;
         Status::ArgumentError
     } else {
-        let f = in_val as f32 / 32768.0;
-        let res = f.sqrt();
-        *out_val = (res * 32767.0).clamp(0.0, 32767.0) as q15;
+        let n = (in_val as u32) << 15;
+        *out_val = isqrt_u32(n).min(i16::MAX as u32) as q15;
         Status::Success
     }
 }
@@ -145,21 +241,15 @@ pub fn atan2_f32(y: f32, x: f32, res: &mut f32) -> Status {
     Status::Success
 }
 
-/// Q31 arc-tangent 2.
+/// Q31 arc-tangent 2. Result is `atan2(y, x) / π` in Q1.31 (`[-1, 1)`).
 pub fn atan2_q31(y: q31, x: q31, res: &mut q31) -> Status {
-    let y_f = y as f64 / 2147483648.0;
-    let x_f = x as f64 / 2147483648.0;
-    let ang = y_f.atan2(x_f) / core::f64::consts::PI;
-
-    *res = (ang * 2147483647.0).clamp(-2147483648.0, 2147483647.0) as q31;
+    *res = atan2_from_xy_q31(y, x);
     Status::Success
 }
 
-/// Q15 arc-tangent 2.
+/// Q15 arc-tangent 2. Result is `atan2(y, x) / π` in Q1.15.
 pub fn atan2_q15(y: q15, x: q15, res: &mut q15) -> Status {
-    let y_f = y as f32 / 32768.0;
-    let x_f = x as f32 / 32768.0;
-    let ang = y_f.atan2(x_f) / core::f32::consts::PI;
-    *res = (ang * 32767.0).clamp(-32768.0, 32767.0) as q15;
+    let z = atan2_from_xy_q31((y as i32) << 16, (x as i32) << 16);
+    *res = (z >> 16) as q15;
     Status::Success
 }

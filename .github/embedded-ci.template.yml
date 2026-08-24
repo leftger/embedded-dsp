@@ -5,7 +5,7 @@
 # so CI stays consistent across crates.
 #
 # Per-crate env cheat sheet:
-#   embedded-dsp:   MSRV=1.85, NO_STD_CARGO_ARGS="--no-default-features --features libm", BUILD_EXAMPLES=true
+#   embedded-dsp:   MSRV=1.85, NO_STD_CARGO_ARGS="--no-default-features --features libm,full", BUILD_EXAMPLES=true
 #   embedded-nn:    MSRV=1.85, NO_STD_CARGO_ARGS="--no-default-features"
 #   embedded-audio: MSRV=1.85, NO_STD_CARGO_ARGS="--no-default-features"
 #   embedded-gui:   MSRV=1.87, NO_STD_CARGO_ARGS="--no-default-features --features libm", NEEDS_SDL=true, BUILD_EXAMPLES=true
@@ -32,7 +32,7 @@ env:
   CARGO_TERM_COLOR: always
   MSRV: "1.85"
   NO_STD_TARGET: thumbv7em-none-eabihf
-  NO_STD_CARGO_ARGS: "--no-default-features --features libm"
+  NO_STD_CARGO_ARGS: "--no-default-features --features libm,full"
   CHECK_ARGS: "--lib --all-features"
   TEST_ARGS: "--all-features"
   BUILD_EXAMPLES: "true"

@@ -18,7 +18,7 @@ repos:
 
       - id: cargo-check-no-std
         name: cargo check (no_std)
-        entry: cargo check --lib --no-default-features --features libm --target thumbv7em-none-eabihf
+        entry: cargo check --lib --no-default-features --features libm,full --target thumbv7em-none-eabihf
         language: system
         types: [rust]
         pass_filenames: false

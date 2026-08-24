@@ -1602,3 +1602,114 @@ fn test_mfcc_f32_produces_finite_distinguishable_coefficients() {
         .sum();
     assert!(diff > 0.1, "MFCC vectors too similar: diff={diff}");
 }
+
+#[test]
+fn test_q16_and_lut_trig() {
+    let product = from_q16(mul_q16(to_q16(1.5), to_q16(2.0)));
+    assert!((product - 3.0).abs() < 0.01);
+
+    let s = fast_sin_i16(core::f32::consts::PI / 2.0) as f32 / 32768.0;
+    assert!((s - 1.0).abs() < 0.02);
+
+    let s16 = from_q16(sin_q16(angle_to_q16(90.0)));
+    assert!((s16 - 1.0).abs() < 0.05);
+}
+
+#[test]
+fn test_integer_cfft_q15_tone_and_roundtrip_scale() {
+    const N: usize = 32;
+    let mut q = [0i16; 64];
+    let mut f = [0.0f32; 64];
+    for i in 0..N {
+        let x = (2.0 * core::f32::consts::PI * 4.0 * i as f32 / N as f32).sin();
+        f[2 * i] = x;
+        q[2 * i] = (x * 32767.0) as i16;
+    }
+    let orig = q;
+    cfft_f32(&mut f, N, 0, 1);
+    cfft_q15(&mut q, N, 0, 1);
+
+    let mut peak_f = 0usize;
+    let mut peak_q = 0usize;
+    let mut mag_f = 0.0f32;
+    let mut mag_q = 0i32;
+    for k in 0..N {
+        let mf = f[2 * k] * f[2 * k] + f[2 * k + 1] * f[2 * k + 1];
+        if mf > mag_f {
+            mag_f = mf;
+            peak_f = k;
+        }
+        let mq = (q[2 * k] as i32).pow(2) + (q[2 * k + 1] as i32).pow(2);
+        if mq > mag_q {
+            mag_q = mq;
+            peak_q = k;
+        }
+    }
+    assert_eq!(peak_f, peak_q);
+    assert_eq!(peak_f, 4);
+
+    cfft_q15(&mut q, N, 1, 1);
+    let mut err = 0i32;
+    for i in 0..N {
+        let got = (q[2 * i] as i32) * (N as i32);
+        err += (got - orig[2 * i] as i32).abs();
+    }
+    let mean = err / (N as i32);
+    assert!(
+        mean < 4000,
+        "round-trip abs err sum/N = {mean}; first got*N={} orig={}",
+        (q[0] as i32) * N as i32,
+        orig[0]
+    );
+}
+
+#[test]
+fn test_sqrt_q15_and_atan2_q15_quadrants() {
+    let mut s = 0i16;
+    assert_eq!(sqrt_q15(16384, &mut s), Status::Success);
+    // 0.5 in Q15 → sqrt ≈ 0.707 → ~23170
+    assert!((s as i32 - 23170).abs() < 200);
+
+    let mut a = 0i16;
+    assert_eq!(atan2_q15(32767, 32767, &mut a), Status::Success);
+    assert!(
+        a > 7000 && a < 10000,
+        "π/4 as Q15/π expected ~8192, got {a}"
+    );
+    assert_eq!(atan2_q15(32767, 0, &mut a), Status::Success);
+    assert!(a > 14000, "π/2 expected ~16384, got {a}");
+    assert_eq!(atan2_q15(0, -32767, &mut a), Status::Success);
+    assert!(a > 14000 || a < -14000, "±π expected, got {a}");
+}
+
+#[test]
+fn test_biquad_q15_matches_f32_lowpass() {
+    let coeffs = biquad_lowpass_coeffs(800.0, 8000.0, 0.7071);
+    let mut state_f = [0.0f32; 4];
+    let mut bq_f = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state_f);
+
+    let post_shift = 1u8;
+    let mut qcoeffs = [0i16; 5];
+    assert_eq!(
+        biquad_coeffs_f32_to_q15(&coeffs, &mut qcoeffs, post_shift),
+        Status::Success
+    );
+    let mut state_q = [0i16; 4];
+    let mut bq_q = BiquadCascadeInstanceQ15::init(1, &qcoeffs, &mut state_q, post_shift);
+
+    let mut max_err = 0.0f32;
+    for n in 0..64 {
+        let x = (2.0 * core::f32::consts::PI * 200.0 * n as f32 / 8000.0).sin() * 0.5;
+        let mut yf = [0.0f32; 1];
+        biquad_cascade_df1_f32(&mut bq_f, &[x], &mut yf);
+        let xq = [(x * 32767.0) as i16];
+        let mut yq = [0i16; 1];
+        biquad_cascade_df1_q15(&mut bq_q, &xq, &mut yq);
+        let yq_f = yq[0] as f32 / 32767.0;
+        max_err = max_err.max((yf[0] - yq_f).abs());
+    }
+    assert!(
+        max_err < 0.08,
+        "max abs err {max_err} coeffs={coeffs:?} q={qcoeffs:?}"
+    );
+}

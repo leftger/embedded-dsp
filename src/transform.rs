@@ -84,44 +84,221 @@ pub fn cfft_f32(data: &mut [f32], n: usize, ifft_flag: u8, bit_reverse_flag: u8)
     }
 }
 
-/// In-place Complex FFT for Q31 fixed-point.
-pub fn cfft_q31(data: &mut [q31], n: usize, ifft_flag: u8, _bit_reverse_flag: u8) {
-    if n < 2 {
-        return;
-    }
-    // Convert to f32 scratch, run cfft_f32, convert back
-    let mut scratch = [0.0f32; 1024];
-    let total = 2 * n;
-    if total > scratch.len() {
-        return;
-    }
+/// Twiddle table length: supports radix-2 FFT sizes up to 512 (interleaved `2*n <= 1024`).
+const TWIDDLE_N: usize = 512;
 
-    for i in 0..total {
-        scratch[i] = data[i] as f32 / 2147483648.0;
+const fn wrap_pi(mut x: f32) -> f32 {
+    while x > core::f32::consts::PI {
+        x -= 2.0 * core::f32::consts::PI;
     }
-    cfft_f32(&mut scratch[..total], n, ifft_flag, 1);
-    for i in 0..total {
-        data[i] = (scratch[i] * 2147483648.0).clamp(-2147483648.0, 2147483647.0) as q31;
+    while x < -core::f32::consts::PI {
+        x += 2.0 * core::f32::consts::PI;
+    }
+    x
+}
+
+const fn cos_taylor(x: f32) -> f32 {
+    let x = wrap_pi(x);
+    let x2 = x * x;
+    let x4 = x2 * x2;
+    let x6 = x4 * x2;
+    let x8 = x4 * x4;
+    1.0 - x2 / 2.0 + x4 / 24.0 - x6 / 720.0 + x8 / 40320.0
+}
+
+const fn sin_taylor(x: f32) -> f32 {
+    let x = wrap_pi(x);
+    let x2 = x * x;
+    let x3 = x2 * x;
+    let x5 = x3 * x2;
+    let x7 = x5 * x2;
+    let x9 = x7 * x2;
+    x - x3 / 6.0 + x5 / 120.0 - x7 / 5040.0 + x9 / 362880.0
+}
+
+const fn gen_cos_q15() -> [i16; TWIDDLE_N] {
+    let mut t = [0i16; TWIDDLE_N];
+    let mut i = 0;
+    while i < TWIDDLE_N {
+        let a = (i as f32) * 2.0 * core::f32::consts::PI / TWIDDLE_N as f32;
+        let v = cos_taylor(a) * 32767.0;
+        t[i] = if v >= 32767.0 {
+            32767
+        } else if v <= -32768.0 {
+            -32768
+        } else {
+            v as i16
+        };
+        i += 1;
+    }
+    t
+}
+
+const fn gen_sin_q15() -> [i16; TWIDDLE_N] {
+    let mut t = [0i16; TWIDDLE_N];
+    let mut i = 0;
+    while i < TWIDDLE_N {
+        let a = (i as f32) * 2.0 * core::f32::consts::PI / TWIDDLE_N as f32;
+        let v = sin_taylor(a) * 32767.0;
+        t[i] = if v >= 32767.0 {
+            32767
+        } else if v <= -32768.0 {
+            -32768
+        } else {
+            v as i16
+        };
+        i += 1;
+    }
+    t
+}
+
+const COS_Q15: [i16; TWIDDLE_N] = gen_cos_q15();
+const SIN_Q15: [i16; TWIDDLE_N] = gen_sin_q15();
+
+fn twiddle_q15(k: usize, n: usize) -> (i16, i16) {
+    let idx = k.wrapping_mul(TWIDDLE_N / n) & (TWIDDLE_N - 1);
+    (COS_Q15[idx], SIN_Q15[idx])
+}
+
+fn bit_reversal_q15(data: &mut [q15], n: usize) {
+    let mut j = 0;
+    for i in 0..n {
+        if i < j {
+            data.swap(2 * i, 2 * j);
+            data.swap(2 * i + 1, 2 * j + 1);
+        }
+        let mut m = n >> 1;
+        while m >= 1 && j >= m {
+            j -= m;
+            m >>= 1;
+        }
+        j += m;
     }
 }
 
-/// In-place Complex FFT for Q15 fixed-point.
-pub fn cfft_q15(data: &mut [q15], n: usize, ifft_flag: u8, _bit_reverse_flag: u8) {
-    if n < 2 {
-        return;
+fn bit_reversal_q31(data: &mut [q31], n: usize) {
+    let mut j = 0;
+    for i in 0..n {
+        if i < j {
+            data.swap(2 * i, 2 * j);
+            data.swap(2 * i + 1, 2 * j + 1);
+        }
+        let mut m = n >> 1;
+        while m >= 1 && j >= m {
+            j -= m;
+            m >>= 1;
+        }
+        j += m;
     }
-    let mut scratch = [0.0f32; 1024];
-    let total = 2 * n;
-    if total > scratch.len() {
+}
+
+#[inline]
+fn sat_q15(v: i32) -> q15 {
+    v.clamp(i16::MIN as i32, i16::MAX as i32) as q15
+}
+
+#[inline]
+fn sat_q31(v: i64) -> q31 {
+    v.clamp(i32::MIN as i64, i32::MAX as i64) as q31
+}
+
+/// In-place radix-2 DIT Complex FFT for Q31.
+///
+/// Each stage arithmetic-shifts right by 1 so a full-scale input does not wrap;
+/// a forward transform of length `n` is therefore scaled by about `1/n` versus
+/// [`cfft_f32`]. Inverse uses conjugated twiddles and the same per-stage shift
+/// (no extra `1/n`), so `ifft(fft(x)) ≈ x / n`.
+///
+/// `n` must be a power of two in `2..=512`. `data` is interleaved `[re, im, ...]`.
+pub fn cfft_q31(data: &mut [q31], n: usize, ifft_flag: u8, bit_reverse_flag: u8) {
+    if n < 2 || n > TWIDDLE_N || (n & (n - 1)) != 0 || data.len() < 2 * n {
         return;
     }
 
-    for i in 0..total {
-        scratch[i] = data[i] as f32 / 32768.0;
+    if bit_reverse_flag != 0 {
+        bit_reversal_q31(data, n);
     }
-    cfft_f32(&mut scratch[..total], n, ifft_flag, 1);
-    for i in 0..total {
-        data[i] = (scratch[i] * 32768.0).clamp(-32768.0, 32767.0) as q15;
+
+    let mut len = 2;
+    while len <= n {
+        let half_len = len / 2;
+        let mut i = 0;
+        while i < n {
+            for j in 0..half_len {
+                let (w_re_s, w_im_s) = twiddle_q15(j, len);
+                let w_re = (w_re_s as i32) << 16;
+                let mut w_im = (w_im_s as i32) << 16;
+                if ifft_flag == 0 {
+                    w_im = -w_im;
+                }
+
+                let u_idx = 2 * (i + j);
+                let v_idx = 2 * (i + j + half_len);
+                let u_re = data[u_idx] as i64;
+                let u_im = data[u_idx + 1] as i64;
+                let v_re = data[v_idx] as i64;
+                let v_im = data[v_idx + 1] as i64;
+                let wr = w_re as i64;
+                let wi = w_im as i64;
+
+                let t_re = (v_re * wr - v_im * wi) >> 31;
+                let t_im = (v_re * wi + v_im * wr) >> 31;
+
+                data[u_idx] = sat_q31((u_re + t_re) >> 1);
+                data[u_idx + 1] = sat_q31((u_im + t_im) >> 1);
+                data[v_idx] = sat_q31((u_re - t_re) >> 1);
+                data[v_idx + 1] = sat_q31((u_im - t_im) >> 1);
+            }
+            i += len;
+        }
+        len <<= 1;
+    }
+}
+
+/// In-place radix-2 DIT Complex FFT for Q15.
+///
+/// Same scaling as [`cfft_q31`]: about `1/n` per forward or inverse transform.
+/// `n` must be a power of two in `2..=512`.
+pub fn cfft_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag: u8) {
+    if n < 2 || n > TWIDDLE_N || (n & (n - 1)) != 0 || data.len() < 2 * n {
+        return;
+    }
+
+    if bit_reverse_flag != 0 {
+        bit_reversal_q15(data, n);
+    }
+
+    let mut len = 2;
+    while len <= n {
+        let half_len = len / 2;
+        let mut i = 0;
+        while i < n {
+            for j in 0..half_len {
+                let (w_re_s, mut w_im_s) = twiddle_q15(j, len);
+                if ifft_flag == 0 {
+                    w_im_s = w_im_s.saturating_neg();
+                }
+
+                let u_idx = 2 * (i + j);
+                let v_idx = 2 * (i + j + half_len);
+                let u_re = data[u_idx] as i32;
+                let u_im = data[u_idx + 1] as i32;
+                let v_re = data[v_idx] as i32;
+                let v_im = data[v_idx + 1] as i32;
+                let wr = w_re_s as i32;
+                let wi = w_im_s as i32;
+
+                let t_re = (v_re * wr - v_im * wi) >> 15;
+                let t_im = (v_re * wi + v_im * wr) >> 15;
+
+                data[u_idx] = sat_q15((u_re + t_re) >> 1);
+                data[u_idx + 1] = sat_q15((u_im + t_im) >> 1);
+                data[v_idx] = sat_q15((u_re - t_re) >> 1);
+                data[v_idx + 1] = sat_q15((u_im - t_im) >> 1);
+            }
+            i += len;
+        }
+        len <<= 1;
     }
 }
 

@@ -172,6 +172,124 @@ pub fn biquad_cascade_df1_f32(
     }
 }
 
+/// Instance structure for the Q15 Biquad Cascade Direct Form I filter.
+///
+/// Coeffs are Q1.15 `[b0, b1, b2, a1, a2]` per stage (same layout as the f32 cascade).
+/// `post_shift` extra headroom in stored coeffs (`coeff_f32 / 2^{post_shift}` in Q15);
+/// the MAC is shifted `15 - post_shift` (CMSIS-style).
+pub struct BiquadCascadeInstanceQ15<'a> {
+    pub num_stages: u8,
+    pub post_shift: u8,
+    pub coeffs: &'a [q15],
+    pub state: &'a mut [q15],
+}
+
+impl<'a> BiquadCascadeInstanceQ15<'a> {
+    pub fn init(num_stages: u8, coeffs: &'a [q15], state: &'a mut [q15], post_shift: u8) -> Self {
+        state.fill(0);
+        Self {
+            num_stages,
+            post_shift,
+            coeffs,
+            state,
+        }
+    }
+}
+
+pub fn biquad_cascade_df1_q15(
+    instance: &mut BiquadCascadeInstanceQ15,
+    src: &[q15],
+    dst: &mut [q15],
+) {
+    let num_stages = instance.num_stages as usize;
+    let block_size = src.len().min(dst.len());
+    let shift = 15u32.saturating_sub(instance.post_shift as u32).min(31);
+
+    for i in 0..block_size {
+        let mut in_val = src[i] as i64;
+        for stage in 0..num_stages {
+            let b0 = instance.coeffs[stage * 5] as i64;
+            let b1 = instance.coeffs[stage * 5 + 1] as i64;
+            let b2 = instance.coeffs[stage * 5 + 2] as i64;
+            let a1 = instance.coeffs[stage * 5 + 3] as i64;
+            let a2 = instance.coeffs[stage * 5 + 4] as i64;
+
+            let x1 = instance.state[stage * 4] as i64;
+            let x2 = instance.state[stage * 4 + 1] as i64;
+            let y1 = instance.state[stage * 4 + 2] as i64;
+            let y2 = instance.state[stage * 4 + 3] as i64;
+
+            let acc = b0 * in_val + b1 * x1 + b2 * x2 + a1 * y1 + a2 * y2;
+            let out_val = (acc >> shift).clamp(i16::MIN as i64, i16::MAX as i64);
+
+            instance.state[stage * 4 + 1] = x1 as q15;
+            instance.state[stage * 4] = in_val as q15;
+            instance.state[stage * 4 + 3] = y1 as q15;
+            instance.state[stage * 4 + 2] = out_val as q15;
+
+            in_val = out_val;
+        }
+        dst[i] = in_val as q15;
+    }
+}
+
+/// Instance structure for the Q31 Biquad Cascade Direct Form I filter.
+pub struct BiquadCascadeInstanceQ31<'a> {
+    pub num_stages: u8,
+    pub post_shift: u8,
+    pub coeffs: &'a [q31],
+    pub state: &'a mut [q31],
+}
+
+impl<'a> BiquadCascadeInstanceQ31<'a> {
+    pub fn init(num_stages: u8, coeffs: &'a [q31], state: &'a mut [q31], post_shift: u8) -> Self {
+        state.fill(0);
+        Self {
+            num_stages,
+            post_shift,
+            coeffs,
+            state,
+        }
+    }
+}
+
+pub fn biquad_cascade_df1_q31(
+    instance: &mut BiquadCascadeInstanceQ31,
+    src: &[q31],
+    dst: &mut [q31],
+) {
+    let num_stages = instance.num_stages as usize;
+    let block_size = src.len().min(dst.len());
+    let shift = 31u32.saturating_sub(instance.post_shift as u32).min(63);
+
+    for i in 0..block_size {
+        let mut in_val = src[i] as i64;
+        for stage in 0..num_stages {
+            let b0 = instance.coeffs[stage * 5] as i64;
+            let b1 = instance.coeffs[stage * 5 + 1] as i64;
+            let b2 = instance.coeffs[stage * 5 + 2] as i64;
+            let a1 = instance.coeffs[stage * 5 + 3] as i64;
+            let a2 = instance.coeffs[stage * 5 + 4] as i64;
+
+            let x1 = instance.state[stage * 4] as i64;
+            let x2 = instance.state[stage * 4 + 1] as i64;
+            let y1 = instance.state[stage * 4 + 2] as i64;
+            let y2 = instance.state[stage * 4 + 3] as i64;
+
+            let acc = b0 * in_val + b1 * x1 + b2 * x2 + a1 * y1 + a2 * y2;
+            let out_val = (acc >> shift).clamp(i32::MIN as i64, i32::MAX as i64);
+
+            instance.state[stage * 4 + 1] = x1 as q31;
+            instance.state[stage * 4] = in_val as q31;
+            instance.state[stage * 4 + 3] = y1 as q31;
+            instance.state[stage * 4 + 2] = out_val as q31;
+
+            in_val = out_val;
+        }
+        dst[i] = in_val as q31;
+    }
+}
+
 // --- LMS Adaptive Filter ---
 
 /// Instance structure for the floating-point LMS adaptive filter.
@@ -354,6 +472,7 @@ pub fn correlate_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
 
 #[allow(unused_imports)]
 use crate::math::FloatMath;
+#[cfg(feature = "transform")]
 use crate::transform::cfft_f32;
 
 /// 1D Conditional / Thresholded Median Filter for f32.
@@ -501,6 +620,9 @@ pub fn median_filter_1d_q31(
 
 /// Performs fast linear convolution of `signal` and `kernel` via FFT multiplication.
 /// Output length is `signal.len() + kernel.len() - 1`.
+///
+/// Requires the `transform` feature (enabled by `full`).
+#[cfg(feature = "transform")]
 pub fn fast_convolve_f32(signal: &[f32], kernel: &[f32], dst: &mut [f32]) -> Status {
     let len_sig = signal.len();
     let len_ker = kernel.len();

@@ -1,6 +1,6 @@
-//! Audio & TinyML feature extraction: the Goertzel single-frequency detector, peak/RMS
-//! envelope followers, a Mel filterbank, and MFCC feature extraction — the standard
-//! preprocessing pipeline for embedded speech/audio keyword-spotting and TinyML models.
+//! Audio analysis: the Goertzel single-frequency detector, peak/RMS envelope followers,
+//! a Mel filterbank, and MFCC feature extraction. These are DSP front-ends (e.g. for a
+//! keyword-spotting pipeline); classifiers and neural nets live in `embedded-nn`.
 
 #[allow(unused_imports)]
 use crate::filter_design::single_pole_decay_from_time_constant;
@@ -212,7 +212,7 @@ pub fn mel_filterbank_f32(
 /// Computes MFCC (Mel-Frequency Cepstral Coefficient) features from a single real-valued
 /// audio frame: FFT power spectrum, Mel filterbank, log compression, and a DCT-II to
 /// decorrelate the log-Mel-energies into cepstral coefficients. This is the standard
-/// speech/audio TinyML feature-extraction pipeline.
+/// speech/audio feature-extraction pipeline.
 ///
 /// `frame`: `fft_size` real audio samples (already windowed by the caller, e.g. with
 /// [`crate::window::hamming_f32`] + [`crate::window::apply_window_f32`]); `fft_size` must be

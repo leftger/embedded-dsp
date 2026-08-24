@@ -487,6 +487,9 @@ pub fn fir_windowed_sinc_bandstop(
 /// `fft_len`: must be a power of 2, `>= out_taps.len()`, and `<= 512`; larger values better
 /// approximate the desired response at the cost of a longer intermediate FFT.
 /// `out_taps`: destination for the resulting FIR kernel; its length `M + 1` must be odd.
+///
+/// Requires the `transform` feature (enabled by `full`).
+#[cfg(feature = "transform")]
 pub fn fir_custom_frequency_sampling(
     desired_real: &[f32],
     desired_imag: &[f32],
