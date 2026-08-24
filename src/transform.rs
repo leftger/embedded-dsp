@@ -320,11 +320,199 @@ pub fn rfft_f32(src: &[f32], dst: &mut [f32], n: usize, ifft_flag: u8) {
     dst[..2 * len].copy_from_slice(&c_data[..2 * len]);
 }
 
+/// Packed real FFT (N/2-point complex FFT of even/odd samples, then unpack).
+/// Forward only (`ifft_flag == 0`); inverse still uses a complex FFT of real+0j.
+fn packed_rfft_q15_forward(src: &[q15], dst: &mut [q15], n: usize) {
+    let m = n / 2;
+    let mut z = [0i16; 1024];
+    if 2 * m > z.len() {
+        return;
+    }
+    for k in 0..m {
+        z[2 * k] = src[2 * k];
+        z[2 * k + 1] = src[2 * k + 1];
+    }
+    cfft_q15(&mut z[..2 * m], m, 0, 1);
+
+    let z0r = z[0] as i32;
+    let z0i = z[1] as i32;
+    dst[0] = sat_q15((z0r + z0i) >> 1);
+    dst[1] = 0;
+    dst[n] = sat_q15((z0r - z0i) >> 1);
+    dst[n + 1] = 0;
+
+    for k in 1..m {
+        let zr = z[2 * k] as i32;
+        let zi = z[2 * k + 1] as i32;
+        let znr = z[2 * (m - k)] as i32;
+        let zni = z[2 * (m - k) + 1] as i32;
+
+        let xe_re = (zr + znr) >> 1;
+        let xe_im = (zi - zni) >> 1;
+        let xo_re = (zi + zni) >> 1;
+        let xo_im = (znr - zr) >> 1;
+
+        let (wr, wi_s) = twiddle_q15(k, n);
+        let wr = wr as i32;
+        let wi = -(wi_s as i32);
+
+        let t_re = (xo_re * wr - xo_im * wi) >> 15;
+        let t_im = (xo_re * wi + xo_im * wr) >> 15;
+
+        dst[2 * k] = sat_q15((xe_re + t_re) >> 1);
+        dst[2 * k + 1] = sat_q15((xe_im + t_im) >> 1);
+        dst[2 * (n - k)] = sat_q15((xe_re - t_re) >> 1);
+        dst[2 * (n - k) + 1] = sat_q15((t_im - xe_im) >> 1);
+    }
+}
+
+fn packed_rfft_q31_forward(src: &[q31], dst: &mut [q31], n: usize) {
+    let m = n / 2;
+    let mut z = [0i32; 1024];
+    if 2 * m > z.len() {
+        return;
+    }
+    for k in 0..m {
+        z[2 * k] = src[2 * k];
+        z[2 * k + 1] = src[2 * k + 1];
+    }
+    cfft_q31(&mut z[..2 * m], m, 0, 1);
+
+    let z0r = z[0] as i64;
+    let z0i = z[1] as i64;
+    dst[0] = sat_q31((z0r + z0i) >> 1);
+    dst[1] = 0;
+    dst[n] = sat_q31((z0r - z0i) >> 1);
+    dst[n + 1] = 0;
+
+    for k in 1..m {
+        let zr = z[2 * k] as i64;
+        let zi = z[2 * k + 1] as i64;
+        let znr = z[2 * (m - k)] as i64;
+        let zni = z[2 * (m - k) + 1] as i64;
+
+        let xe_re = (zr + znr) >> 1;
+        let xe_im = (zi - zni) >> 1;
+        let xo_re = (zi + zni) >> 1;
+        let xo_im = (znr - zr) >> 1;
+
+        let (wr_s, wi_s) = twiddle_q15(k, n);
+        let wr = (wr_s as i64) << 16;
+        let wi = -((wi_s as i64) << 16);
+
+        let t_re = (xo_re * wr - xo_im * wi) >> 31;
+        let t_im = (xo_re * wi + xo_im * wr) >> 31;
+
+        dst[2 * k] = sat_q31((xe_re + t_re) >> 1);
+        dst[2 * k + 1] = sat_q31((xe_im + t_im) >> 1);
+        dst[2 * (n - k)] = sat_q31((xe_re - t_re) >> 1);
+        dst[2 * (n - k) + 1] = sat_q31((t_im - xe_im) >> 1);
+    }
+}
+
+fn packed_irfft_q15(src: &[q15], dst: &mut [q15], n: usize) {
+    let m = n / 2;
+    let mut z = [0i16; 1024];
+    if 2 * m > z.len() {
+        return;
+    }
+
+    let dc = src[0] as i32;
+    let ny = src[n] as i32;
+    z[0] = sat_q15(dc + ny);
+    z[1] = sat_q15(dc - ny);
+
+    for k in 1..m {
+        let xkr = src[2 * k] as i32;
+        let xki = src[2 * k + 1] as i32;
+        let xnr = src[2 * (n - k)] as i32;
+        let xni = src[2 * (n - k) + 1] as i32;
+
+        let xe_re = xkr + xnr;
+        let xe_im = xki - xni;
+        let t_re = xkr - xnr;
+        let t_im = xki + xni;
+
+        let (wr, wi_s) = twiddle_q15(k, n);
+        let wr = wr as i32;
+        let wi = wi_s as i32;
+        let xo_re = (t_re * wr - t_im * wi) >> 15;
+        let xo_im = (t_re * wi + t_im * wr) >> 15;
+
+        z[2 * k] = sat_q15(xe_re - xo_im);
+        z[2 * k + 1] = sat_q15(xe_im + xo_re);
+    }
+
+    cfft_q15(&mut z[..2 * m], m, 1, 1);
+    for k in 0..m {
+        dst[2 * k] = sat_q15((z[2 * k] as i32) >> 1);
+        dst[2 * k + 1] = sat_q15((z[2 * k + 1] as i32) >> 1);
+    }
+}
+
+fn packed_irfft_q31(src: &[q31], dst: &mut [q31], n: usize) {
+    let m = n / 2;
+    let mut z = [0i32; 1024];
+    if 2 * m > z.len() {
+        return;
+    }
+
+    let dc = src[0] as i64;
+    let ny = src[n] as i64;
+    z[0] = sat_q31(dc + ny);
+    z[1] = sat_q31(dc - ny);
+
+    for k in 1..m {
+        let xkr = src[2 * k] as i64;
+        let xki = src[2 * k + 1] as i64;
+        let xnr = src[2 * (n - k)] as i64;
+        let xni = src[2 * (n - k) + 1] as i64;
+
+        let xe_re = xkr + xnr;
+        let xe_im = xki - xni;
+        let t_re = xkr - xnr;
+        let t_im = xki + xni;
+
+        let (wr_s, wi_s) = twiddle_q15(k, n);
+        let wr = (wr_s as i64) << 16;
+        let wi = (wi_s as i64) << 16;
+        let xo_re = (t_re * wr - t_im * wi) >> 31;
+        let xo_im = (t_re * wi + t_im * wr) >> 31;
+
+        z[2 * k] = sat_q31(xe_re - xo_im);
+        z[2 * k + 1] = sat_q31(xe_im + xo_re);
+    }
+
+    cfft_q31(&mut z[..2 * m], m, 1, 1);
+    for k in 0..m {
+        dst[2 * k] = sat_q31((z[2 * k] as i64) >> 1);
+        dst[2 * k + 1] = sat_q31((z[2 * k + 1] as i64) >> 1);
+    }
+}
+
+fn rfft_q_can_pack(len: usize, ifft_flag: u8) -> bool {
+    ifft_flag == 0 && len >= 4 && len <= TWIDDLE_N && (len & (len - 1)) == 0
+}
+
 /// Real FFT for Q31 fixed-point.
+///
+/// Forward (`ifft_flag == 0`) uses a packed N/2 complex FFT of even/odd samples
+/// (same output layout as a zero-padded [`cfft_q31`]: `2*n` interleaved bins).
+/// Inverse (`ifft_flag != 0`) still runs an `n`-point complex FFT of real+0j;
+/// use [`irfft_q31`] to invert a packed spectrum.
 pub fn rfft_q31(src: &[q31], dst: &mut [q31], n: usize, ifft_flag: u8) {
     let len = src.len().min(n);
+    if dst.len() < 2 * len {
+        return;
+    }
+
+    if rfft_q_can_pack(len, ifft_flag) {
+        packed_rfft_q31_forward(&src[..len], dst, len);
+        return;
+    }
+
     let mut c_data = [0; 1024];
-    if 2 * len > c_data.len() || dst.len() < 2 * len {
+    if 2 * len > c_data.len() {
         return;
     }
 
@@ -337,10 +525,22 @@ pub fn rfft_q31(src: &[q31], dst: &mut [q31], n: usize, ifft_flag: u8) {
 }
 
 /// Real FFT for Q15 fixed-point.
+///
+/// Forward packed N/2 algorithm; see [`rfft_q31`]. Scale versus [`rfft_f32`] is
+/// about `1/n`, matching [`cfft_q15`].
 pub fn rfft_q15(src: &[q15], dst: &mut [q15], n: usize, ifft_flag: u8) {
     let len = src.len().min(n);
+    if dst.len() < 2 * len {
+        return;
+    }
+
+    if rfft_q_can_pack(len, ifft_flag) {
+        packed_rfft_q15_forward(&src[..len], dst, len);
+        return;
+    }
+
     let mut c_data = [0; 1024];
-    if 2 * len > c_data.len() || dst.len() < 2 * len {
+    if 2 * len > c_data.len() {
         return;
     }
 
@@ -350,6 +550,26 @@ pub fn rfft_q15(src: &[q15], dst: &mut [q15], n: usize, ifft_flag: u8) {
     }
     cfft_q15(&mut c_data[..2 * len], len, ifft_flag, 1);
     dst[..2 * len].copy_from_slice(&c_data[..2 * len]);
+}
+
+/// Inverse packed real FFT. `src` is `2 * n` interleaved bins from [`rfft_q31`];
+/// `dst` receives `n` real samples. Combined with a forward transform,
+/// `irfft(rfft(x)) ≈ x / n` (same convention as [`cfft_q31`]).
+pub fn irfft_q31(src: &[q31], dst: &mut [q31], n: usize) {
+    if n < 4 || n > TWIDDLE_N || (n & (n - 1)) != 0 || src.len() < 2 * n || dst.len() < n {
+        return;
+    }
+    packed_irfft_q31(&src[..2 * n], dst, n);
+}
+
+/// Inverse packed real FFT. `src` is `2 * n` interleaved bins from [`rfft_q15`];
+/// `dst` receives `n` real samples. Combined with a forward transform,
+/// `irfft(rfft(x)) ≈ x / n` (same convention as [`cfft_q15`]).
+pub fn irfft_q15(src: &[q15], dst: &mut [q15], n: usize) {
+    if n < 4 || n > TWIDDLE_N || (n & (n - 1)) != 0 || src.len() < 2 * n || dst.len() < n {
+        return;
+    }
+    packed_irfft_q15(&src[..2 * n], dst, n);
 }
 
 /// Discrete Cosine Transform Type IV (DCT-IV) for f32.

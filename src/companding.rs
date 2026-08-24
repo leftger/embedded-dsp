@@ -55,3 +55,79 @@ pub fn a_law_expand_f32(y: f32) -> f32 {
         sign(y) * (ay * A_LAW_DENOM - 1.0).exp() / A_LAW
     }
 }
+
+// --- ITU-T G.711 8-bit bytes (Sun/CCITT linear ↔ μ-law / A-law) ---
+
+fn top_bit(x: i32) -> i32 {
+    if x <= 0 {
+        -1
+    } else {
+        31 - (x as u32).leading_zeros() as i32
+    }
+}
+
+/// Encode a 16-bit linear PCM sample to a G.711 μ-law byte.
+pub fn linear_to_ulaw(sample: i16) -> u8 {
+    const BIAS: i32 = 0x84;
+    let mut pcm = sample as i32;
+    let mask = if pcm < 0 {
+        pcm = BIAS - pcm;
+        0x7F
+    } else {
+        pcm += BIAS;
+        0xFF
+    };
+    if pcm > 0x7FFF {
+        pcm = 0x7FFF;
+    }
+    let seg = top_bit(pcm | 0xFF) - 7;
+    if seg >= 8 {
+        (0x7F ^ mask) as u8
+    } else {
+        let uval = (seg << 4) | ((pcm >> (seg + 3)) & 0x0F);
+        (uval ^ mask) as u8
+    }
+}
+
+/// Decode a G.711 μ-law byte to 16-bit linear PCM.
+pub fn ulaw_to_linear(u: u8) -> i16 {
+    const BIAS: i32 = 0x84;
+    let u = (!u) as i32;
+    let mut t = ((u & 0x0F) << 3) + BIAS;
+    t <<= (u & 0x70) >> 4;
+    let out = if u & 0x80 != 0 { BIAS - t } else { t - BIAS };
+    out.clamp(i16::MIN as i32, i16::MAX as i32) as i16
+}
+
+/// Encode a 16-bit linear PCM sample to a G.711 A-law byte.
+pub fn linear_to_alaw(sample: i16) -> u8 {
+    let mut pcm = sample as i32;
+    let mask = if pcm >= 0 {
+        0xD5
+    } else {
+        pcm = -pcm - 8;
+        0x55
+    };
+    let seg = top_bit(pcm | 0xFF) - 7;
+    if seg >= 8 {
+        (0x7F ^ mask) as u8
+    } else {
+        let shift = if seg != 0 { seg + 3 } else { 4 };
+        let aval = (seg << 4) | ((pcm >> shift) & 0x0F);
+        (aval ^ mask) as u8
+    }
+}
+
+/// Decode a G.711 A-law byte to 16-bit linear PCM.
+pub fn alaw_to_linear(a: u8) -> i16 {
+    let a = (a ^ 0x55) as i32;
+    let mut t = (a & 0x0F) << 4;
+    let seg = (a & 0x70) >> 4;
+    if seg != 0 {
+        t = (t + 0x108) << (seg - 1);
+    } else {
+        t += 8;
+    }
+    let out = if a & 0x80 != 0 { t } else { -t };
+    out.clamp(i16::MIN as i32, i16::MAX as i32) as i16
+}

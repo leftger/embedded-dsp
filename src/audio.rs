@@ -6,8 +6,9 @@
 use crate::filter_design::single_pole_decay_from_time_constant;
 #[allow(unused_imports)]
 use crate::math::FloatMath;
+use crate::math::isqrt_u64;
 use crate::transform::cfft_f32;
-use crate::types::Status;
+use crate::types::{q15, Status};
 
 // --- Goertzel Single-Frequency Detector ---
 
@@ -59,6 +60,65 @@ impl GoertzelDetector {
     pub fn reset(&mut self) {
         self.s_prev = 0.0;
         self.s_prev2 = 0.0;
+        self.count = 0;
+    }
+}
+
+/// Q15 Goertzel detector: same two-pole recurrence as [`GoertzelDetector`], with
+/// Q2.14 `2 cos(ω)` and i32 delays so a typical block (`N ≲ 256`) does not wrap.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GoertzelDetectorQ15 {
+    coeff: q15,
+    s_prev: i32,
+    s_prev2: i32,
+    count: u32,
+}
+
+impl GoertzelDetectorQ15 {
+    /// Creates a detector tuned to `target_freq_hz` at the given `sample_rate_hz`.
+    pub fn new(target_freq_hz: f32, sample_rate_hz: f32) -> Self {
+        let w = 2.0 * core::f32::consts::PI * target_freq_hz / sample_rate_hz;
+        let coeff = (2.0 * w.cos() * 16384.0).clamp(-32768.0, 32767.0) as q15;
+        Self {
+            coeff,
+            s_prev: 0,
+            s_prev2: 0,
+            count: 0,
+        }
+    }
+
+    /// Feeds one Q15 input sample into the detector.
+    #[inline(always)]
+    pub fn process_sample(&mut self, x: q15) {
+        let s = x as i32
+            + ((((self.coeff as i64) * (self.s_prev as i64)) >> 14) as i32)
+            - self.s_prev2;
+        self.s_prev2 = self.s_prev;
+        self.s_prev = s;
+        self.count += 1;
+    }
+
+    /// Magnitude of the target bin, normalized by `N/2` like [`GoertzelDetector::magnitude`].
+    pub fn magnitude(&self) -> q15 {
+        if self.count == 0 {
+            return 0;
+        }
+        let s = self.s_prev as i64;
+        let s2 = self.s_prev2 as i64;
+        let c = self.coeff as i64;
+        let mag_sq = s * s + s2 * s2 - ((c * s * s2) >> 14);
+        if mag_sq <= 0 {
+            return 0;
+        }
+        let mag = isqrt_u64(mag_sq as u64);
+        let out = (mag * 2) / (self.count as u64);
+        out.min(32767) as q15
+    }
+
+    /// Resets the detector's internal state to start a new detection block.
+    pub fn reset(&mut self) {
+        self.s_prev = 0;
+        self.s_prev2 = 0;
         self.count = 0;
     }
 }
@@ -132,6 +192,75 @@ impl RmsEnvelopeFollower {
     /// Resets the running mean-square to zero.
     pub fn reset(&mut self) {
         self.mean_sq = 0.0;
+    }
+}
+
+/// Q15 peak envelope follower (same attack/release recurrence as [`PeakEnvelopeFollower`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PeakEnvelopeFollowerQ15 {
+    attack_coeff: q15,
+    release_coeff: q15,
+    envelope: q15,
+}
+
+impl PeakEnvelopeFollowerQ15 {
+    pub fn new(attack_samples: f32, release_samples: f32) -> Self {
+        let attack = 1.0 - single_pole_decay_from_time_constant(attack_samples);
+        let release = 1.0 - single_pole_decay_from_time_constant(release_samples);
+        Self {
+            attack_coeff: (attack * 32767.0).clamp(0.0, 32767.0) as q15,
+            release_coeff: (release * 32767.0).clamp(0.0, 32767.0) as q15,
+            envelope: 0,
+        }
+    }
+
+    #[inline(always)]
+    pub fn process(&mut self, x: q15) -> q15 {
+        let rectified = x.unsigned_abs() as i32;
+        let env = self.envelope as i32;
+        let coeff = if rectified > env {
+            self.attack_coeff
+        } else {
+            self.release_coeff
+        } as i32;
+        let y = env + ((coeff * (rectified - env)) >> 15);
+        self.envelope = y.clamp(0, 32767) as q15;
+        self.envelope
+    }
+
+    pub fn reset(&mut self) {
+        self.envelope = 0;
+    }
+}
+
+/// Q15 RMS envelope follower.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RmsEnvelopeFollowerQ15 {
+    coeff: q15,
+    mean_sq: q15,
+}
+
+impl RmsEnvelopeFollowerQ15 {
+    pub fn new(time_constant_samples: f32) -> Self {
+        let c = 1.0 - single_pole_decay_from_time_constant(time_constant_samples);
+        Self {
+            coeff: (c * 32767.0).clamp(0.0, 32767.0) as q15,
+            mean_sq: 0,
+        }
+    }
+
+    #[inline(always)]
+    pub fn process(&mut self, x: q15) -> q15 {
+        let inst = ((x as i32 * x as i32) >> 15).clamp(0, 32767);
+        let ms = self.mean_sq as i32;
+        let y = ms + ((self.coeff as i32 * (inst - ms)) >> 15);
+        self.mean_sq = y.clamp(0, 32767) as q15;
+        let mag = isqrt_u64((self.mean_sq as u64) << 15);
+        mag.min(32767) as q15
+    }
+
+    pub fn reset(&mut self) {
+        self.mean_sq = 0;
     }
 }
 

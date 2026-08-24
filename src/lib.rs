@@ -21,21 +21,21 @@
 //! - **Statistics**: Mean, variance, standard deviation, RMS, power, min/max, entropy, Kullback-Leibler, LogSumExp.
 //! - **Support**: Vector copy, fill, type conversions (Q7, Q15, Q31, F32), sort, barycenter, weighted sum.
 //! - **Matrix**: Matrix addition, subtraction, multiplication, scale, transpose, Gauss-Jordan inverse.
-//! - **Filtering**: FIR, Biquad IIR Direct Form I, LMS adaptive filters, Convolution, Correlation, single-pole recursive filters, and O(1) recursive moving average.
+//! - **Filtering**: FIR, Biquad IIR Direct Form I and transposed DF-II (f32/q15/q31), LMS / leaky LMS / NLMS, Convolution, Correlation, single-pole recursive filters (f32/q15), Q15 DC blocker, and O(1) recursive moving average.
 //! - **Filter Design**: Biquad Lowpass, Highpass, Bandpass, Notch, Peaking EQ, Allpass, Butterworth, Chebyshev, and arbitrary-response (frequency-sampling) design.
 //! - **Filter Analysis**: Frequency response (DTFT) evaluation for FIR/biquad filters, FIR group delay, and pole-based IIR stability checks.
 //! - **Resampling & Multi-rate**: CIC Decimator & Interpolator, linear fractional resampler.
 //! - **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, and trait-based `ExtendedKalmanFilter` (EKF).
-//! - **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `BiquadCascade<N>`, and `Matrix<R, C>`.
-//! - **Transform**: In-place Complex FFT (CFFT), Real FFT (RFFT), DCT-IV, Bit reversal, Fixed-point FFT (Q15/Q31), Haar transform, Hartley transform, and a generalized wavelet transform (Daubechies-4).
-//! - **Companding**: µ-law and A-law audio companding (ITU-T G.711 family).
-//! - **Audio**: Goertzel single-frequency detector, peak/RMS envelope followers, Mel filterbank, and MFCC feature extraction.
+//! - **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `FirFilterQ15<N>`, `BiquadCascade<N>`, `BiquadCascadeQ15`, and `Matrix<R, C>`.
+//! - **Transform**: In-place Complex FFT (CFFT), packed Real FFT / inverse (`rfft_q15`/`irfft_q15`), DCT-IV, Bit reversal, Fixed-point FFT (Q15/Q31), Haar transform, Hartley transform, and a generalized wavelet transform (Daubechies-4).
+//! - **Companding**: µ-law and A-law curves plus ITU-T G.711 `u8` encode/decode.
+//! - **Audio**: Goertzel single-frequency detector (f32/q15), peak/RMS envelope followers (f32/q15), Mel filterbank, and MFCC feature extraction.
 //! - **Spectral Analysis & PSD**: Welch's method power spectral density estimation (averaged periodograms), single-segment periodograms in linear and dB scale.
 //! - **Spatial & 2D Signal Processing**: 2D DCT/IDCT, 2D Convolution, 2D Non-linear Filtering (Min/Max/Median), Sobel edge detection, 2D Histogram, MSE, PSNR.
-//! - **Controller**: PID motor controller, Clarke transform, Park transform, Inverse Clarke/Park.
+//! - **Controller**: PID motor controller, Clarke/Park (f32 and q15).
 //! - **Interpolation**: Linear, Bilinear, Cubic spline interpolation.
 //! - **Quaternion**: Norm, normalization, product, conjugate, inverse, rotation matrix conversion.
-//! - **Window**: Hanning, Hamming, Blackman, Blackman-Harris, Bartlett, Welch, Flat-top window generators.
+//! - **Window**: Hanning, Hamming, Blackman, Blackman-Harris, Bartlett, Welch, Flat-top generators (f32), plus Q15 Hanning/Hamming/Blackman/Bartlett.
 //! - **Distance**: Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Jaccard, Hamming, Canberra, Bray-Curtis.
 
 #[cfg(feature = "std")]

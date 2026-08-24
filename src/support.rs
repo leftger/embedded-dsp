@@ -119,6 +119,26 @@ pub fn f32_to_q15(src: &[f32], dst: &mut [q15]) {
     }
 }
 
+/// Quantize FIR taps to Q15 with nearest-even-style rounding toward nearest integer.
+///
+/// Prefer this over [`f32_to_q15`] for windowed-sinc kernels: truncation bias shows up
+/// as extra stopband ripple. `dst` must be at least as long as `src`.
+pub fn fir_taps_f32_to_q15(src: &[f32], dst: &mut [q15]) -> Status {
+    if dst.len() < src.len() {
+        return Status::LengthError;
+    }
+    for i in 0..src.len() {
+        let scaled = src[i] * 32768.0;
+        let rounded = if scaled >= 0.0 {
+            scaled + 0.5
+        } else {
+            scaled - 0.5
+        };
+        dst[i] = rounded.clamp(-32768.0, 32767.0) as q15;
+    }
+    Status::Success
+}
+
 pub fn f32_to_q31(src: &[f32], dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {

@@ -172,6 +172,56 @@ pub fn biquad_cascade_df1_f32(
     }
 }
 
+/// Instance structure for the floating-point Biquad Cascade Transposed Direct Form II filter.
+///
+/// Same SOS layout `[b0, b1, b2, a1, a2]` as [`BiquadCascadeInstanceF32`].
+/// State is two delays per stage (`[s1, s2, ...]`).
+pub struct BiquadCascadeDf2tInstanceF32<'a> {
+    pub num_stages: u8,
+    pub coeffs: &'a [f32],
+    pub state: &'a mut [f32],
+}
+
+impl<'a> BiquadCascadeDf2tInstanceF32<'a> {
+    pub fn init(num_stages: u8, coeffs: &'a [f32], state: &'a mut [f32]) -> Self {
+        state.fill(0.0);
+        Self {
+            num_stages,
+            coeffs,
+            state,
+        }
+    }
+}
+
+pub fn biquad_cascade_df2t_f32(
+    instance: &mut BiquadCascadeDf2tInstanceF32,
+    src: &[f32],
+    dst: &mut [f32],
+) {
+    let num_stages = instance.num_stages as usize;
+    let block_size = src.len().min(dst.len());
+
+    for i in 0..block_size {
+        let mut in_val = src[i];
+        for stage in 0..num_stages {
+            let b0 = instance.coeffs[stage * 5];
+            let b1 = instance.coeffs[stage * 5 + 1];
+            let b2 = instance.coeffs[stage * 5 + 2];
+            let a1 = instance.coeffs[stage * 5 + 3];
+            let a2 = instance.coeffs[stage * 5 + 4];
+
+            let s1 = instance.state[stage * 2];
+            let s2 = instance.state[stage * 2 + 1];
+
+            let y = b0 * in_val + s1;
+            instance.state[stage * 2] = b1 * in_val + a1 * y + s2;
+            instance.state[stage * 2 + 1] = b2 * in_val + a2 * y;
+            in_val = y;
+        }
+        dst[i] = in_val;
+    }
+}
+
 /// Instance structure for the Q15 Biquad Cascade Direct Form I filter.
 ///
 /// Coeffs are Q1.15 `[b0, b1, b2, a1, a2]` per stage (same layout as the f32 cascade).
@@ -290,6 +340,122 @@ pub fn biquad_cascade_df1_q31(
     }
 }
 
+/// Instance structure for the Q15 Biquad Cascade Transposed Direct Form II filter.
+///
+/// Same SOS layout `[b0, b1, b2, a1, a2]` and `post_shift` as
+/// [`BiquadCascadeInstanceQ15`]. State is two delays per stage (`[s1, s2, ...]`),
+/// which is better-conditioned for high-Q poles than Direct Form I.
+pub struct BiquadCascadeDf2tInstanceQ15<'a> {
+    pub num_stages: u8,
+    pub post_shift: u8,
+    pub coeffs: &'a [q15],
+    pub state: &'a mut [q15],
+}
+
+impl<'a> BiquadCascadeDf2tInstanceQ15<'a> {
+    pub fn init(num_stages: u8, coeffs: &'a [q15], state: &'a mut [q15], post_shift: u8) -> Self {
+        state.fill(0);
+        Self {
+            num_stages,
+            post_shift,
+            coeffs,
+            state,
+        }
+    }
+}
+
+pub fn biquad_cascade_df2t_q15(
+    instance: &mut BiquadCascadeDf2tInstanceQ15,
+    src: &[q15],
+    dst: &mut [q15],
+) {
+    let num_stages = instance.num_stages as usize;
+    let block_size = src.len().min(dst.len());
+    let shift = 15u32.saturating_sub(instance.post_shift as u32).min(31);
+
+    for i in 0..block_size {
+        let mut in_val = src[i] as i64;
+        for stage in 0..num_stages {
+            let b0 = instance.coeffs[stage * 5] as i64;
+            let b1 = instance.coeffs[stage * 5 + 1] as i64;
+            let b2 = instance.coeffs[stage * 5 + 2] as i64;
+            let a1 = instance.coeffs[stage * 5 + 3] as i64;
+            let a2 = instance.coeffs[stage * 5 + 4] as i64;
+
+            let s1 = instance.state[stage * 2] as i64;
+            let s2 = instance.state[stage * 2 + 1] as i64;
+
+            let y = (b0 * in_val + (s1 << shift)).clamp(i64::MIN >> 1, i64::MAX >> 1) >> shift;
+            let out_val = y.clamp(i16::MIN as i64, i16::MAX as i64);
+            let s1_new = (b1 * in_val + a1 * out_val + (s2 << shift)) >> shift;
+            let s2_new = (b2 * in_val + a2 * out_val) >> shift;
+
+            instance.state[stage * 2] =
+                s1_new.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+            instance.state[stage * 2 + 1] =
+                s2_new.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+            in_val = out_val;
+        }
+        dst[i] = in_val as q15;
+    }
+}
+
+/// Instance structure for the Q31 Biquad Cascade Transposed Direct Form II filter.
+pub struct BiquadCascadeDf2tInstanceQ31<'a> {
+    pub num_stages: u8,
+    pub post_shift: u8,
+    pub coeffs: &'a [q31],
+    pub state: &'a mut [q31],
+}
+
+impl<'a> BiquadCascadeDf2tInstanceQ31<'a> {
+    pub fn init(num_stages: u8, coeffs: &'a [q31], state: &'a mut [q31], post_shift: u8) -> Self {
+        state.fill(0);
+        Self {
+            num_stages,
+            post_shift,
+            coeffs,
+            state,
+        }
+    }
+}
+
+pub fn biquad_cascade_df2t_q31(
+    instance: &mut BiquadCascadeDf2tInstanceQ31,
+    src: &[q31],
+    dst: &mut [q31],
+) {
+    let num_stages = instance.num_stages as usize;
+    let block_size = src.len().min(dst.len());
+    let shift = 31u32.saturating_sub(instance.post_shift as u32).min(63);
+
+    for i in 0..block_size {
+        let mut in_val = src[i] as i64;
+        for stage in 0..num_stages {
+            let b0 = instance.coeffs[stage * 5] as i64;
+            let b1 = instance.coeffs[stage * 5 + 1] as i64;
+            let b2 = instance.coeffs[stage * 5 + 2] as i64;
+            let a1 = instance.coeffs[stage * 5 + 3] as i64;
+            let a2 = instance.coeffs[stage * 5 + 4] as i64;
+
+            let s1 = instance.state[stage * 2] as i64;
+            let s2 = instance.state[stage * 2 + 1] as i64;
+
+            let y = (b0 * in_val + (s1 << shift)).clamp(i64::MIN >> 1, i64::MAX >> 1) >> shift;
+            let out_val = y.clamp(i32::MIN as i64, i32::MAX as i64);
+            let s1_new = (b1 * in_val + a1 * out_val + (s2 << shift)) >> shift;
+            let s2_new = (b2 * in_val + a2 * out_val) >> shift;
+
+            instance.state[stage * 2] =
+                s1_new.clamp(i32::MIN as i64, i32::MAX as i64) as q31;
+            instance.state[stage * 2 + 1] =
+                s2_new.clamp(i32::MIN as i64, i32::MAX as i64) as q31;
+            in_val = out_val;
+        }
+        dst[i] = in_val as q31;
+    }
+}
+
 // --- LMS Adaptive Filter ---
 
 /// Instance structure for the floating-point LMS adaptive filter.
@@ -345,6 +511,264 @@ pub fn lms_f32(
         let alpha = 2.0 * instance.mu * e;
         for k in 0..num_taps {
             instance.coeffs[k] += alpha * instance.state[k];
+        }
+    }
+}
+
+/// Leaky LMS: `w ← (1 - leak) w + 2 μ e x`. `leak = 0` matches [`lms_f32`].
+pub fn lms_leaky_f32(
+    instance: &mut LmsInstanceF32,
+    src: &[f32],
+    ref_signal: &[f32],
+    out: &mut [f32],
+    err: &mut [f32],
+    leak: f32,
+) {
+    let num_taps = instance.num_taps as usize;
+    let block_size = src
+        .len()
+        .min(ref_signal.len())
+        .min(out.len())
+        .min(err.len());
+    let keep = 1.0 - leak;
+
+    for i in 0..block_size {
+        for k in (1..num_taps).rev() {
+            instance.state[k] = instance.state[k - 1];
+        }
+        instance.state[0] = src[i];
+
+        let mut acc = 0.0f32;
+        for k in 0..num_taps {
+            acc += instance.state[k] * instance.coeffs[k];
+        }
+        out[i] = acc;
+        let e = ref_signal[i] - acc;
+        err[i] = e;
+
+        let alpha = 2.0 * instance.mu * e;
+        for k in 0..num_taps {
+            instance.coeffs[k] = keep * instance.coeffs[k] + alpha * instance.state[k];
+        }
+    }
+}
+
+/// Normalized LMS instance (`eps` floors the power denominator).
+pub struct NlmsInstanceF32<'a> {
+    pub num_taps: u16,
+    pub coeffs: &'a mut [f32],
+    pub state: &'a mut [f32],
+    pub mu: f32,
+    pub eps: f32,
+}
+
+impl<'a> NlmsInstanceF32<'a> {
+    pub fn init(
+        num_taps: u16,
+        coeffs: &'a mut [f32],
+        state: &'a mut [f32],
+        mu: f32,
+        eps: f32,
+    ) -> Self {
+        state.fill(0.0);
+        coeffs.fill(0.0);
+        Self {
+            num_taps,
+            coeffs,
+            state,
+            mu,
+            eps,
+        }
+    }
+}
+
+/// NLMS: `w ← w + μ e x / (eps + ||x||²)`.
+pub fn nlms_f32(
+    instance: &mut NlmsInstanceF32,
+    src: &[f32],
+    ref_signal: &[f32],
+    out: &mut [f32],
+    err: &mut [f32],
+) {
+    let num_taps = instance.num_taps as usize;
+    let block_size = src
+        .len()
+        .min(ref_signal.len())
+        .min(out.len())
+        .min(err.len());
+
+    for i in 0..block_size {
+        for k in (1..num_taps).rev() {
+            instance.state[k] = instance.state[k - 1];
+        }
+        instance.state[0] = src[i];
+
+        let mut acc = 0.0f32;
+        let mut power = instance.eps;
+        for k in 0..num_taps {
+            acc += instance.state[k] * instance.coeffs[k];
+            power += instance.state[k] * instance.state[k];
+        }
+        out[i] = acc;
+        let e = ref_signal[i] - acc;
+        err[i] = e;
+
+        let alpha = instance.mu * e / power;
+        for k in 0..num_taps {
+            instance.coeffs[k] += alpha * instance.state[k];
+        }
+    }
+}
+
+/// Q15 LMS adaptive filter.
+pub struct LmsInstanceQ15<'a> {
+    pub num_taps: u16,
+    pub coeffs: &'a mut [q15],
+    pub state: &'a mut [q15],
+    pub mu: q15,
+}
+
+impl<'a> LmsInstanceQ15<'a> {
+    pub fn init(num_taps: u16, coeffs: &'a mut [q15], state: &'a mut [q15], mu: q15) -> Self {
+        state.fill(0);
+        coeffs.fill(0);
+        Self {
+            num_taps,
+            coeffs,
+            state,
+            mu,
+        }
+    }
+}
+
+fn lms_q15_inner(
+    instance: &mut LmsInstanceQ15,
+    src: &[q15],
+    ref_signal: &[q15],
+    out: &mut [q15],
+    err: &mut [q15],
+    leak: q15,
+) {
+    let num_taps = instance.num_taps as usize;
+    let block_size = src
+        .len()
+        .min(ref_signal.len())
+        .min(out.len())
+        .min(err.len());
+    let keep = 32767i32 - leak.max(0) as i32;
+
+    for i in 0..block_size {
+        for k in (1..num_taps).rev() {
+            instance.state[k] = instance.state[k - 1];
+        }
+        instance.state[0] = src[i];
+
+        let mut acc: i64 = 0;
+        for k in 0..num_taps {
+            acc += instance.state[k] as i64 * instance.coeffs[k] as i64;
+        }
+        let y = (acc >> 15).clamp(i16::MIN as i64, i16::MAX as i64);
+        out[i] = y as q15;
+        let e = (ref_signal[i] as i32 - y as i32).clamp(i16::MIN as i32, i16::MAX as i32);
+        err[i] = e as q15;
+
+        let alpha = (2i64 * instance.mu as i64 * e as i64) >> 15;
+        for k in 0..num_taps {
+            let leaked = (keep as i64 * instance.coeffs[k] as i64) >> 15;
+            let upd = leaked + ((alpha * instance.state[k] as i64) >> 15);
+            instance.coeffs[k] = upd.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+        }
+    }
+}
+
+pub fn lms_q15(
+    instance: &mut LmsInstanceQ15,
+    src: &[q15],
+    ref_signal: &[q15],
+    out: &mut [q15],
+    err: &mut [q15],
+) {
+    lms_q15_inner(instance, src, ref_signal, out, err, 0);
+}
+
+/// Leaky LMS in Q15. `leak` is Q1.15 (`0` matches [`lms_q15`]).
+pub fn lms_leaky_q15(
+    instance: &mut LmsInstanceQ15,
+    src: &[q15],
+    ref_signal: &[q15],
+    out: &mut [q15],
+    err: &mut [q15],
+    leak: q15,
+) {
+    lms_q15_inner(instance, src, ref_signal, out, err, leak);
+}
+
+/// Q15 NLMS instance.
+pub struct NlmsInstanceQ15<'a> {
+    pub num_taps: u16,
+    pub coeffs: &'a mut [q15],
+    pub state: &'a mut [q15],
+    pub mu: q15,
+    pub eps: q15,
+}
+
+impl<'a> NlmsInstanceQ15<'a> {
+    pub fn init(
+        num_taps: u16,
+        coeffs: &'a mut [q15],
+        state: &'a mut [q15],
+        mu: q15,
+        eps: q15,
+    ) -> Self {
+        state.fill(0);
+        coeffs.fill(0);
+        Self {
+            num_taps,
+            coeffs,
+            state,
+            mu,
+            eps,
+        }
+    }
+}
+
+pub fn nlms_q15(
+    instance: &mut NlmsInstanceQ15,
+    src: &[q15],
+    ref_signal: &[q15],
+    out: &mut [q15],
+    err: &mut [q15],
+) {
+    let num_taps = instance.num_taps as usize;
+    let block_size = src
+        .len()
+        .min(ref_signal.len())
+        .min(out.len())
+        .min(err.len());
+
+    for i in 0..block_size {
+        for k in (1..num_taps).rev() {
+            instance.state[k] = instance.state[k - 1];
+        }
+        instance.state[0] = src[i];
+
+        let mut acc: i64 = 0;
+        let mut power: i64 = instance.eps.max(1) as i64;
+        for k in 0..num_taps {
+            let x = instance.state[k] as i64;
+            acc += x * instance.coeffs[k] as i64;
+            power += (x * x) >> 15;
+        }
+        let y = (acc >> 15).clamp(i16::MIN as i64, i16::MAX as i64);
+        out[i] = y as q15;
+        let e = (ref_signal[i] as i32 - y as i32).clamp(i16::MIN as i32, i16::MAX as i32);
+        err[i] = e as q15;
+
+        let alpha = (instance.mu as i64 * e as i64) / power;
+        for k in 0..num_taps {
+            let upd =
+                instance.coeffs[k] as i64 + ((alpha * instance.state[k] as i64) >> 15);
+            instance.coeffs[k] = upd.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
         }
     }
 }
@@ -830,6 +1254,107 @@ impl SinglePoleFilter {
     }
 }
 
+/// Q15 single-pole recursive low-pass or high-pass filter (same recurrence as
+/// [`SinglePoleFilter`]). `decay` is Q1.15 in `0..1` (larger → lower cutoff).
+#[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SinglePoleFilterQ15 {
+    b0: q15,
+    b1: q15,
+    a1: q15,
+    x1: q15,
+    y1: q15,
+}
+
+impl SinglePoleFilterQ15 {
+    /// Creates a single-pole low-pass filter from Q15 decay `x`.
+    pub fn lowpass(decay: q15) -> Self {
+        let decay = decay.max(0);
+        Self {
+            b0: (32767i32 - decay as i32) as q15,
+            b1: 0,
+            a1: decay,
+            x1: 0,
+            y1: 0,
+        }
+    }
+
+    /// Creates a single-pole high-pass filter from the same Q15 decay used by
+    /// [`SinglePoleFilterQ15::lowpass`].
+    pub fn highpass(decay: q15) -> Self {
+        let decay = decay.max(0);
+        let b0 = ((32767i32 + decay as i32) / 2) as q15;
+        Self {
+            b0,
+            b1: -b0,
+            a1: decay,
+            x1: 0,
+            y1: 0,
+        }
+    }
+
+    /// Quantizes a floating-point decay in `0.0..1.0` to Q15 and builds a low-pass.
+    pub fn lowpass_from_f32(decay: f32) -> Self {
+        Self::lowpass((decay * 32767.0).clamp(0.0, 32767.0) as q15)
+    }
+
+    /// Quantizes a floating-point decay in `0.0..1.0` to Q15 and builds a high-pass.
+    pub fn highpass_from_f32(decay: f32) -> Self {
+        Self::highpass((decay * 32767.0).clamp(0.0, 32767.0) as q15)
+    }
+
+    /// Processes a single Q15 input sample and returns the filtered output.
+    #[inline(always)]
+    pub fn process(&mut self, x: q15) -> q15 {
+        let y = (self.b0 as i64 * x as i64
+            + self.b1 as i64 * self.x1 as i64
+            + self.a1 as i64 * self.y1 as i64)
+            >> 15;
+        let y = y.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+        self.x1 = x;
+        self.y1 = y;
+        y
+    }
+
+    /// Resets the filter's delay state to zero.
+    pub fn reset(&mut self) {
+        self.x1 = 0;
+        self.y1 = 0;
+    }
+}
+
+/// High-pass single-pole used as a DC blocker (Smith Ch. 19).
+#[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DcBlockerQ15 {
+    inner: SinglePoleFilterQ15,
+}
+
+impl DcBlockerQ15 {
+    /// `decay` is the same Q15 factor as [`SinglePoleFilterQ15::highpass`].
+    pub fn new(decay: q15) -> Self {
+        Self {
+            inner: SinglePoleFilterQ15::highpass(decay),
+        }
+    }
+
+    /// Quantizes a floating-point decay in `0.0..1.0`.
+    pub fn from_f32_decay(decay: f32) -> Self {
+        Self {
+            inner: SinglePoleFilterQ15::highpass_from_f32(decay),
+        }
+    }
+
+    #[inline(always)]
+    pub fn process(&mut self, x: q15) -> q15 {
+        self.inner.process(x)
+    }
+
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}
+
 // --- Recursive Moving Average Filter (Steven W. Smith, Ch. 15) ---
 
 /// Const-generic `N`-point moving average filter implemented recursively (Steven W. Smith,
@@ -877,6 +1402,50 @@ impl<const N: usize> RecursiveMovingAverage<N> {
 }
 
 impl<const N: usize> Default for RecursiveMovingAverage<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Q15 recursive `N`-point moving average (same recurrence as [`RecursiveMovingAverage`]).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct RecursiveMovingAverageQ15<const N: usize> {
+    history: CircularBuffer<q15, N>,
+    sum: i32,
+}
+
+impl<const N: usize> RecursiveMovingAverageQ15<N> {
+    pub const fn new() -> Self {
+        Self {
+            history: CircularBuffer::new(0),
+            sum: 0,
+        }
+    }
+
+    #[inline(always)]
+    pub fn process(&mut self, x: q15) -> q15 {
+        let oldest = if self.history.is_full() {
+            self.history.oldest().unwrap_or(0)
+        } else {
+            0
+        };
+        self.sum += x as i32 - oldest as i32;
+        self.history.push(x);
+        if self.history.len() == 0 {
+            0
+        } else {
+            (self.sum / self.history.len() as i32).clamp(i16::MIN as i32, i16::MAX as i32) as q15
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.history.clear(0);
+        self.sum = 0;
+    }
+}
+
+impl<const N: usize> Default for RecursiveMovingAverageQ15<N> {
     fn default() -> Self {
         Self::new()
     }

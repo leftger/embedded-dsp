@@ -202,6 +202,40 @@ fn test_lms_adaptive_filter() {
 
     lms_f32(&mut lms, &src, &ref_sig, &mut out, &mut err);
     assert_eq!(out.len(), 2);
+
+    let mut ncoeffs = [0.0f32; 4];
+    let mut nstate = [0.0f32; 4];
+    let mut nlms = NlmsInstanceF32::init(4, &mut ncoeffs, &mut nstate, 0.5, 1e-6);
+    let mut nout = [0.0f32; 64];
+    let mut nerr = [0.0f32; 64];
+    let mut nsrc = [0.0f32; 64];
+    let mut nref = [0.0f32; 64];
+    for i in 0..64 {
+        nsrc[i] = ((i * 17) % 10) as f32 / 10.0 - 0.45;
+        nref[i] = 0.5 * nsrc[i];
+    }
+    nlms_f32(&mut nlms, &nsrc, &nref, &mut nout, &mut nerr);
+    let last_err = nerr[63].abs();
+    assert!(last_err < 0.15, "nlms err {last_err}");
+
+    let mut qcoeffs = [0i16; 4];
+    let mut qstate = [0i16; 4];
+    let mut qlms = LmsInstanceQ15::init(4, &mut qcoeffs, &mut qstate, 1024);
+    let mut qsrc = [0i16; 64];
+    let mut qref = [0i16; 64];
+    for i in 0..64 {
+        qsrc[i] = (nsrc[i] * 16000.0) as i16;
+        qref[i] = (nref[i] * 16000.0) as i16;
+    }
+    let mut qout = [0i16; 64];
+    let mut qerr = [0i16; 64];
+    lms_q15(&mut qlms, &qsrc, &qref, &mut qout, &mut qerr);
+    lms_leaky_q15(&mut qlms, &qsrc, &qref, &mut qout, &mut qerr, 32);
+
+    let mut nqcoeffs = [0i16; 4];
+    let mut nqstate = [0i16; 4];
+    let mut qnlms = NlmsInstanceQ15::init(4, &mut nqcoeffs, &mut nqstate, 16384, 8);
+    nlms_q15(&mut qnlms, &qsrc, &qref, &mut qout, &mut qerr);
 }
 
 #[test]
@@ -316,6 +350,28 @@ fn test_pid_and_clarke_park() {
     park_f32(alpha, beta, 0.0, &mut d, &mut q);
     assert_eq!(d, 1.0);
     assert_eq!(q, 0.0);
+
+    let ia = 16384i16;
+    let ib = -8192i16;
+    let mut a_q = 0i16;
+    let mut b_q = 0i16;
+    clarke_q15(ia, ib, &mut a_q, &mut b_q);
+    assert_eq!(a_q, ia);
+    let mut ia2 = 0i16;
+    let mut ib2 = 0i16;
+    inv_clarke_q15(a_q, b_q, &mut ia2, &mut ib2);
+    assert!((ia2 as i32 - ia as i32).abs() < 8);
+    assert!((ib2 as i32 - ib as i32).abs() < 16);
+
+    let mut d_q = 0i16;
+    let mut q_q = 0i16;
+    park_q15(a_q, b_q, 0, 32767, &mut d_q, &mut q_q);
+    assert!((d_q as i32 - a_q as i32).abs() < 4);
+    assert!(q_q.abs() < 4);
+    let mut ar = 0i16;
+    let mut br = 0i16;
+    inv_park_q15(d_q, q_q, 0, 32767, &mut ar, &mut br);
+    assert!((ar as i32 - a_q as i32).abs() < 8);
 }
 
 // =========================================================================================
@@ -445,6 +501,15 @@ fn test_windows() {
     let mut sig = [2.0f32; 5];
     apply_window_f32(&mut sig, &w);
     assert!((sig[2] - 2.0).abs() < 1e-4);
+
+    let mut wq = [0i16; 5];
+    hanning_q15(&mut wq);
+    assert_eq!(wq[0], 0);
+    assert!((wq[2] - 32767).abs() < 2);
+    assert_eq!(wq[4], 0);
+    let mut sigq = [32767i16; 5];
+    apply_window_q15(&mut sigq, &wq);
+    assert!((sigq[2] - 32766).abs() < 4);
 }
 
 // =========================================================================================
@@ -758,6 +823,17 @@ fn test_const_generics_wrappers() {
 
     let m_mul: Matrix<2, 2, 4> = m1.mul_mat(&m2);
     assert_eq!(m_mul.data, [19.0, 22.0, 43.0, 50.0]);
+
+    let mut fir_q = FirFilterQ15::<3>::new([8192, 16384, 8192]);
+    let mut dst_q = [0i16; 4];
+    fir_q.process(&[32767, 0, 0, 0], &mut dst_q);
+    assert!((dst_q[0] as i32 - 8191).abs() < 4);
+    assert!((dst_q[1] as i32 - 16383).abs() < 4);
+
+    let mut bq = BiquadCascadeQ15::<5, 4>::new([32767, 0, 0, 0, 0], 0);
+    bq.process(&[1000, 2000, 3000, 4000], &mut dst_q);
+    assert!((dst_q[0] as i32 - 1000).abs() < 3);
+    assert!((dst_q[3] as i32 - 4000).abs() < 3);
 }
 
 // =========================================================================================
@@ -1101,6 +1177,41 @@ fn test_windowed_sinc_fir_design() {
     assert!((sum_bs - 1.0).abs() < 1e-3); // DC gain ~ 1.0 for notch/bandstop
 }
 
+#[test]
+fn test_windowed_sinc_q15_stopband_matches_float() {
+    const M: usize = 51;
+    let mut taps = [0.0f32; M];
+    assert_eq!(fir_windowed_sinc_lowpass(0.1, &mut taps), Status::Success);
+
+    let mut q_taps = [0i16; M];
+    assert_eq!(fir_taps_f32_to_q15(&taps, &mut q_taps), Status::Success);
+
+    let mut q_as_f = [0.0f32; M];
+    for i in 0..M {
+        q_as_f[i] = q_taps[i] as f32 / 32768.0;
+    }
+
+    let h_dc_f = response_magnitude(fir_frequency_response(&taps, 0.0));
+    let h_dc_q = response_magnitude(fir_frequency_response(&q_as_f, 0.0));
+    assert!((h_dc_f - 1.0).abs() < 1e-3);
+    assert!((h_dc_q - 1.0).abs() < 0.01);
+
+    let mut max_stop_q = 0.0f32;
+    let mut max_q_err = 0.0f32;
+    for k in 0..16 {
+        let f = 0.22 + 0.28 * k as f32 / 15.0;
+        let hf = response_magnitude(fir_frequency_response(&taps, f));
+        let hq = response_magnitude(fir_frequency_response(&q_as_f, f));
+        max_stop_q = max_stop_q.max(hq);
+        max_q_err = max_q_err.max((hf - hq).abs());
+    }
+    assert!(max_stop_q < 0.05, "quantized stopband mag {max_stop_q}");
+    assert!(
+        max_q_err < 0.02,
+        "float vs Q15 stopband abs err {max_q_err}"
+    );
+}
+
 // =========================================================================================
 // 29. FILTER ANALYSIS TESTS (FREQUENCY RESPONSE, GROUP DELAY, STABILITY)
 // =========================================================================================
@@ -1242,6 +1353,20 @@ fn test_single_pole_filters() {
         y_hp = hp.process(1.0);
     }
     assert!(y_hp.abs() < 1e-3);
+
+    let mut lp_q = SinglePoleFilterQ15::lowpass_from_f32(decay);
+    let mut hp_q = SinglePoleFilterQ15::highpass_from_f32(decay);
+    let mut yq = 0i16;
+    let mut yq_hp = 0i16;
+    for _ in 0..500 {
+        yq = lp_q.process(32767);
+        yq_hp = hp_q.process(32767);
+    }
+    assert!(
+        (yq as i32 - 32767).abs() < 400,
+        "q15 LP step settled at {yq}"
+    );
+    assert!(yq_hp.abs() < 400, "q15 HP step settled at {yq_hp}");
 }
 
 #[test]
@@ -1261,6 +1386,21 @@ fn test_recursive_moving_average_matches_naive_average() {
             "got {outputs:?} want {expected:?}"
         );
     }
+
+    let mut rma_q = RecursiveMovingAverageQ15::<4>::new();
+    let input_q = [1000i16, 2000, 3000, 4000, 5000, 6000];
+    let expected_q = [1000i16, 1500, 2000, 2500, 3500, 4500];
+    for (i, &x) in input_q.iter().enumerate() {
+        assert_eq!(rma_q.process(x), expected_q[i]);
+    }
+
+    let decay = single_pole_decay_from_cutoff(0.05);
+    let mut dc = DcBlockerQ15::from_f32_decay(decay);
+    let mut y_dc = 0i16;
+    for _ in 0..500 {
+        y_dc = dc.process(32767);
+    }
+    assert!(y_dc.abs() < 400, "dc blocker settled at {y_dc}");
 }
 
 // =========================================================================================
@@ -1400,6 +1540,21 @@ fn test_mu_law_and_a_law_companding_round_trip_and_expand_small_signals() {
         );
     }
 
+    for &x in &[0i16, 16, -16, 256, -256, 1024, -1024, 8000, -8000, 16000] {
+        let u = linear_to_ulaw(x);
+        let back = ulaw_to_linear(u);
+        assert!(
+            (back as i32 - x as i32).abs() < 260,
+            "ulaw {x} -> {u} -> {back}"
+        );
+        let a = linear_to_alaw(x);
+        let back_a = alaw_to_linear(a);
+        assert!(
+            (back_a as i32 - x as i32).abs() < 260,
+            "alaw {x} -> {a} -> {back_a}"
+        );
+    }
+
     // Companding expands resolution for small signals: a small input should map to a
     // proportionally larger compressed magnitude (the whole point of the nonlinearity).
     let small = 0.01f32;
@@ -1481,6 +1636,22 @@ fn test_goertzel_detects_target_frequency_and_rejects_others() {
 
     assert!((on_target.magnitude() - amplitude).abs() < 1e-3);
     assert!(off_target.magnitude() < 1e-3);
+
+    let mut on_q = GoertzelDetectorQ15::new(target, fs);
+    let mut off_q = GoertzelDetectorQ15::new(2500.0, fs);
+    for i in 0..n {
+        let x = amplitude * (2.0 * core::f32::consts::PI * target * i as f32 / fs).sin();
+        let xq = (x * 32767.0) as i16;
+        on_q.process_sample(xq);
+        off_q.process_sample(xq);
+    }
+    let on_mag = on_q.magnitude() as f32 / 32767.0;
+    let off_mag = off_q.magnitude() as f32 / 32767.0;
+    assert!(
+        (on_mag - amplitude).abs() < 0.08,
+        "q15 on-target mag {on_mag}"
+    );
+    assert!(off_mag < 0.05, "q15 off-target mag {off_mag}");
 }
 
 #[test]
@@ -1502,6 +1673,18 @@ fn test_peak_and_rms_envelope_followers_converge_to_constant_input() {
     rms.reset();
     assert_eq!(peak.process(0.0), 0.0);
     assert_eq!(rms.process(0.0), 0.0);
+
+    let mut peak_q = PeakEnvelopeFollowerQ15::new(5.0, 50.0);
+    let mut rms_q = RmsEnvelopeFollowerQ15::new(20.0);
+    let xq = (0.5 * 32767.0) as i16;
+    let mut peak_env_q = 0i16;
+    let mut rms_env_q = 0i16;
+    for _ in 0..2000 {
+        peak_env_q = peak_q.process(xq);
+        rms_env_q = rms_q.process(xq);
+    }
+    assert!((peak_env_q as i32 - xq as i32).abs() < 400);
+    assert!((rms_env_q as i32 - xq as i32).abs() < 800);
 }
 
 #[test]
@@ -1711,5 +1894,108 @@ fn test_biquad_q15_matches_f32_lowpass() {
     assert!(
         max_err < 0.08,
         "max abs err {max_err} coeffs={coeffs:?} q={qcoeffs:?}"
+    );
+}
+
+#[test]
+fn test_biquad_df2t_q15_matches_df1() {
+    let coeffs = biquad_lowpass_coeffs(800.0, 8000.0, 0.7071);
+    let post_shift = 1u8;
+    let mut qcoeffs = [0i16; 5];
+    assert_eq!(
+        biquad_coeffs_f32_to_q15(&coeffs, &mut qcoeffs, post_shift),
+        Status::Success
+    );
+
+    let mut state_df1 = [0i16; 4];
+    let mut df1 = BiquadCascadeInstanceQ15::init(1, &qcoeffs, &mut state_df1, post_shift);
+    let mut state_df2t = [0i16; 2];
+    let mut df2t = BiquadCascadeDf2tInstanceQ15::init(1, &qcoeffs, &mut state_df2t, post_shift);
+
+    let mut max_err = 0i32;
+    for n in 0..64 {
+        let x = (2.0 * core::f32::consts::PI * 200.0 * n as f32 / 8000.0).sin() * 0.5;
+        let xq = [(x * 32767.0) as i16];
+        let mut y1 = [0i16; 1];
+        let mut y2 = [0i16; 1];
+        biquad_cascade_df1_q15(&mut df1, &xq, &mut y1);
+        biquad_cascade_df2t_q15(&mut df2t, &xq, &mut y2);
+        max_err = max_err.max((y1[0] as i32 - y2[0] as i32).abs());
+    }
+    assert!(max_err < 2500, "DF1 vs DF2T max abs {max_err}");
+
+    let coeffs = biquad_lowpass_coeffs(800.0, 8000.0, 0.7071);
+    let mut state_f = [0.0f32; 4];
+    let mut df1f = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state_f);
+    let mut state_t = [0.0f32; 2];
+    let mut df2tf = BiquadCascadeDf2tInstanceF32::init(1, &coeffs, &mut state_t);
+    let mut max_f = 0.0f32;
+    for n in 0..64 {
+        let x = (2.0 * core::f32::consts::PI * 200.0 * n as f32 / 8000.0).sin() * 0.5;
+        let mut y1 = [0.0f32; 1];
+        let mut y2 = [0.0f32; 1];
+        biquad_cascade_df1_f32(&mut df1f, &[x], &mut y1);
+        biquad_cascade_df2t_f32(&mut df2tf, &[x], &mut y2);
+        max_f = max_f.max((y1[0] - y2[0]).abs());
+    }
+    assert!(max_f < 1e-4, "f32 DF1 vs DF2T {max_f}");
+}
+
+#[test]
+fn test_packed_rfft_q15_tone_bin() {
+    const N: usize = 32;
+    let mut src_f = [0.0f32; N];
+    let mut src_q = [0i16; N];
+    for i in 0..N {
+        let x = (2.0 * core::f32::consts::PI * 4.0 * i as f32 / N as f32).sin();
+        src_f[i] = x;
+        src_q[i] = (x * 32767.0) as i16;
+    }
+    let mut dst_f = [0.0f32; 2 * N];
+    let mut dst_q = [0i16; 2 * N];
+    rfft_f32(&src_f, &mut dst_f, N, 0);
+    rfft_q15(&src_q, &mut dst_q, N, 0);
+
+    let mut peak_f = 0usize;
+    let mut peak_q = 0usize;
+    let mut mag_f = 0.0f32;
+    let mut mag_q = 0i32;
+    for k in 0..N {
+        let mf = dst_f[2 * k] * dst_f[2 * k] + dst_f[2 * k + 1] * dst_f[2 * k + 1];
+        if mf > mag_f {
+            mag_f = mf;
+            peak_f = k;
+        }
+        let mq = (dst_q[2 * k] as i32).pow(2) + (dst_q[2 * k + 1] as i32).pow(2);
+        if mq > mag_q {
+            mag_q = mq;
+            peak_q = k;
+        }
+    }
+    assert_eq!(peak_f, 4);
+    assert_eq!(peak_q, peak_f);
+
+    let q_peak =
+        ((dst_q[2 * peak_q] as f32).hypot(dst_q[2 * peak_q + 1] as f32) / 32767.0) * N as f32;
+    let f_peak = dst_f[2 * peak_f].hypot(dst_f[2 * peak_f + 1]);
+    assert!(
+        (q_peak - f_peak).abs() / f_peak.max(1e-6) < 0.25,
+        "packed rfft scale q={q_peak} f={f_peak}"
+    );
+
+    let orig = src_q;
+    let mut time = [0i16; N];
+    irfft_q15(&dst_q, &mut time, N);
+    let mut err = 0i32;
+    for i in 0..N {
+        let got = (time[i] as i32) * (N as i32);
+        err += (got - orig[i] as i32).abs();
+    }
+    let mean = err / N as i32;
+    assert!(
+        mean < 5000,
+        "irfft round-trip mean abs {mean}; got*N={} orig={}",
+        time[4] as i32 * N as i32,
+        orig[4]
     );
 }

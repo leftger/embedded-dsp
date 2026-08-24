@@ -19,25 +19,25 @@ A **`#![no_std]` Rust Digital Signal Processing library** designed for microcont
   1. **Basic Math**: Elementwise `add`, `sub`, `mult`, `negate`, `offset`, `scale`, `shift`, `dot_prod`, `clip`, bitwise operations.
   2. **Complex Math**: Complex vector addition, multiplication, magnitude, conjugate, dot product.
   3. **Fast Math**: Trigonometric `sin`, `cos`, `tan`, `sin_cos`, `sqrt`, `vsqrt`, `divide`, `log`, `log10`, `exp`, `atan2`.
-  4. **Filtering**: FIR filters, Biquad IIR cascade, LMS adaptive filters, 1D convolution & correlation, FFT fast convolution, 1D conditional/thresholded median filters (`f32`, `q15`, `q31`), single-pole recursive low/high-pass filters (`SinglePoleFilter`), O(1) recursive moving average (`RecursiveMovingAverage<N>`), and const-generic real-time `CircularBuffer<T, N>`.
+  4. **Filtering**: FIR filters, Biquad IIR cascade (DF1 and transposed DF-II, f32/q15/q31), LMS / leaky LMS / NLMS (`f32`/`q15`), 1D convolution & correlation, FFT fast convolution, 1D conditional/thresholded median filters (`f32`, `q15`, `q31`), single-pole recursive low/high-pass filters (`SinglePoleFilter` / `SinglePoleFilterQ15`), Q15 DC blocker (`DcBlockerQ15`), O(1) recursive moving average (`RecursiveMovingAverage<N>` / `RecursiveMovingAverageQ15<N>`), and const-generic real-time `CircularBuffer<T, N>`.
   5. **Filter Design**: Biquad Low-Pass, High-Pass, Band-Pass, Notch, Peaking EQ, All-Pass, multi-stage Butterworth design, multi-stage Chebyshev Low-Pass/High-Pass design, continuous-to-discrete Bilinear Transform with cutoff frequency pre-warping, Windowed-Sinc FIR design (Low-pass, High-pass, Band-pass, Band-stop), and arbitrary-response FIR design via frequency sampling (`fir_custom_frequency_sampling`).
-  6. **Audio**: Goertzel single-frequency detector (`GoertzelDetector`), peak/RMS envelope followers (`PeakEnvelopeFollower`/`RmsEnvelopeFollower`), Mel filterbank (`mel_filterbank_f32`), and MFCC feature extraction (`mfcc_f32`).
+  6. **Audio**: Goertzel single-frequency detector (`GoertzelDetector` / `GoertzelDetectorQ15`), peak/RMS envelope followers (`PeakEnvelopeFollower`/`RmsEnvelopeFollower` and Q15), Mel filterbank (`mel_filterbank_f32`), and MFCC feature extraction (`mfcc_f32`).
   7. **Spectral Analysis & PSD**: Welch's method power spectral density estimation (averaged periodograms), single-segment periodograms in linear and dB scale.
   8. **Spatial & 2D Signal Processing**: 2D DCT-II / IDCT-II, 2D spatial convolution with normalization, 2D non-linear filtering (Min/Max/Median), Sobel edge detection, 2D histogram binning, MSE, and PSNR.
   9. **Resampling & Multi-rate**: Cascaded Integrator-Comb (CIC) Decimator & Interpolator, linear fractional resampler, spectral 2:1 sinc zero-padding interpolation.
   10. **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, and trait-based Extended Kalman Filter (`EkfModel`), with `_with_input` variants for models driven by an exogenous input outside the state.
-  11. **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `BiquadCascade<COEFFS, STATE>`, and `Matrix<R, C, N>`.
-  12. **Transforms**: In-place Complex FFT (`cfft`), Real FFT (`rfft`), Discrete Cosine Transform (`dct4`), Fast Walsh-Hadamard Transform (`fwht_f32`/`fwht_i32`), Fixed-Point FFT (`cfft_q15`/`cfft_q31`), Haar Transform (`haar_transform_f32`/`haar_transform_i32`), self-inverse Hartley Transform (`hartley_transform_f32`), and a generalized wavelet transform (`wavelet_transform_f32` with the built-in Daubechies-4 filter).
+  11. **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `FirFilterQ15<N>`, `BiquadCascade<COEFFS, STATE>`, `BiquadCascadeQ15<COEFFS, STATE>`, and `Matrix<R, C, N>`.
+  12. **Transforms**: In-place Complex FFT (`cfft`), Real FFT (`rfft`, packed `rfft_q15`/`rfft_q31` and `irfft_q15`/`irfft_q31`), Discrete Cosine Transform (`dct4`), Fast Walsh-Hadamard Transform (`fwht_f32`/`fwht_i32`), Fixed-Point FFT (`cfft_q15`/`cfft_q31`), Haar Transform (`haar_transform_f32`/`haar_transform_i32`), self-inverse Hartley Transform (`hartley_transform_f32`), and a generalized wavelet transform (`wavelet_transform_f32` with the built-in Daubechies-4 filter).
   13. **Matrix & Regression**: Matrix addition, subtraction, multiplication, scaling, transpose, Gauss-Jordan inversion, and weighted polynomial least-squares curve fitting.
-  14. **Controller**: PID motor controller, Clarke and Park transforms.
+  14. **Controller**: PID motor controller (`f32`/`q15`/`q31`), Clarke and Park transforms (`f32`/`q15`).
   15. **Statistics**: Mean, variance, standard deviation, RMS, power, min/max, entropy, KL divergence, logsumexp.
-  16. **Support, PRNG & Noise**: Array copy/fill, zero-allocation sorting (`sort_f32`), format conversions (`q15` ↔ `f32` ↔ `q31`), XorShift64 PRNG, uniform and Box-Muller Gaussian noise generators.
+  16. **Support, PRNG & Noise**: Array copy/fill, zero-allocation sorting (`sort_f32`), format conversions (`q15` ↔ `f32` ↔ `q31`), rounded FIR tap quantizer (`fir_taps_f32_to_q15`), XorShift64 PRNG, uniform and Box-Muller Gaussian noise generators.
   17. **Interpolation**: Linear, Bilinear, and Cubic Spline interpolation.
   18. **Quaternions**: Norm, normalization, quaternion product, conjugate, inverse, rotation matrix conversion.
-  19. **Window Functions**: Hanning, Hamming, Blackman, 4-term Blackman-Harris, Bartlett, Welch, Flat-top generators.
+  19. **Window Functions**: Hanning, Hamming, Blackman, 4-term Blackman-Harris, Bartlett, Welch, Flat-top generators (`f32`), plus Q15 Hanning/Hamming/Blackman/Bartlett and `apply_window_q15`.
   20. **Distance Metrics**: Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Jaccard, Hamming, Canberra, Bray-Curtis.
   21. **Filter Analysis**: FIR/biquad-cascade frequency response (DTFT) evaluation, magnitude/phase/dB helpers, FIR group delay, and pole-based IIR stability checks.
-  22. **Companding**: µ-law and "A"-law audio companding (`mu_law_compress_f32`/`mu_law_expand_f32`, `a_law_compress_f32`/`a_law_expand_f32`), the ITU-T G.711-family nonlinear compression curves.
+  22. **Companding**: µ-law and A-law curves (`mu_law_compress_f32` / `a_law_*`) and ITU-T G.711 bytes (`linear_to_ulaw` / `ulaw_to_linear`, `linear_to_alaw` / `alaw_to_linear`).
 
 ---
 
@@ -48,16 +48,24 @@ Add `embedded-dsp` to your `Cargo.toml`:
 ```toml
 [dependencies]
 # For standard std environments (all modules)
-embedded-dsp = "0.3.0"
+embedded-dsp = "0.4.0"
 
 # For bare-metal #![no_std] with libm and every algorithm module
-embedded-dsp = { version = "0.3.0", default-features = false, features = ["libm", "full"] }
+embedded-dsp = { version = "0.4.0", default-features = false, features = ["libm", "full"] }
 
 # For bare-metal, only the pieces you use (example: FIR/biquad + Q15 math)
-embedded-dsp = { version = "0.3.0", default-features = false, features = ["libm", "filtering", "basic-math"] }
+embedded-dsp = { version = "0.4.0", default-features = false, features = ["libm", "filtering", "basic-math"] }
 ```
 
-`types` and `math` (`FloatMath`) are always compiled. Other modules map 1:1 to Cargo features (`filtering`, `transform`, `kalman`, `fixed-point`, `lut`, …). Enabling `kalman` also pulls `matrix` (and thus `basic-math`); enabling `audio` or `psd` also pulls `transform`.
+`types` and `math` (`FloatMath`) are always compiled. Other modules map 1:1 to Cargo features (`filtering`, `transform`, `kalman`, `fixed-point`, `lut`, …). Enabling `kalman` also pulls `matrix` (and thus `basic-math`); enabling `audio` or `psd` also pulls `transform`. FFT-backed helpers (`fast_convolve_f32`, `fir_custom_frequency_sampling`, `spectral_interpolate_2x_f32`) need `transform` as well.
+
+Minimum supported Rust is **1.88** (edition 2024).
+
+### Migrating from 0.3.0
+
+- Naive Bayes and SVM live in [`embedded-nn`](https://github.com/leftger/embedded-nn), not this crate.
+- `default-features = false` no longer compiles every module. Use `features = ["libm", "full"]` or list modules.
+- `cfft_q15` / `rfft_q15` (and q31) are integer FFTs with about `1/n` scale versus the `f32` transforms.
 
 ### Basic Example
 

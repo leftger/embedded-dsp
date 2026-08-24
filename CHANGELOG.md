@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-23
+
+This is a **breaking** release relative to crates.io `0.3.0`. New DSP APIs are
+additive, but module features, removed classifiers, and honest integer kernels
+change what `default-features = false` compiles and how several `q15`/`q31`
+entry points behave.
+
 ### Added
 
 - Restored Q16.16 arithmetic (`fixed-point`) and compile-time sin/cos lookup
@@ -13,6 +20,24 @@ All notable changes to this project are documented in this file. The format foll
   Newton `sqrt_q15`/`sqrt_q31`, CORDIC `sin_cos_q31`/`atan2_q15`/`atan2_q31`,
   integer `cmplx_mag` / `std` / `rms`, DF1 `biquad_cascade_df1_q15`/`q31`,
   SOS quantizers `biquad_coeffs_f32_to_q15`/`q31`, and LUT `sin_q16`/`cos_q16`.
+- Q15 single-pole IIR (`SinglePoleFilterQ15`) and transposed DF-II biquad
+  cascades (`biquad_cascade_df2t_f32`/`q15`/`q31`).
+- Packed real FFT for `rfft_q15`/`rfft_q31` (N/2 complex FFT + unpack) and
+  matching `irfft_q15`/`irfft_q31`. Combined scale is about `1/n` versus `f32`
+  (`irfft(rfft(x)) ≈ x / n`).
+- Q15 windows (`hanning_q15`/`hamming_q15`/`blackman_q15`/`bartlett_q15`) and
+  `apply_window_q15`.
+- Q15 Clarke/Park (`clarke_q15`/`park_q15` and inverses). Park takes Q15
+  `sin`/`cos` of θ.
+- Integer G.711 μ-law/A-law (`linear_to_ulaw`/`ulaw_to_linear`,
+  `linear_to_alaw`/`alaw_to_linear`).
+- NLMS and leaky LMS (`nlms_f32`/`nlms_q15`, `lms_leaky_f32`/`lms_leaky_q15`,
+  plus `lms_q15`).
+- Q15 envelope followers, recursive moving average (`RecursiveMovingAverageQ15`),
+  and DC blocker (`DcBlockerQ15`).
+- Const-generic `FirFilterQ15` and `BiquadCascadeQ15`.
+- Rounded FIR tap quantizer `fir_taps_f32_to_q15`.
+- Q15 Goertzel detector (`GoertzelDetectorQ15`).
 - Per-module Cargo features (plus a `full` meta-feature on by default), matching
   the 0.2.0 "compile only what you use" model. `types` and `math` stay always-on.
   FFT-backed helpers (`fast_convolve_f32`, `fir_custom_frequency_sampling`,
@@ -23,12 +48,22 @@ All notable changes to this project are documented in this file. The format foll
 - `default-features = false` no longer compiles every DSP module. Bare-metal
   installs that want the whole crate should use
   `features = ["libm", "full"]` (or pick individual modules).
+- Published `q15`/`q31` FFT, sqrt, trig, complex-magnitude, and RMS/std
+  kernels are integer arithmetic (they previously rounded through `f32`).
 
 ### Removed
 
 - Gaussian Naive Bayes and SVM classifiers. Classical ML inference belongs in
-  `embedded-nn`; this crate keeps the DSP front-end (Mel filterbank, MFCC,
-  Goertzel, envelopes) that those models consume.
+  [`embedded-nn`](https://github.com/leftger/embedded-nn); this crate keeps the
+  DSP front-end (Mel filterbank, MFCC, Goertzel, envelopes) that those models
+  consume.
+
+### Migration from 0.3.0
+
+- Replace `use embedded_dsp::{GaussianNb, ...}` with [`embedded-nn`](https://github.com/leftger/embedded-nn).
+- Bare-metal: `default-features = false, features = ["libm", "full"]` (or a
+  module list). `features = ["libm"]` alone is no longer the whole crate.
+- Integer FFT: expect ~`1/n` scaling versus `cfft_f32` / `rfft_f32`.
 
 ## [0.3.0] - 2026-08-23
 

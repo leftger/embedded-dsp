@@ -1,10 +1,14 @@
 //! Const generic safe wrappers for compile-time sized FIR filters, Biquads, and Matrices.
 
-use crate::filtering::{BiquadCascadeInstanceF32, FirInstanceF32, biquad_cascade_df1_f32, fir_f32};
+use crate::filtering::{
+    BiquadCascadeInstanceF32, BiquadCascadeInstanceQ15, FirInstanceF32, FirInstanceQ15,
+    biquad_cascade_df1_f32, biquad_cascade_df1_q15, fir_f32, fir_q15,
+};
 use crate::matrix::{
     MatrixInstance, MatrixInstanceMut, mat_add_f32, mat_mult_f32, mat_scale_f32, mat_sub_f32,
     mat_trans_f32,
 };
+use crate::types::q15;
 
 /// Compile-time fixed-size FIR filter holding its own state buffer.
 #[derive(Debug, Clone)]
@@ -72,6 +76,72 @@ impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascade<COEFFS_LEN, 
     /// Reset internal filter delay state.
     pub fn reset(&mut self) {
         self.state.fill(0.0);
+    }
+}
+
+/// Compile-time fixed-size Q15 FIR filter holding its own state buffer.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct FirFilterQ15<const TAPS: usize> {
+    pub coeffs: [q15; TAPS],
+    state: [q15; TAPS],
+}
+
+impl<const TAPS: usize> FirFilterQ15<TAPS> {
+    pub fn new(coeffs: [q15; TAPS]) -> Self {
+        Self {
+            coeffs,
+            state: [0; TAPS],
+        }
+    }
+
+    pub fn process(&mut self, src: &[q15], dst: &mut [q15]) {
+        let mut instance = FirInstanceQ15 {
+            num_taps: TAPS as u16,
+            coeffs: &self.coeffs,
+            state: &mut self.state,
+        };
+        fir_q15(&mut instance, src, dst);
+    }
+
+    pub fn reset(&mut self) {
+        self.state.fill(0);
+    }
+}
+
+/// Compile-time fixed-size Q15 biquad cascade (Direct Form I).
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct BiquadCascadeQ15<const COEFFS_LEN: usize, const STATE_LEN: usize> {
+    pub coeffs: [q15; COEFFS_LEN],
+    pub state: [q15; STATE_LEN],
+    num_stages: u8,
+    post_shift: u8,
+}
+
+impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascadeQ15<COEFFS_LEN, STATE_LEN> {
+    pub fn new(coeffs: [q15; COEFFS_LEN], post_shift: u8) -> Self {
+        let num_stages = (COEFFS_LEN / 5) as u8;
+        Self {
+            coeffs,
+            state: [0; STATE_LEN],
+            num_stages,
+            post_shift,
+        }
+    }
+
+    pub fn process(&mut self, src: &[q15], dst: &mut [q15]) {
+        let mut instance = BiquadCascadeInstanceQ15 {
+            num_stages: self.num_stages,
+            post_shift: self.post_shift,
+            coeffs: &self.coeffs,
+            state: &mut self.state,
+        };
+        biquad_cascade_df1_q15(&mut instance, src, dst);
+    }
+
+    pub fn reset(&mut self) {
+        self.state.fill(0);
     }
 }
 

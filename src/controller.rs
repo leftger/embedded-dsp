@@ -209,3 +209,42 @@ pub fn inv_park_f32(d: f32, q: f32, theta: f32, p_alpha: &mut f32, p_beta: &mut 
     *p_alpha = d * cos_t - q * sin_t;
     *p_beta = d * sin_t + q * cos_t;
 }
+
+const INV_SQRT3_Q15: i32 = 18919; // 1/√3 in Q15
+const SQRT3_2_Q15: i32 = 28378; // √3/2 in Q15
+
+#[inline]
+fn sat_q15_i32(v: i32) -> q15 {
+    v.clamp(i16::MIN as i32, i16::MAX as i32) as q15
+}
+
+/// Forward Clarke transform in Q15.
+pub fn clarke_q15(ia: q15, ib: q15, p_alpha: &mut q15, p_beta: &mut q15) {
+    *p_alpha = ia;
+    let acc = (ia as i32 + 2 * ib as i32) * INV_SQRT3_Q15;
+    *p_beta = sat_q15_i32(acc >> 15);
+}
+
+/// Inverse Clarke transform in Q15.
+pub fn inv_clarke_q15(alpha: q15, beta: q15, p_ia: &mut q15, p_ib: &mut q15) {
+    *p_ia = alpha;
+    let acc = -((alpha as i32) << 14) + SQRT3_2_Q15 * beta as i32;
+    *p_ib = sat_q15_i32(acc >> 15);
+}
+
+/// Forward Park transform in Q15. `sin_t` / `cos_t` are Q15 sine/cosine of θ
+/// (CMSIS-style; e.g. take `sin_cos_q31` and shift `>> 16`).
+pub fn park_q15(alpha: q15, beta: q15, sin_t: q15, cos_t: q15, p_d: &mut q15, p_q: &mut q15) {
+    let d = (alpha as i32 * cos_t as i32 + beta as i32 * sin_t as i32) >> 15;
+    let q = (-alpha as i32 * sin_t as i32 + beta as i32 * cos_t as i32) >> 15;
+    *p_d = sat_q15_i32(d);
+    *p_q = sat_q15_i32(q);
+}
+
+/// Inverse Park transform in Q15. `sin_t` / `cos_t` are Q15 sine/cosine of θ.
+pub fn inv_park_q15(d: q15, q: q15, sin_t: q15, cos_t: q15, p_alpha: &mut q15, p_beta: &mut q15) {
+    let alpha = (d as i32 * cos_t as i32 - q as i32 * sin_t as i32) >> 15;
+    let beta = (d as i32 * sin_t as i32 + q as i32 * cos_t as i32) >> 15;
+    *p_alpha = sat_q15_i32(alpha);
+    *p_beta = sat_q15_i32(beta);
+}
