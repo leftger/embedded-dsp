@@ -1,5 +1,9 @@
 # embedded-dsp
 
+<p align="center">
+  <img src="assets/aztec_rustacean.png" alt="embedded-dsp" width="100%">
+</p>
+
 [![crates.io](https://img.shields.io/crates/v/embedded-dsp.svg)](https://crates.io/crates/embedded-dsp)
 [![docs.rs](https://img.shields.io/docsrs/embedded-dsp)](https://docs.rs/embedded-dsp)
 [![CI](https://github.com/leftger/embedded-dsp/actions/workflows/ci.yml/badge.svg)](https://github.com/leftger/embedded-dsp/actions/workflows/ci.yml)
