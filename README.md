@@ -114,12 +114,40 @@ fn main() {
 
 ## Running Included Examples
 
+The repository includes comprehensive, domain-specific examples showcasing the entire spectrum of DSP algorithms:
+
 ```bash
-# Run basic usage example
+# 1. Basic Usage: Quick tour of core primitives
 cargo run --example basic_usage
 
-# Run performance comparison benchmark (libm vs embedded-dsp)
+# 2. Performance Benchmark: embedded-dsp vs libm comparison
 cargo run --release --example perf_comparison
+
+# 3. Audio & Speech Pipeline: DC blocker, notch/peaking EQ, envelope tracking,
+#    ITU-T G.711 μ-law/A-law codec, Goertzel DTMF detector, Mel filterbank & MFCC
+cargo run --example audio_speech_pipeline
+
+# 4. Sensor Fusion & Navigation: Outlier rejection, polynomial sensor calibration,
+#    Quaternion 3D attitude, 2D kinematic Kalman filter, and non-linear Radar EKF
+cargo run --example sensor_fusion_navigation
+
+# 5. Field-Oriented Control (FOC): 3-phase current sensing, recursive moving average,
+#    Clarke/Park transforms (f32 & Q15), dual current PID loops, speed PID, SVPWM
+cargo run --example motor_control_foc
+
+# 6. Spectral Analysis, Radar & Multirate Transforms: Multitone signals, CIC decimation/
+#    interpolation, LMS adaptive interference cancellation, windowing, FFT, Welch PSD,
+#    FWHT, DCT-IV, Hartley, and Daubechies-4 Discrete Wavelet Transform
+cargo run --example spectral_radar_transforms
+
+# 7. 2D Spatial & Embedded Vision: 2D convolution, non-linear min/max/median filtering,
+#    Sobel edge detection, 2D DCT-II compression, 2D histogram/MSE/PSNR, Q16.16 scanlines
+cargo run --example spatial_vision_processing
+
+# 8. Filter Design & Analysis Workbench: Butterworth/Chebyshev cascade design,
+#    windowed-sinc & frequency-sampling FIR, DTFT response, group delay, pole stability,
+#    topology comparisons (DF-I vs DF-II Transposed), and information-theoretic metrics
+cargo run --example filter_workbench_and_analysis
 ```
 
 ---

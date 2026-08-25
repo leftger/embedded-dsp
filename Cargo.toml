@@ -95,3 +95,27 @@ path = "examples/basic_usage.rs"
 [[example]]
 name = "perf_comparison"
 path = "examples/perf_comparison.rs"
+
+[[example]]
+name = "audio_speech_pipeline"
+path = "examples/audio_speech_pipeline.rs"
+
+[[example]]
+name = "sensor_fusion_navigation"
+path = "examples/sensor_fusion_navigation.rs"
+
+[[example]]
+name = "motor_control_foc"
+path = "examples/motor_control_foc.rs"
+
+[[example]]
+name = "spectral_radar_transforms"
+path = "examples/spectral_radar_transforms.rs"
+
+[[example]]
+name = "spatial_vision_processing"
+path = "examples/spatial_vision_processing.rs"
+
+[[example]]
+name = "filter_workbench_and_analysis"
+path = "examples/filter_workbench_and_analysis.rs"
