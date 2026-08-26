@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- **Hardware DSP Intrinsics**: ARM Cortex-M assembly intrinsics (`smlad`, `smlald`, `qadd16`, `qsub16`, `ssat`) via `cortex-m-dsp`, with portable SWAR vector fallbacks.
+- **Strongly-Typed Fixed-Point & Polymorphism**: Strongly-typed `Q15` and `Q31` newtypes with operator overloading and `DspSample` polymorphic trait.
+- **Block Floating-Point (BFP) FFT**: Headroom-preserving `cfft_bfp_q15` and `cfft_bfp_q31` for 30–40 dB higher dynamic range without bit loss.
+- **Homomorphic Deconvolution**: `real_cepstrum_f32` for echo, seismic, sonar, and speech formant separation.
+- **Pure-Integer CORDIC Engine**: `cordic_sin_cos_q15/q31`, `cordic_cartesian_to_polar_q15`, `cordic_atan2_q15`, `cordic_sqrt_q15` using 16-iteration shift-and-add arithmetic without hardware multipliers.
+- **Zero-Allocation Streaming Pipelines**: Composable `DspNode<T>` processing chains with `Chain`, `Gain`, `Limiter`, `SinglePoleFilter`, `DcBlockerQ15`, and `PidInstance`.
+- **Generalized Filterbanks & Fixed-Point VAD**: `generalized_triangular_filterbank` (Linear, Octave, Mel, Bark), integer `fast_log2_q15`, and energy + zero-crossing `VadDetectorQ15`.
+- **Filter Quantization & SQNR Analysis**: Automated $L_\infty$ and $L_2$ SOS biquad quantization with scaling headroom prediction and DTFT SQNR analysis.
+- **Second-Order Generalized Integrator PLL (SOGI-PLL) & Costas Loop**: `SogiPll` for single-phase grid synchronization (solar inverters/UPS) and `CostasLoop` for BPSK/QPSK carrier recovery.
+- **Dynamics Processor & Noise Gate**: `DynamicsCompressor` with soft-knee logarithmic curves and `NoiseGate` downward expander implementing `DspNode<f32>`.
+- **Square-Root Covariance Kalman Filter (SRKF)**: `SquareRootKalmanFilter<N, M>` Cholesky-factor state estimator guaranteeing positive semi-definiteness without filter divergence.
+- **Autoregressive Burg PSD Estimation**: `ar_burg_f32` and `ar_psd_f32` for super-resolution spectral peaks on short data buffers.
+- **Kaiser-Bessel & Flat-Top Windows**: `kaiser_f32` with zero-order modified Bessel $I_0(\beta)$ evaluation.
+- **Acoustic Localization & Beamforming**: `DelayAndSumBeamformer` fractional delay array processor and `gcc_phat_tdoa_f32` Time Difference of Arrival (TDoA) locator.
+- **Production DSP Cookbook**: `COOKBOOK.md` with 6 real-world copy-paste recipes (FOC motor control, I2S audio DMA, vibration diagnostics, CIC decimation, VAD/MFCC, and streaming chains).
+- **Benchmark Suite**: `benches/dsp_benchmarks.rs` tracking throughput across SIMD, FFT, CORDIC, and filtering.
+- **Multi-Target GitHub CI Matrix**: Automated testing across 6 architectures (`x86_64`, `thumbv6m`, `thumbv7em`, `thumbv7em-hf`, `riscv32imc`, `wasm32`).
+
 ## [0.4.0] - 2026-08-23
 
 This is a **breaking** release relative to crates.io `0.3.0`. New DSP APIs are
