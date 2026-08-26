@@ -85,7 +85,7 @@ fn main() {
     // 3. Fast Trigonometric Evaluation & Angle Transformations
     // -----------------------------------------------------------------------------------------
     println!("\n--- 3. Fast Trigonometry vs Table Lookup for Rotor Angle θ ---");
-    let test_angle = 1.04719755f32; // 60 degrees (π/3 rad)
+    let test_angle = core::f32::consts::FRAC_PI_3; // 60 degrees (π/3 rad)
     let fast_s_i16 = fast_sin_i16(test_angle);
     let fast_c_i16 = fast_cos_i16(test_angle);
     let std_s = test_angle.sin();

@@ -21,6 +21,7 @@ libm = ["dep:libm"]
 defmt = ["dep:defmt"]
 serde = ["dep:serde"]
 alloc = []
+cortex-m-dsp = []
 
 # Enables every algorithm module. Independent of `std`/`libm` so no_std
 # consumers can use `default-features = false, features = ["libm", "full"]`.

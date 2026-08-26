@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn pythagorean_identity() {
-        let angles = [0.0, 0.5, 1.0, PI / 4.0, PI / 3.0, 2.0, 3.14];
+        let angles = [0.0, 0.5, 1.0, PI / 4.0, PI / 3.0, 2.0, PI];
         for &a in &angles {
             let s = fast_sin_i16(a) as f32 / 32768.0;
             let c = fast_cos_i16(a) as f32 / 32768.0;

@@ -1867,39 +1867,42 @@ fn test_sqrt_q15_and_atan2_q15_quadrants() {
 
 #[test]
 fn test_biquad_q15_matches_f32_lowpass() {
-    let coeffs = biquad_lowpass_coeffs(800.0, 8000.0, 0.7071);
-    let mut state_f = [0.0f32; 4];
-    let mut bq_f = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state_f);
-
+    let coeffs = biquad_lowpass_coeffs(800.0, 8000.0, core::f32::consts::FRAC_1_SQRT_2);
     let post_shift = 1u8;
     let mut qcoeffs = [0i16; 5];
     assert_eq!(
         biquad_coeffs_f32_to_q15(&coeffs, &mut qcoeffs, post_shift),
         Status::Success
     );
+
+    let mut state_f = [0.0f32; 4];
     let mut state_q = [0i16; 4];
+    let mut bq_f = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state_f);
     let mut bq_q = BiquadCascadeInstanceQ15::init(1, &qcoeffs, &mut state_q, post_shift);
 
-    let mut max_err = 0.0f32;
-    for n in 0..64 {
+    let mut max_abs_err = 0i32;
+    for n in 0..128 {
         let x = (2.0 * core::f32::consts::PI * 200.0 * n as f32 / 8000.0).sin() * 0.5;
         let mut yf = [0.0f32; 1];
-        biquad_cascade_df1_f32(&mut bq_f, &[x], &mut yf);
-        let xq = [(x * 32767.0) as i16];
         let mut yq = [0i16; 1];
+        let xq = [(x * 32767.0) as i16];
+        biquad_cascade_df1_f32(&mut bq_f, &[x], &mut yf);
         biquad_cascade_df1_q15(&mut bq_q, &xq, &mut yq);
-        let yq_f = yq[0] as f32 / 32767.0;
-        max_err = max_err.max((yf[0] - yq_f).abs());
+        let expected_q = (yf[0] * 32767.0) as i32;
+        let err = (yq[0] as i32 - expected_q).abs();
+        if err > max_abs_err {
+            max_abs_err = err;
+        }
     }
     assert!(
-        max_err < 0.08,
-        "max abs err {max_err} coeffs={coeffs:?} q={qcoeffs:?}"
+        max_abs_err < 1500,
+        "max absolute error {max_abs_err} exceeded threshold (Q15 tracking of f32 biquad)"
     );
 }
 
 #[test]
 fn test_biquad_df2t_q15_matches_df1() {
-    let coeffs = biquad_lowpass_coeffs(800.0, 8000.0, 0.7071);
+    let coeffs = biquad_lowpass_coeffs(800.0, 8000.0, core::f32::consts::FRAC_1_SQRT_2);
     let post_shift = 1u8;
     let mut qcoeffs = [0i16; 5];
     assert_eq!(
@@ -1924,7 +1927,7 @@ fn test_biquad_df2t_q15_matches_df1() {
     }
     assert!(max_err < 2500, "DF1 vs DF2T max abs {max_err}");
 
-    let coeffs = biquad_lowpass_coeffs(800.0, 8000.0, 0.7071);
+    let coeffs = biquad_lowpass_coeffs(800.0, 8000.0, core::f32::consts::FRAC_1_SQRT_2);
     let mut state_f = [0.0f32; 4];
     let mut df1f = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state_f);
     let mut state_t = [0.0f32; 2];
@@ -1997,5 +2000,190 @@ fn test_packed_rfft_q15_tone_bin() {
         "irfft round-trip mean abs {mean}; got*N={} orig={}",
         time[4] as i32 * N as i32,
         orig[4]
+    );
+}
+
+#[test]
+fn test_strongly_typed_q15_q31_and_dsp_sample() {
+    // Q15 arithmetic
+    let a = Q15::from_f32(0.5);
+    let b = Q15::from_f32(0.25);
+    let c = a + b;
+    assert!((c.to_f32() - 0.75).abs() < 1e-4);
+
+    let d = a * b;
+    assert!((d.to_f32() - 0.125).abs() < 1e-3);
+
+    let e = a - b;
+    assert!((e.to_f32() - 0.25).abs() < 1e-4);
+
+    let f = b / a;
+    assert!((f.to_f32() - 0.5).abs() < 1e-3);
+
+    let neg = -a;
+    assert!((neg.to_f32() - (-0.5)).abs() < 1e-4);
+
+    // Q15 saturation
+    let sat_max = Q15::from_f32(0.8) + Q15::from_f32(0.8);
+    assert_eq!(sat_max, Q15::MAX);
+
+    // Q31 arithmetic
+    let q31_a = Q31::from_f32(0.5);
+    let q31_b = Q31::from_f32(0.25);
+    let q31_c = q31_a * q31_b;
+    assert!((q31_c.to_f32() - 0.125).abs() < 1e-5);
+
+    // Generic DspSample function
+    fn generic_lerp<T: DspSample>(x0: T, x1: T, t: T) -> T {
+        x0 + (x1 - x0) * t
+    }
+
+    let f_lerp = generic_lerp(0.0f32, 10.0f32, 0.5f32);
+    assert!((f_lerp - 5.0).abs() < 1e-5);
+
+    let q_lerp = generic_lerp(Q15::from_f32(0.0), Q15::from_f32(0.8), Q15::from_f32(0.5));
+    assert!((q_lerp.to_f32() - 0.4).abs() < 1e-3);
+
+    // Complex operator overloads
+    let c1 = Complex::new(0.5f32, 1.0f32);
+    let c2 = Complex::new(2.0f32, 3.0f32);
+    let c_sum = c1 + c2;
+    assert_eq!(c_sum.real, 2.5);
+    assert_eq!(c_sum.imag, 4.0);
+
+    let c_mul = c1 * c2;
+    // (0.5 + 1i)(2 + 3i) = (1 - 3) + (1.5 + 2)i = -2.0 + 3.5i
+    assert!((c_mul.real - (-2.0)).abs() < 1e-5);
+    assert!((c_mul.imag - 3.5).abs() < 1e-5);
+}
+
+#[test]
+fn test_simd_dsp_intrinsics() {
+    let a = [1000i16, 2000, -3000, 4000, 500, -600, 700, 800];
+    let b = [2000i16, -1000, 4000, 3000, 200, 300, -400, 100];
+
+    // Dot product
+    let simd_dot = simd_dot_prod_q15(&a, &b);
+    let mut expected_dot: q63 = 0;
+    for i in 0..a.len() {
+        expected_dot += (a[i] as i32 * b[i] as i32) as q63;
+    }
+    assert_eq!(simd_dot, expected_dot);
+
+    // Add and Sub
+    let mut dst_add = [0i16; 8];
+    let mut dst_sub = [0i16; 8];
+    simd_add_q15(&a, &b, &mut dst_add);
+    simd_sub_q15(&a, &b, &mut dst_sub);
+
+    for i in 0..8 {
+        assert_eq!(dst_add[i], a[i].saturating_add(b[i]));
+        assert_eq!(dst_sub[i], a[i].saturating_sub(b[i]));
+    }
+
+    // Mult
+    let mut dst_mult = [0i16; 8];
+    simd_mult_q15(&a, &b, &mut dst_mult);
+    for i in 0..8 {
+        assert_eq!(dst_mult[i], q15_mult(a[i], b[i]));
+    }
+
+    // Dual saturating primitives
+    let p_a = 0x7FFF_7FFFu32; // [32767, 32767]
+    let p_b = 0x0001_0001u32; // [1, 1]
+    let p_sat = dual_saturating_add_q15(p_a, p_b);
+    assert_eq!(p_sat, 0x7FFF_7FFFu32);
+}
+
+#[test]
+fn test_fixed_point_distance_metrics() {
+    let a = [10000i16, 20000, -15000, 5000];
+    let b = [10000i16, 20000, -15000, 5000];
+    assert_eq!(euclidean_distance_q15(&a, &b), 0);
+    assert_eq!(chebyshev_distance_q15(&a, &b), 0);
+    assert_eq!(manhattan_distance_q15(&a, &b), 0);
+    assert_eq!(hamming_distance_q15(&a, &b), 0);
+
+    let c = [12000i16, 18000, -10000, 4000];
+    let euc = euclidean_distance_q15(&a, &c);
+    assert!(euc > 0);
+
+    let cheb = chebyshev_distance_q15(&a, &c);
+    assert_eq!(cheb, 5000); // |-15000 - (-10000)| = 5000
+
+    let manh = manhattan_distance_q15(&a, &c);
+    assert_eq!(manh, 2000 + 2000 + 5000 + 1000);
+
+    let ham = hamming_distance_q15(&a, &c);
+    assert_eq!(ham, 4);
+
+    let canb = canberra_distance_q15(&a, &c);
+    assert!(canb > 0);
+
+    let bc = bray_curtis_distance_q15(&a, &c);
+    assert!(bc > 0);
+}
+
+#[test]
+fn test_cic_gain_and_polyphase_q15() {
+    let mut cic = CicDecimator::<3>::new(4);
+    assert_eq!(cic.gain(), 64); // 4^3 = 64
+    assert_eq!(cic.gain_bits(), 6); // ceil(log2(64)) = 6
+
+    let in_samples = [1000i32; 16];
+    let mut decimated_scaled = None;
+    for &s in &in_samples {
+        if let Some(d) = cic.process_sample_scaled(s) {
+            decimated_scaled = Some(d);
+        }
+    }
+    assert!(decimated_scaled.is_some());
+
+    // Polyphase FIR decimation
+    let src = [1000i16, 2000, 3000, 4000, 5000, 6000, 7000, 8000];
+    let coeffs = [16384i16, 16384]; // 2-tap moving average / lowpass in Q15
+    let mut dst_dec = [0i16; 4];
+    let written = polyphase_decimate_q15(&src, &coeffs, 2, &mut dst_dec);
+    assert!(written > 0);
+
+    // Polyphase FIR interpolation
+    let mut dst_interp = [0i16; 8];
+    let written_interp = polyphase_interpolate_q15(&src[..4], &coeffs, 2, &mut dst_interp);
+    assert_eq!(written_interp, 8);
+
+    // Linear fractional resampling in Q15
+    let mut dst_resampled = [0i16; 8];
+    resample_linear_q15(&src, &mut dst_resampled, 65536); // 1.0 ratio
+    assert_eq!(dst_resampled[0], src[0]);
+}
+
+#[test]
+fn test_filter_quantization_and_sqnr_analysis() {
+    let lp = biquad_lowpass_coeffs(1000.0, 48000.0, core::f32::consts::FRAC_1_SQRT_2);
+    let (headroom, peak) = estimate_biquad_headroom_bits(&lp);
+    assert!(peak > 0.0);
+    assert!(headroom <= 2);
+
+    let mut q15_coeffs = [0i16; 5];
+    let post_shift =
+        biquad_quantize_and_scale_q15(&lp, &mut q15_coeffs, ScalingStrategy::LInfNorm).unwrap();
+
+    let sqnr = biquad_quantization_snr_db(&lp, &q15_coeffs, post_shift, 64);
+    assert!(sqnr > 40.0, "Expected SQNR > 40 dB, got {sqnr} dB");
+
+    let mut q31_coeffs = [0i32; 5];
+    let post_shift_q31 =
+        biquad_quantize_and_scale_q31(&lp, &mut q31_coeffs, ScalingStrategy::Direct).unwrap();
+    assert!(post_shift_q31 <= 2);
+
+    let mut fir_f32 = [0.0f32; 15];
+    fir_windowed_sinc_lowpass(0.2, &mut fir_f32);
+    let mut fir_q15 = [0i16; 15];
+    fir_quantize_q15(&fir_f32, &mut fir_q15).unwrap();
+
+    let fir_sqnr = fir_quantization_snr_db(&fir_f32, &fir_q15, 64);
+    assert!(
+        fir_sqnr > 60.0,
+        "Expected FIR SQNR > 60 dB, got {fir_sqnr} dB"
     );
 }

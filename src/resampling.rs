@@ -19,6 +19,25 @@ impl<const STAGES: usize> CicDecimator<STAGES> {
         }
     }
 
+    /// Theoretical maximum DC gain: `R^STAGES`.
+    pub fn gain(&self) -> u64 {
+        let mut g: u64 = 1;
+        for _ in 0..STAGES {
+            g = g.saturating_mul(self.r as u64);
+        }
+        g
+    }
+
+    /// Number of bits of bit-growth: `ceil(log2(R^STAGES))`.
+    pub fn gain_bits(&self) -> u32 {
+        let g = self.gain();
+        if g <= 1 {
+            0
+        } else {
+            64 - (g - 1).leading_zeros()
+        }
+    }
+
     /// Process an input sample. Returns `Some(decimated_sample)` every `R` samples.
     pub fn process_sample(&mut self, input: i32) -> Option<i32> {
         // Integrator stages running at high sample rate
@@ -43,6 +62,18 @@ impl<const STAGES: usize> CicDecimator<STAGES> {
             None
         }
     }
+
+    /// Process an input sample and normalize output by bit-growth right-shift to prevent overflow.
+    pub fn process_sample_scaled(&mut self, input: i32) -> Option<i32> {
+        self.process_sample(input).map(|out| {
+            let shift = self.gain_bits();
+            if shift > 0 {
+                out >> shift
+            } else {
+                out
+            }
+        })
+    }
 }
 
 /// Cascaded Integrator-Comb (CIC) Interpolator for upsampling signals in integer arithmetic.
@@ -59,6 +90,28 @@ impl<const STAGES: usize> CicInterpolator<STAGES> {
             r,
             comb_state: [0; STAGES],
             integrator_state: [0; STAGES],
+        }
+    }
+
+    /// Theoretical maximum DC gain: `R^(STAGES - 1)`.
+    pub fn gain(&self) -> u64 {
+        if STAGES <= 1 {
+            return 1;
+        }
+        let mut g: u64 = 1;
+        for _ in 0..(STAGES - 1) {
+            g = g.saturating_mul(self.r as u64);
+        }
+        g
+    }
+
+    /// Number of bits of bit-growth: `ceil(log2(gain))`.
+    pub fn gain_bits(&self) -> u32 {
+        let g = self.gain();
+        if g <= 1 {
+            0
+        } else {
+            64 - (g - 1).leading_zeros()
         }
     }
 
@@ -89,6 +142,105 @@ impl<const STAGES: usize> CicInterpolator<STAGES> {
 
             out_buf[step] = stage_val;
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Polyphase & Linear Resampling in Q15
+// ─────────────────────────────────────────────────────────────────────────────
+
+use crate::types::q15;
+
+/// Polyphase FIR decimation by integer factor `M`.
+///
+/// Filters and downsamples `src` by factor `M` (`decimation_factor`).
+/// `coeffs` is the prototype FIR filter kernel (length typically multiple of `M`).
+/// Returns the number of output samples written to `dst`.
+pub fn polyphase_decimate_q15(
+    src: &[q15],
+    coeffs: &[q15],
+    decimation_factor: usize,
+    dst: &mut [q15],
+) -> usize {
+    if decimation_factor == 0 || coeffs.is_empty() || src.is_empty() {
+        return 0;
+    }
+    let num_taps = coeffs.len();
+    let out_len = dst.len().min(if src.len() >= num_taps { (src.len() - num_taps) / decimation_factor + 1 } else { 0 });
+
+    for i in 0..out_len {
+        let src_offset = i * decimation_factor;
+        let mut acc: i64 = 0;
+        for k in 0..num_taps {
+            acc += (src[src_offset + k] as i64 * coeffs[k] as i64) >> 15;
+        }
+        dst[i] = acc.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+    }
+
+    out_len
+}
+
+/// Polyphase FIR interpolation by integer factor `L`.
+///
+/// Upsamples `src` by factor `L` (`interpolation_factor`) using polyphase decomposition.
+/// `coeffs` length must be a multiple of `L`.
+/// Returns the number of output samples written to `dst`.
+pub fn polyphase_interpolate_q15(
+    src: &[q15],
+    coeffs: &[q15],
+    interpolation_factor: usize,
+    dst: &mut [q15],
+) -> usize {
+    let l = interpolation_factor;
+    if l == 0 || coeffs.is_empty() || src.is_empty() || coeffs.len() % l != 0 {
+        return 0;
+    }
+    let taps_per_phase = coeffs.len() / l;
+    let max_in_samples = if src.len() >= taps_per_phase { src.len() - taps_per_phase + 1 } else { 0 };
+    let out_len = dst.len().min(max_in_samples * l);
+
+    for in_idx in 0..max_in_samples {
+        for phase in 0..l {
+            let out_idx = in_idx * l + phase;
+            if out_idx >= dst.len() {
+                break;
+            }
+            let mut acc: i64 = 0;
+            for k in 0..taps_per_phase {
+                let coeff = coeffs[k * l + phase] as i64;
+                let sample = src[in_idx + k] as i64;
+                acc += (sample * coeff) >> 15;
+            }
+            dst[out_idx] = (acc * l as i64).clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+        }
+    }
+
+    out_len
+}
+
+/// Linear fractional resampler in Q15.
+/// `ratio_q16` is `(src_sample_rate / dst_sample_rate)` in Q16.16 format.
+pub fn resample_linear_q15(src: &[q15], dst: &mut [q15], ratio_q16: i32) {
+    if src.is_empty() || dst.is_empty() || ratio_q16 <= 0 {
+        return;
+    }
+
+    let mut phase_acc: i64 = 0;
+    for i in 0..dst.len() {
+        let idx0 = (phase_acc >> 16) as usize;
+        let frac = (phase_acc & 0xFFFF) as i32; // [0, 65535]
+
+        if idx0 >= src.len() {
+            dst[i] = src[src.len() - 1];
+        } else {
+            let s0 = src[idx0] as i32;
+            let s1 = if idx0 + 1 < src.len() { src[idx0 + 1] as i32 } else { s0 };
+            let diff = s1 - s0;
+            let interp = s0 + ((diff * frac) >> 16);
+            dst[i] = interp.clamp(i16::MIN as i32, i16::MAX as i32) as q15;
+        }
+
+        phase_acc += ratio_q16 as i64;
     }
 }
 

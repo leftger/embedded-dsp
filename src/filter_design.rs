@@ -535,3 +535,178 @@ pub fn fir_custom_frequency_sampling(
 
     Status::Success
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Filter Quantization and Scaling Pipeline (Design in Float, Deploy in Fixed)
+// ─────────────────────────────────────────────────────────────────────────────
+
+use crate::types::{q15, q31};
+
+/// Gain scaling strategy for biquad SOS fixed-point quantization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScalingStrategy {
+    /// Strict peak-gain scaling: guarantees no overflow for any sinusoidal input.
+    LInfNorm,
+    /// Energy-based root-mean-square gain scaling.
+    L2Norm,
+    /// Preserves direct coefficient scale (post_shift handles dynamic range).
+    Direct,
+}
+
+/// Quantizes and scales floating-point biquad cascade coefficients into Q15.
+///
+/// Returns `Ok(post_shift)` on success, which should be passed directly to
+/// [`crate::filtering::BiquadCascadeInstanceQ15`].
+pub fn biquad_quantize_and_scale_q15(
+    sos_f32: &[f32],
+    out_q15: &mut [q15],
+    strategy: ScalingStrategy,
+) -> Result<u8, Status> {
+    if sos_f32.len() != out_q15.len() || sos_f32.is_empty() || sos_f32.len() % 5 != 0 {
+        return Err(Status::LengthError);
+    }
+
+    let num_stages = sos_f32.len() / 5;
+    let mut max_coeff_mag = 0.0f32;
+
+    let mut scaled_f32 = [0.0f32; 128];
+    if sos_f32.len() > scaled_f32.len() {
+        return Err(Status::ArgumentError);
+    }
+
+    for stage in 0..num_stages {
+        let idx = stage * 5;
+        let mut b0 = sos_f32[idx];
+        let mut b1 = sos_f32[idx + 1];
+        let mut b2 = sos_f32[idx + 2];
+        let a1 = sos_f32[idx + 3];
+        let a2 = sos_f32[idx + 4];
+
+        let scale_factor = match strategy {
+            ScalingStrategy::LInfNorm => {
+                let peak = crate::filter_analysis::biquad_peak_gain(&[b0, b1, b2, a1, a2], 64);
+                if peak > 1.0 { 1.0 / peak } else { 1.0 }
+            }
+            ScalingStrategy::L2Norm => {
+                let l2 = crate::filter_analysis::biquad_l2_norm(&[b0, b1, b2, a1, a2], 64);
+                if l2 > 1.0 { 1.0 / l2 } else { 1.0 }
+            }
+            ScalingStrategy::Direct => 1.0,
+        };
+
+        b0 *= scale_factor;
+        b1 *= scale_factor;
+        b2 *= scale_factor;
+
+        scaled_f32[idx] = b0;
+        scaled_f32[idx + 1] = b1;
+        scaled_f32[idx + 2] = b2;
+        scaled_f32[idx + 3] = a1;
+        scaled_f32[idx + 4] = a2;
+
+        for k in 0..5 {
+            let mag = scaled_f32[idx + k].abs();
+            if mag > max_coeff_mag {
+                max_coeff_mag = mag;
+            }
+        }
+    }
+
+    let mut post_shift = 0u8;
+    let mut limit = 0.9999f32;
+    while limit < max_coeff_mag && post_shift < 14 {
+        post_shift += 1;
+        limit *= 2.0;
+    }
+
+    let status = crate::support::biquad_coeffs_f32_to_q15(&scaled_f32[..sos_f32.len()], out_q15, post_shift);
+    if status != Status::Success {
+        return Err(status);
+    }
+
+    Ok(post_shift)
+}
+
+/// Quantizes and scales floating-point biquad cascade coefficients into Q31.
+///
+/// Returns `Ok(post_shift)` on success.
+pub fn biquad_quantize_and_scale_q31(
+    sos_f32: &[f32],
+    out_q31: &mut [q31],
+    strategy: ScalingStrategy,
+) -> Result<u8, Status> {
+    if sos_f32.len() != out_q31.len() || sos_f32.is_empty() || sos_f32.len() % 5 != 0 {
+        return Err(Status::LengthError);
+    }
+
+    let num_stages = sos_f32.len() / 5;
+    let mut max_coeff_mag = 0.0f32;
+
+    let mut scaled_f32 = [0.0f32; 128];
+    if sos_f32.len() > scaled_f32.len() {
+        return Err(Status::ArgumentError);
+    }
+
+    for stage in 0..num_stages {
+        let idx = stage * 5;
+        let mut b0 = sos_f32[idx];
+        let mut b1 = sos_f32[idx + 1];
+        let mut b2 = sos_f32[idx + 2];
+        let a1 = sos_f32[idx + 3];
+        let a2 = sos_f32[idx + 4];
+
+        let scale_factor = match strategy {
+            ScalingStrategy::LInfNorm => {
+                let peak = crate::filter_analysis::biquad_peak_gain(&[b0, b1, b2, a1, a2], 64);
+                if peak > 1.0 { 1.0 / peak } else { 1.0 }
+            }
+            ScalingStrategy::L2Norm => {
+                let l2 = crate::filter_analysis::biquad_l2_norm(&[b0, b1, b2, a1, a2], 64);
+                if l2 > 1.0 { 1.0 / l2 } else { 1.0 }
+            }
+            ScalingStrategy::Direct => 1.0,
+        };
+
+        b0 *= scale_factor;
+        b1 *= scale_factor;
+        b2 *= scale_factor;
+
+        scaled_f32[idx] = b0;
+        scaled_f32[idx + 1] = b1;
+        scaled_f32[idx + 2] = b2;
+        scaled_f32[idx + 3] = a1;
+        scaled_f32[idx + 4] = a2;
+
+        for k in 0..5 {
+            let mag = scaled_f32[idx + k].abs();
+            if mag > max_coeff_mag {
+                max_coeff_mag = mag;
+            }
+        }
+    }
+
+    let mut post_shift = 0u8;
+    let mut limit = 0.9999f32;
+    while limit < max_coeff_mag && post_shift < 14 {
+        post_shift += 1;
+        limit *= 2.0;
+    }
+
+    let status = crate::support::biquad_coeffs_f32_to_q31(&scaled_f32[..sos_f32.len()], out_q31, post_shift);
+    if status != Status::Success {
+        return Err(status);
+    }
+
+    Ok(post_shift)
+}
+
+/// Quantizes floating-point FIR filter taps into Q15 format.
+pub fn fir_quantize_q15(taps_f32: &[f32], out_q15: &mut [q15]) -> Result<(), Status> {
+    if taps_f32.len() != out_q15.len() || taps_f32.is_empty() {
+        return Err(Status::LengthError);
+    }
+    for i in 0..taps_f32.len() {
+        out_q15[i] = (taps_f32[i] * 32768.0).clamp(-32768.0, 32767.0) as q15;
+    }
+    Ok(())
+}

@@ -80,8 +80,10 @@ gated_mod!("spatial", spatial);
 gated_mod!("statistics", statistics);
 gated_mod!("support", support);
 gated_mod!("transform", transform);
+pub mod intrinsics;
 pub mod types;
 gated_mod!("window", window);
 
+pub use intrinsics::*;
 pub use math::*;
 pub use types::*;

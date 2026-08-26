@@ -63,10 +63,7 @@ pub fn add_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
 }
 
 pub fn add_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
-    let len = src_a.len().min(src_b.len()).min(dst.len());
-    for i in 0..len {
-        dst[i] = src_a[i].saturating_add(src_b[i]);
-    }
+    crate::intrinsics::simd_add_q15(src_a, src_b, dst);
 }
 
 pub fn add_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
@@ -100,10 +97,7 @@ pub fn sub_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
 }
 
 pub fn sub_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
-    let len = src_a.len().min(src_b.len()).min(dst.len());
-    for i in 0..len {
-        dst[i] = src_a[i].saturating_sub(src_b[i]);
-    }
+    crate::intrinsics::simd_sub_q15(src_a, src_b, dst);
 }
 
 pub fn sub_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
@@ -137,10 +131,7 @@ pub fn mult_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
 }
 
 pub fn mult_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
-    let len = src_a.len().min(src_b.len()).min(dst.len());
-    for i in 0..len {
-        dst[i] = q15_mult(src_a[i], src_b[i]);
-    }
+    crate::intrinsics::simd_mult_q15(src_a, src_b, dst);
 }
 
 pub fn mult_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
@@ -350,12 +341,7 @@ pub fn dot_prod_q31(src_a: &[q31], src_b: &[q31]) -> q63 {
 }
 
 pub fn dot_prod_q15(src_a: &[q15], src_b: &[q15]) -> q63 {
-    let len = src_a.len().min(src_b.len());
-    let mut sum: q63 = 0;
-    for i in 0..len {
-        sum += (src_a[i] as i32 * src_b[i] as i32) as q63;
-    }
-    sum
+    crate::intrinsics::simd_dot_prod_q15(src_a, src_b)
 }
 
 pub fn dot_prod_q7(src_a: &[q7], src_b: &[q7]) -> q31 {

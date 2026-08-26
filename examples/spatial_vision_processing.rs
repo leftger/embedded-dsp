@@ -42,8 +42,8 @@ fn main() {
     }
 
     // Add salt-and-pepper impulsive noise pixels
-    raw_image[0 * 8 + 1] = 50.0; // Salt noise
-    raw_image[1 * 8 + 7] = 50.0; // Salt noise
+    raw_image[1] = 50.0; // Salt noise
+    raw_image[15] = 50.0; // Salt noise
     raw_image[3 * 8 + 3] = 0.0; // Pepper noise inside feature
     raw_image[6 * 8 + 2] = 50.0; // Salt noise
 

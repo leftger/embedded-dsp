@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn roundtrip_f32_q16() {
-        let values = [0.0f32, 0.25, -0.5, 1.0, 3.14159, -100.0, 32767.0];
+        let values = [0.0f32, 0.25, -0.5, 1.0, core::f32::consts::PI, -100.0, 32767.0];
         for v in values {
             let q = to_q16(v);
             let back = from_q16(q);
@@ -432,8 +432,8 @@ mod tests {
 
     #[test]
     fn abs_q16_negated() {
-        let v = to_q16(-3.14);
-        let expected = to_q16(3.14);
+        let v = to_q16(-core::f32::consts::PI);
+        let expected = to_q16(core::f32::consts::PI);
         assert_eq!(abs_q16(v), expected);
     }
 

@@ -161,3 +161,176 @@ pub fn biquad_cascade_is_stable(coeffs: &[f32]) -> bool {
         .chunks_exact(5)
         .all(|stage| biquad_is_stable(&[stage[0], stage[1], stage[2], stage[3], stage[4]]))
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quantization, Headroom, and SQNR Analysis
+// ─────────────────────────────────────────────────────────────────────────────
+
+use crate::types::q15;
+
+/// Computes the peak frequency response gain `||H(e^{jω})||_∞` of a biquad section.
+pub fn biquad_peak_gain(coeffs: &[f32; 5], num_points: usize) -> f32 {
+    let pts = num_points.max(16);
+    let mut max_mag = 0.0f32;
+    for i in 0..=pts {
+        let f = (i as f32) * 0.5 / (pts as f32);
+        let resp = biquad_frequency_response(coeffs, f);
+        let mag = (resp.real * resp.real + resp.imag * resp.imag).sqrt();
+        if mag > max_mag {
+            max_mag = mag;
+        }
+    }
+    max_mag
+}
+
+/// Computes the L2-norm energy `||H(e^{jω})||_2` of a biquad section.
+pub fn biquad_l2_norm(coeffs: &[f32; 5], num_points: usize) -> f32 {
+    let pts = num_points.max(16);
+    let mut sum_sq = 0.0f32;
+    for i in 0..=pts {
+        let f = (i as f32) * 0.5 / (pts as f32);
+        let resp = biquad_frequency_response(coeffs, f);
+        sum_sq += resp.real * resp.real + resp.imag * resp.imag;
+    }
+    (sum_sq / (pts as f32 + 1.0)).sqrt()
+}
+
+/// Estimates required integer headroom bits and peak gain for a biquad section.
+///
+/// Returns `(headroom_bits, peak_gain)`.
+/// `headroom_bits` is the number of bits required above unity (`ceil(log2(max(1.0, peak_gain)))`).
+pub fn estimate_biquad_headroom_bits(coeffs: &[f32; 5]) -> (u8, f32) {
+    let peak = biquad_peak_gain(coeffs, 64);
+    if peak <= 1.0 {
+        (0, peak)
+    } else {
+        // Calculate ceil(log2(peak))
+        let mut bits = 0u8;
+        let mut threshold = 1.0f32;
+        while threshold < peak && bits < 14 {
+            bits += 1;
+            threshold *= 2.0;
+        }
+        (bits, peak)
+    }
+}
+
+/// Evaluates the frequency response of a Q15 quantized biquad section.
+pub fn biquad_q15_frequency_response(
+    coeffs_q15: &[q15; 5],
+    post_shift: u8,
+    freq_norm: f32,
+) -> Complex<f32> {
+    let scale = ((1u32 << post_shift.min(14)) as f32) / 32768.0;
+    let b0 = coeffs_q15[0] as f32 * scale;
+    let b1 = coeffs_q15[1] as f32 * scale;
+    let b2 = coeffs_q15[2] as f32 * scale;
+    let a1 = coeffs_q15[3] as f32 * scale;
+    let a2 = coeffs_q15[4] as f32 * scale;
+
+    let float_coeffs = [b0, b1, b2, a1, a2];
+    biquad_frequency_response(&float_coeffs, freq_norm)
+}
+
+/// Computes the Signal-to-Quantization-Noise Ratio (SQNR in dB) between an ideal floating-point
+/// biquad cascade and its Q15 quantized equivalent.
+pub fn biquad_quantization_snr_db(
+    sos_f32: &[f32],
+    sos_q15: &[q15],
+    post_shift: u8,
+    num_points: usize,
+) -> f32 {
+    if sos_f32.len() != sos_q15.len() || sos_f32.is_empty() || sos_f32.len() % 5 != 0 {
+        return 0.0;
+    }
+
+    let num_stages = sos_f32.len() / 5;
+    let pts = num_points.max(32);
+    let mut sig_pow = 0.0f32;
+    let mut err_pow = 0.0f32;
+
+    for i in 0..=pts {
+        let f = (i as f32) * 0.5 / (pts as f32);
+
+        // Ideal response
+        let mut h_ideal = Complex::new(1.0f32, 0.0f32);
+        for stage in 0..num_stages {
+            let idx = stage * 5;
+            let section = [
+                sos_f32[idx],
+                sos_f32[idx + 1],
+                sos_f32[idx + 2],
+                sos_f32[idx + 3],
+                sos_f32[idx + 4],
+            ];
+            h_ideal = h_ideal * biquad_frequency_response(&section, f);
+        }
+
+        // Quantized response
+        let mut h_quant = Complex::new(1.0f32, 0.0f32);
+        for stage in 0..num_stages {
+            let idx = stage * 5;
+            let section = [
+                sos_q15[idx],
+                sos_q15[idx + 1],
+                sos_q15[idx + 2],
+                sos_q15[idx + 3],
+                sos_q15[idx + 4],
+            ];
+            h_quant = h_quant * biquad_q15_frequency_response(&section, post_shift, f);
+        }
+
+        let mag_sq = h_ideal.real * h_ideal.real + h_ideal.imag * h_ideal.imag;
+        let diff_re = h_ideal.real - h_quant.real;
+        let diff_im = h_ideal.imag - h_quant.imag;
+        let err_sq = diff_re * diff_re + diff_im * diff_im;
+
+        sig_pow += mag_sq;
+        err_pow += err_sq;
+    }
+
+    if err_pow < 1e-20 {
+        return 120.0; // Near perfect representation
+    }
+    10.0 * (sig_pow / err_pow).log10()
+}
+
+/// Computes the SQNR (in dB) between an ideal floating-point FIR filter and its Q15 quantized version.
+pub fn fir_quantization_snr_db(taps_f32: &[f32], taps_q15: &[q15], num_points: usize) -> f32 {
+    if taps_f32.len() != taps_q15.len() || taps_f32.is_empty() {
+        return 0.0;
+    }
+
+    let pts = num_points.max(32);
+    let mut sig_pow = 0.0f32;
+    let mut err_pow = 0.0f32;
+
+    for i in 0..=pts {
+        let f = (i as f32) * 0.5 / (pts as f32);
+        let h_ideal = fir_frequency_response(taps_f32, f);
+
+        // Quantized FIR response (scale taps by 1/32768)
+        let omega = 2.0 * core::f32::consts::PI * f;
+        let mut q_re = 0.0f32;
+        let mut q_im = 0.0f32;
+        for (k, &tap) in taps_q15.iter().enumerate() {
+            let tap_f = tap as f32 / 32768.0;
+            let angle = omega * k as f32;
+            q_re += tap_f * angle.cos();
+            q_im -= tap_f * angle.sin();
+        }
+
+        let mag_sq = h_ideal.real * h_ideal.real + h_ideal.imag * h_ideal.imag;
+        let diff_re = h_ideal.real - q_re;
+        let diff_im = h_ideal.imag - q_im;
+        let err_sq = diff_re * diff_re + diff_im * diff_im;
+
+        sig_pow += mag_sq;
+        err_pow += err_sq;
+    }
+
+    if err_pow < 1e-20 {
+        return 120.0;
+    }
+    10.0 * (sig_pow / err_pow).log10()
+}
