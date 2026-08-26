@@ -9,79 +9,50 @@
 [![CI](https://github.com/leftger/embedded-dsp/actions/workflows/ci.yml/badge.svg)](https://github.com/leftger/embedded-dsp/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
-A **`#![no_std]` Rust Digital Signal Processing library** designed for microcontrollers (Cortex-M, RISC-V, AVR, Xtensa), embedded systems, and real-time signal processing. Neural-net and classical ML inference live in [`embedded-nn`](https://github.com/leftger/embedded-nn).
+A high-performance **`#![no_std]` Rust Digital Signal Processing library** designed for microcontrollers (Cortex-M, RISC-V, AVR, Xtensa), bare-metal DSP, and real-time audio/sensor pipelines.
 
 ---
 
-## Features
+## Highlights
 
-- **`#![no_std]` First**: Pure `core` compatibility for bare-metal targets with zero dynamic allocation required.
-- **`libm`, `defmt`, & `serde` Integrations**: Optional formatting logs via `defmt`, model serialization via `serde`, and floating-point math routines in `#![no_std]` environments via `libm`.
-- **Per-module Cargo features**: Every algorithm module is optional. `full` (in `default`) enables them all; `default-features = false` plus the modules you want keeps firmware images small.
-- **Fixed-Point & Floating-Point**: CMSIS-style `f32`, `f64`, `q31`, `q15`, `q7`, and `q63` saturating arithmetic, strongly-typed `Q15` and `Q31` newtypes with operator overloads, `DspSample` polymorphic trait, Q16.16 (`fixed-point`), and a 256-entry sin/cos LUT (`lut`).
-- **Hardware Acceleration**: ARM Cortex-M DSP assembly intrinsics (`smlad`, `smlald`, `qadd16`, `qsub16`, `ssat`) enabled via `cortex-m-dsp`, with vectorizable SWAR fallbacks.
-- **27 Core DSP Modules**:
-  1. **Basic Math**: Elementwise `add`, `sub`, `mult`, `negate`, `offset`, `scale`, `shift`, `dot_prod`, `clip`, bitwise operations (float, Q15, Q31).
-  2. **Complex Math**: Complex vector addition, multiplication, magnitude, conjugate, dot product.
-  3. **Fast Math**: Trigonometric `sin`, `cos`, `tan`, `sin_cos`, `sqrt`, `vsqrt`, `divide`, `log`, `log10`, `exp`, `atan2`.
-  4. **CORDIC Engine**: Pure integer shift-and-add `sin`, `cos`, `atan2`, `polar_to_cartesian`, `cartesian_to_polar`, `sqrt` requiring < 50 bytes of constant table and zero hardware multipliers.
-  5. **Filtering**: FIR filters, Biquad IIR cascade (DF1 and transposed DF-II, f32/q15/q31), LMS / leaky LMS / NLMS (`f32`/`q15`), 1D convolution & correlation, FFT fast convolution, 1D conditional/thresholded median filters (`f32`, `q15`, `q31`), single-pole recursive low/high-pass filters (`SinglePoleFilter` / `SinglePoleFilterQ15`), Q15 DC blocker (`DcBlockerQ15`), O(1) recursive moving average (`RecursiveMovingAverage<N>` / `RecursiveMovingAverageQ15<N>`), and const-generic real-time `CircularBuffer<T, N>`.
-  6. **Filter Design**: Biquad Low-Pass, High-Pass, Band-Pass, Notch, Peaking EQ, All-Pass, multi-stage Butterworth design, multi-stage Chebyshev Low-Pass/High-Pass design, continuous-to-discrete Bilinear Transform with cutoff frequency pre-warping, Windowed-Sinc FIR design (Low-pass, High-pass, Band-pass, Band-stop), and arbitrary-response FIR design via frequency sampling (`fir_custom_frequency_sampling`).
-  7. **Filter Quantization & Analysis**: Automated Biquad SOS and FIR quantization with $L_\infty$ and $L_2$ scaling strategies, post-shift headroom estimation, SQNR evaluation, DTFT frequency response, group delay, and pole stability.
-  8. **Audio & Voice**: Goertzel single-frequency detector (`GoertzelDetector` / `GoertzelDetectorQ15`), peak/RMS envelope followers, Mel filterbank (`mel_filterbank_f32`), generalized triangular filterbank, MFCC feature extraction (`mfcc_f32`), fast integer log2 (`fast_log2_q15`), and Q15 Voice Activity Detection (`VadDetectorQ15`).
-  9. **Spectral Analysis & PSD**: Welch's method power spectral density estimation (averaged periodograms), single-segment periodograms, and Burg's Maximum Entropy Autoregressive (AR) spectral estimation (`ar_burg_f32`, `ar_psd_f32`).
-  10. **Phase-Locked Loops (PLL)**: Second-Order Generalized Integrator PLL (`SogiPll`) for single-phase grid synchronization / motor resolvers and `CostasLoop` for BPSK/QPSK carrier recovery.
-  11. **Dynamics Control**: Dynamics range compressor with soft knee (`DynamicsCompressor`) and downward expander / noise gate (`NoiseGate`).
-  12. **Array Beamforming & TDoA**: Delay-and-Sum beamformer (`DelayAndSumBeamformer`) and Generalized Cross-Correlation with Phase Transform (`gcc_phat_tdoa_f32`) for acoustic localization.
-  13. **Spatial & 2D Signal Processing**: 2D DCT-II / IDCT-II, 2D spatial convolution with normalization, 2D non-linear filtering (Min/Max/Median), Sobel edge detection, 2D histogram binning, MSE, and PSNR.
-  14. **Resampling & Multi-rate**: Cascaded Integrator-Comb (CIC) Decimator & Interpolator with automated bit-growth normalization, polyphase decimation & interpolation (Float & Q15), linear fractional resampler, spectral 2:1 sinc zero-padding interpolation.
-  15. **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, Extended Kalman Filter (`EkfModel`), and numerically robust Square-Root Covariance Kalman Filter (`SquareRootKalmanFilter<N, M>`).
-  16. **Streaming & Pipelines**: Zero-allocation [`DspNode`](file:///home/usuario/Projects/my-repos/embedded-dsp/src/pipeline.rs) composable processing chains (`Gain`, `Limiter`, `Chain`).
-  17. **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `FirFilterQ15<N>`, `BiquadCascade<COEFFS, STATE>`, `BiquadCascadeQ15<COEFFS, STATE>`, and `Matrix<R, C, N>`.
-  18. **Transforms**: In-place Complex FFT (`cfft`), Real FFT (`rfft`, packed `rfft_q15`/`rfft_q31` and `irfft_q15`/`irfft_q31`), Block Floating-Point FFT (`cfft_bfp_q15`/`cfft_bfp_q31`), Real Cepstrum (`real_cepstrum_f32`), Discrete Cosine Transform (`dct4`), Fast Walsh-Hadamard Transform (`fwht_f32`/`fwht_i32`), Fixed-Point FFT (`cfft_q15`/`cfft_q31`), Haar Transform, self-inverse Hartley Transform, and Daubechies-4 Discrete Wavelet Transform.
-  19. **Matrix & Regression**: Matrix addition, subtraction, multiplication, scaling, transpose, Gauss-Jordan inversion, and weighted polynomial least-squares curve fitting.
-  20. **Controller**: PID motor controller (`f32`/`q15`/`q31`), Clarke and Park transforms (`f32`/`q15`).
-  21. **Statistics**: Mean, variance, standard deviation, RMS, power, min/max, entropy, KL divergence, logsumexp.
-  22. **Support, PRNG & Noise**: Array copy/fill, zero-allocation sorting (`sort_f32`), format conversions (`q15` ↔ `f32` ↔ `q31`), rounded FIR tap quantizer, XorShift64 PRNG, uniform and Gaussian noise generators.
-  23. **Interpolation**: Linear, Bilinear, and Cubic Spline interpolation.
-  24. **Quaternions**: Norm, normalization, quaternion product, conjugate, inverse, rotation matrix conversion.
-  25. **Window Functions**: Hanning, Hamming, Blackman, 4-term Blackman-Harris, Bartlett, Welch, Flat-top, and parametric Kaiser-Bessel window with modified Bessel $I_0(\beta)$ evaluation (`kaiser_f32`).
-  26. **Distance Metrics**: Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Jaccard, Hamming, Canberra, Bray-Curtis (Float, Q15, Q31).
-  27. **Companding**: µ-law and A-law curves (`mu_law_compress_f32` / `a_law_*`) and ITU-T G.711 bytes (`linear_to_ulaw` / `ulaw_to_linear`, `linear_to_alaw` / `alaw_to_linear`).
+- **`#![no_std]` First**: Pure `core` compatibility with zero heap allocations.
+- **Fixed & Float Parity**: CMSIS-style `f32`, `f64`, `q7`, `q15`, `q31`, strongly-typed `Q15`/`Q31` newtypes, and the polymorphic `DspSample` trait.
+- **Hardware Acceleration**: ARM Cortex-M assembly intrinsics (`smlad`, `smlald`, `ssat`, `qadd16`) via `cortex-m-dsp`, with portable SWAR vector fallbacks.
+- **Pure-Integer CORDIC Engine**: Shift-and-add `sin`, `cos`, `atan2`, polar conversion, and `sqrt` requiring no hardware multipliers.
+- **Streaming Pipelines**: Zero-allocation [`DspNode`](src/pipeline.rs) composable processing chains (`Chain`, `Gain`, `Limiter`).
+- **Production Tested**: Continuous integration across 6 bare-metal architectures (`thumbv6m`, `thumbv7em`, `thumbv7em-hf`, `riscv32imc`, `wasm32`, `x86_64`).
 
 ---
 
-## Cookbook & Production Recipes
+## Module Overview
 
-Looking for real-world signal processing examples? Check out the **[embedded-dsp Cookbook](COOKBOOK.md)** for complete, copy-paste recipes:
-- Sensorless Motor Field-Oriented Control (FOC)
-- Real-time Audio DMA Processing (DC-Block + Biquad EQ + Peak Limiter)
-- Vibration Spectrum & Bearing Anomaly Monitoring
-- Multi-rate High-Speed CIC ADC Decimation
-- Acoustic Feature Extraction & Voice Activity Detection (VAD)
-- Zero-Allocation Streaming Pipelines
+| Category | Key Algorithms & Structs |
+| :--- | :--- |
+| **Filtering & Design** | FIR, Biquad IIR (DF-I & Transposed DF-II), LMS/NLMS, Butterworth/Chebyshev design, Windowed-Sinc, $L_\infty/L_2$ SOS Quantization & SQNR analysis, DC Blocker. |
+| **Spectral & Transforms** | CFFT, RFFT (packed), Block Floating-Point FFT (`cfft_bfp_q15/q31`), Real Cepstrum, DCT-IV, FWHT, Haar, Hartley, Daubechies-4 DWT, Welch & Burg AR PSD. |
+| **Audio & Voice** | Goertzel tone detector, Mel & Generalized filterbanks, MFCC, Q15 VAD, Dynamics Compressor with soft knee, Noise Gate. |
+| **Control & Power** | FOC current/speed PID, Clarke & Park transforms, SOGI-PLL (grid synchronization/resolvers), Costas Loop carrier recovery. |
+| **Sensor Fusion & Spatial** | Square-Root Kalman Filter (`SquareRootKalmanFilter`), EKF, 2D Spatial/Vision (Sobel, Median, DCT-II), Delay-and-Sum Beamformer, GCC-PHAT TDoA locator. |
+| **Multi-rate & Resampling** | CIC Decimator/Interpolator with bit-growth normalization, Polyphase Decimation & Interpolation (Float & Q15), fractional linear resampler. |
+| **Math, CORDIC & Windows** | CORDIC engine, Complex math, Fast math, Quaternions, 9 Window functions (Kaiser-Bessel with $I_0(\beta)$, Flat-top), G.711 $\mu$-law/A-law companding. |
 
 ---
 
 ## Quick Start
 
-Add `embedded-dsp` to your `Cargo.toml`:
+Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-# For standard std environments (all modules)
+# Standard std environment (all modules enabled)
 embedded-dsp = "0.4.0"
 
-# For bare-metal #![no_std] with libm and every algorithm module
+# Bare-metal #![no_std] with libm
 embedded-dsp = { version = "0.4.0", default-features = false, features = ["libm", "full"] }
 
-# For bare-metal, only the pieces you use (example: FIR/biquad + Q15 math)
+# Minimal firmware footprint (only FIR/Biquad filtering + basic math)
 embedded-dsp = { version = "0.4.0", default-features = false, features = ["libm", "filtering", "basic-math"] }
 ```
-
-`types` and `math` (`FloatMath`) are always compiled. Other modules map 1:1 to Cargo features (`filtering`, `transform`, `kalman`, `fixed-point`, `lut`, …). Enabling `kalman` also pulls `matrix` (and thus `basic-math`); enabling `audio` or `psd` also pulls `transform`. FFT-backed helpers (`fast_convolve_f32`, `fir_custom_frequency_sampling`, `spectral_interpolate_2x_f32`) need `transform` as well.
-
-Minimum supported Rust is **1.88** (edition 2024).
 
 ### Basic Example
 
@@ -89,85 +60,56 @@ Minimum supported Rust is **1.88** (edition 2024).
 use embedded_dsp::*;
 
 fn main() {
-    // 1. Vector Operations
-    let a = [1.0f32, 2.0, 3.0, 4.0];
-    let b = [10.0f32, 20.0, 30.0, 40.0];
-    let mut vec_out = [0.0f32; 4];
-    add_f32(&a, &b, &mut vec_out);
+    // 1. Fixed-Point Saturating Addition
+    let a = [20000i16, 25000];
+    let b = [15000i16, 10000];
+    let mut out = [0i16; 2];
+    add_q15(&a, &b, &mut out); // [32767, 32767] (clamped at i16::MAX)
 
-    // 2. Q15 Fixed-Point Saturating Addition
-    let q15_a = [20000i16, 25000];
-    let q15_b = [15000i16, 10000];
-    let mut q15_out = [0i16; 2];
-    add_q15(&q15_a, &q15_b, &mut q15_out); // Output: [32767, 32767] (clamped at i16::MAX)
-
-    // 3. Filter Design & Biquad Execution
+    // 2. Biquad Filter Cascade
     let coeffs = biquad_lowpass_coeffs(1000.0, 48000.0, core::f32::consts::FRAC_1_SQRT_2);
-    let mut biquad = BiquadCascade::<5, 4>::new(coeffs);
-    let mut dst = [0.0f32; 4];
-    biquad.process(&a, &mut dst);
+    let mut filter = BiquadCascade::<5, 4>::new(coeffs);
+    let input = [1.0f32, 0.5, -0.2, 0.1];
+    let mut filtered = [0.0f32; 4];
+    filter.process(&input, &mut filtered);
 
-    // 4. Kalman Sensor Filtering (1D helper or generic N×M)
+    // 3. Robust Square-Root Kalman Sensor Filter
     let mut kf = KalmanFilter1D::new(0.0, 1.0, 0.01, 0.1);
     kf.predict(0.0);
-    let _filtered_reading = kf.update(10.2);
+    let _est = kf.update(10.2);
 
-    let mut kf2 = KalmanFilter::<2, 1>::from_variances([0.0, 0.0], 1.0, 0.01, 0.1);
-    kf2.predict(&[[1.0, 0.1], [0.0, 1.0]]);
-    let _ = kf2.update(&[[1.0, 0.0]], &[1.0]);
-
-    // 5. 64-Point Complex FFT
-    let mut fft_data = [0.0f32; 128]; // 64 complex pairs [re, im, ...]
-    cfft_f32(&mut fft_data, 64, 0, 1);
+    // 4. In-Place FFT
+    let mut fft_buf = [0.0f32; 128]; // 64 complex pairs [re, im, ...]
+    cfft_f32(&mut fft_buf, 64, 0, 1);
 }
 ```
 
 ---
 
-## Running Included Examples
+## Cookbook & Examples
 
-The repository includes comprehensive, domain-specific examples showcasing the entire spectrum of DSP algorithms:
+Need copy-paste code for real-world projects? Check the **[embedded-dsp Cookbook](COOKBOOK.md)**:
+- **Motor Control**: Sensorless Field-Oriented Control (FOC) with Clarke/Park and Space-Vector PWM.
+- **Real-Time Audio DMA**: DC-Blocker + Biquad Peaking EQ + Peak Limiter streaming pipeline.
+- **Machine Health**: Vibration spectrum analysis and bearing fault detection using Burg AR PSD.
+- **Multi-rate ADC**: High-speed Cascaded Integrator-Comb (CIC) decimation.
+- **Acoustic Edge AI**: Voice Activity Detection (VAD) & MFCC feature extraction.
+- **Streaming Pipeline**: Composing modular `DspNode` signal processing chains.
 
+Run any included example directly with cargo:
 ```bash
-# 1. Basic Usage: Quick tour of core primitives
 cargo run --example basic_usage
-
-# 2. Performance Benchmark: embedded-dsp vs libm comparison
-cargo run --release --example perf_comparison
-
-# 3. Audio & Speech Pipeline: DC blocker, notch/peaking EQ, envelope tracking,
-#    ITU-T G.711 μ-law/A-law codec, Goertzel DTMF detector, Mel filterbank & MFCC
-cargo run --example audio_speech_pipeline
-
-# 4. Sensor Fusion & Navigation: Outlier rejection, polynomial sensor calibration,
-#    Quaternion 3D attitude, 2D kinematic Kalman filter, and non-linear Radar EKF
-cargo run --example sensor_fusion_navigation
-
-# 5. Field-Oriented Control (FOC): 3-phase current sensing, recursive moving average,
-#    Clarke/Park transforms (f32 & Q15), dual current PID loops, speed PID, SVPWM
 cargo run --example motor_control_foc
-
-# 6. Spectral Analysis, Radar & Multirate Transforms: Multitone signals, CIC decimation/
-#    interpolation, LMS adaptive interference cancellation, windowing, FFT, Welch PSD,
-#    FWHT, DCT-IV, Hartley, and Daubechies-4 Discrete Wavelet Transform
-cargo run --example spectral_radar_transforms
-
-# 7. 2D Spatial & Embedded Vision: 2D convolution, non-linear min/max/median filtering,
-#    Sobel edge detection, 2D DCT-II compression, 2D histogram/MSE/PSNR, Q16.16 scanlines
-cargo run --example spatial_vision_processing
-
-# 8. Filter Design & Analysis Workbench: Butterworth/Chebyshev cascade design,
-#    windowed-sinc & frequency-sampling FIR, DTFT response, group delay, pole stability,
-#    topology comparisons (DF-I vs DF-II Transposed), and information-theoretic metrics
+cargo run --example audio_speech_pipeline
+cargo run --example sensor_fusion_navigation
 cargo run --example filter_workbench_and_analysis
+cargo run --example spectral_radar_transforms
+cargo run --example spatial_vision_processing
+cargo run --release --example perf_comparison
 ```
 
 ---
 
 ## License
 
-The contents of this repository are dual-licensed under the _MIT OR Apache 2.0_
-License. That means you can choose either the MIT license or the Apache 2.0
-license when you re-use this code. See [`LICENSE`](./LICENSE), [`LICENSE-MIT`](./LICENSE-MIT), or
-[`LICENSE-APACHE`](./LICENSE-APACHE) for more information on each specific
-license.
+Dual-licensed under either **MIT** or **Apache-2.0** at your option. See [`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE`](LICENSE-APACHE).
