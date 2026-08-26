@@ -5,6 +5,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-26
+
 ### Added
 
 - **Hardware DSP Intrinsics**: ARM Cortex-M assembly intrinsics (`smlad`, `smlald`, `qadd16`, `qsub16`, `ssat`) via `cortex-m-dsp`, with portable SWAR vector fallbacks.
