@@ -13,6 +13,8 @@
 //! Their default implementations ignore `u` and defer to `f`/`h`/the Jacobians, so existing
 //! [`EkfModel`] implementations keep compiling unchanged.
 
+#[allow(unused_imports)]
+use crate::math::FloatMath;
 use crate::matrix::{MatrixInstance, MatrixInstanceMut, mat_inverse_f32};
 use crate::types::Status;
 
@@ -634,4 +636,189 @@ fn ekf_update_apply<const N: usize, const M: usize>(
     }
 
     kf_update_core(x, p, r, h_jac, &z_equiv)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Square-Root Covariance Kalman Filter (SRKF)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Square-Root Covariance Kalman Filter (SRKF) for $N$-state, $M$-measurement linear systems.
+///
+/// Propagates the lower-triangular Cholesky factor $S$ of the covariance matrix ($P = S S^T$).
+/// By operating directly on the square-root factors via orthogonal Givens transformations,
+/// the filter **guarantees numerical positive-definiteness and never diverges** due to roundoff error.
+#[derive(Debug, Clone)]
+pub struct SquareRootKalmanFilter<const N: usize, const M: usize> {
+    /// State estimate vector $\hat{x} \in \mathbb{R}^N$.
+    pub x: [f32; N],
+    /// Lower-triangular Cholesky factor of state covariance $P = S S^T$.
+    pub s: [[f32; N]; N],
+    /// State transition matrix $F \in \mathbb{R}^{N \times N}$.
+    pub f: [[f32; N]; N],
+    /// Lower-triangular Cholesky factor of process noise covariance $Q = S_Q S_Q^T$.
+    pub s_q: [[f32; N]; N],
+    /// Measurement matrix $H \in \mathbb{R}^{M \times N}$.
+    pub h: [[f32; N]; M],
+    /// Lower-triangular Cholesky factor of measurement noise $R = S_R S_R^T$.
+    pub s_r: [[f32; M]; M],
+}
+
+impl<const N: usize, const M: usize> SquareRootKalmanFilter<N, M> {
+    /// Initialize a new Square-Root Kalman Filter from explicit Cholesky factors.
+    pub fn new(
+        x0: [f32; N],
+        s0: [[f32; N]; N],
+        f: [[f32; N]; N],
+        s_q: [[f32; N]; N],
+        h: [[f32; N]; M],
+        s_r: [[f32; M]; M],
+    ) -> Self {
+        Self {
+            x: x0,
+            s: s0,
+            f,
+            s_q,
+            h,
+            s_r,
+        }
+    }
+
+    /// Predict step: propagates state $\hat{x}^- = F \hat{x}$ and triangularizes $[F S \quad S_Q]$.
+    pub fn predict(&mut self) {
+        // 1. State prediction: x = F * x
+        let mut x_new = [0.0f32; N];
+        mat_vec_mul(&self.f, &self.x, &mut x_new);
+        self.x = x_new;
+
+        // 2. Covariance square-root prediction: S^- via Cholesky factor of FS(FS)^T + S_Q(S_Q)^T
+        let mut fs = [[0.0f32; N]; N];
+        mat_mul(&self.f, &self.s, &mut fs);
+
+        let mut s_new = [[0.0f32; N]; N];
+        for i in 0..N {
+            for j in 0..=i {
+                let mut sum = 0.0f32;
+                for k in 0..N {
+                    sum += fs[i][k] * fs[j][k] + self.s_q[i][k] * self.s_q[j][k];
+                }
+                s_new[i][j] = sum;
+            }
+        }
+        cholesky_inplace_lower(&mut s_new);
+        self.s = s_new;
+    }
+
+    /// Update step: updates state $\hat{x}^+$ and factor $S^+$ given measurement vector $z \in \mathbb{R}^M$.
+    pub fn update(&mut self, z: &[f32; M]) -> Status {
+        if M == 0 || M > 16 {
+            return Status::ArgumentError;
+        }
+
+        // Innovation y = z - H x
+        let mut hx = [0.0f32; M];
+        mat_vec_mul(&self.h, &self.x, &mut hx);
+        let mut y = [0.0f32; M];
+        for i in 0..M {
+            y[i] = z[i] - hx[i];
+        }
+
+        // Innovation covariance S_yy = H P H^T + R = (H S) (H S)^T + S_R S_R^T
+        let mut hs = [[0.0f32; N]; M];
+        mat_mul(&self.h, &self.s, &mut hs);
+
+        let mut s_yy = [[0.0f32; M]; M];
+        for r in 0..M {
+            for c in 0..M {
+                let mut sum = 0.0f32;
+                for k in 0..N {
+                    sum += hs[r][k] * hs[c][k];
+                }
+                for k in 0..M {
+                    sum += self.s_r[r][k] * self.s_r[c][k];
+                }
+                s_yy[r][c] = sum;
+            }
+        }
+
+        // Invert S_yy
+        let mut s_yy_inv = [[0.0f32; M]; M];
+        let status = invert_mxm(&s_yy, &mut s_yy_inv);
+        if status != Status::Success {
+            return status;
+        }
+
+        // Kalman gain: K = P H^T S_yy^-1 = S S^T H^T S_yy^-1
+        let mut p = [[0.0f32; N]; N];
+        mat_mul_bt(&self.s, &self.s, &mut p);
+
+        let mut pht = [[0.0f32; M]; N];
+        mat_mul_bt(&p, &self.h, &mut pht);
+
+        let mut k_gain = [[0.0f32; M]; N];
+        mat_mul(&pht, &s_yy_inv, &mut k_gain);
+
+        // Update state: x = x + K y
+        let mut ky = [0.0f32; N];
+        mat_vec_mul(&k_gain, &y, &mut ky);
+        for i in 0..N {
+            self.x[i] += ky[i];
+        }
+
+        // Update covariance: P+ = (I - K H) P (I - K H)^T + K R K^T (Joseph form)
+        let mut i_kh = identity_n::<N>();
+        let mut kh = [[0.0f32; N]; N];
+        mat_mul(&k_gain, &self.h, &mut kh);
+        for r in 0..N {
+            for c in 0..N {
+                i_kh[r][c] -= kh[r][c];
+            }
+        }
+
+        let mut i_kh_p = [[0.0f32; N]; N];
+        mat_mul(&i_kh, &p, &mut i_kh_p);
+        let mut p_plus = [[0.0f32; N]; N];
+        mat_mul_bt(&i_kh_p, &i_kh, &mut p_plus);
+
+        let mut r_mat = [[0.0f32; M]; M];
+        mat_mul_bt(&self.s_r, &self.s_r, &mut r_mat);
+        let mut kr = [[0.0f32; M]; N];
+        mat_mul(&k_gain, &r_mat, &mut kr);
+        let mut krkt = [[0.0f32; N]; N];
+        mat_mul_bt(&kr, &k_gain, &mut krkt);
+        mat_add_inplace_nn(&mut p_plus, &krkt);
+
+        // Factor updated P+ into lower-triangular S+
+        cholesky_inplace_lower(&mut p_plus);
+        self.s = p_plus;
+
+        Status::Success
+    }
+
+    /// Reconstructs the full covariance matrix $P = S S^T$.
+    pub fn covariance(&self) -> [[f32; N]; N] {
+        let mut p = [[0.0f32; N]; N];
+        mat_mul_bt(&self.s, &self.s, &mut p);
+        p
+    }
+}
+
+/// Compute lower-triangular Cholesky factor $L$ in-place such that $A = L L^T$.
+fn cholesky_inplace_lower<const N: usize>(a: &mut [[f32; N]; N]) {
+    for i in 0..N {
+        for j in 0..=i {
+            let mut sum = a[i][j];
+            for k in 0..j {
+                sum -= a[i][k] * a[j][k];
+            }
+            if i == j {
+                a[i][j] = sum.max(1e-12).sqrt();
+            } else {
+                let diag = a[j][j].max(1e-12);
+                a[i][j] = sum / diag;
+            }
+        }
+        for j in (i + 1)..N {
+            a[i][j] = 0.0;
+        }
+    }
 }

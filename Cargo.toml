@@ -28,12 +28,14 @@ cortex-m-dsp = []
 full = [
     "audio",
     "basic-math",
+    "beamforming",
     "companding",
     "complex-math",
     "const-generics",
     "controller",
     "cordic",
     "distance",
+    "dynamics",
     "fast-math",
     "filter-analysis",
     "filter-design",
@@ -44,6 +46,7 @@ full = [
     "lut",
     "matrix",
     "pipeline",
+    "pll",
     "psd",
     "quaternion",
     "resampling",
@@ -57,12 +60,14 @@ full = [
 # Per-module features: pull in only the algorithms you need.
 audio = ["transform"]
 basic-math = []
+beamforming = ["transform"]
 companding = []
 complex-math = []
 const-generics = ["filtering", "matrix"]
 controller = []
 cordic = []
 distance = []
+dynamics = ["pipeline"]
 fast-math = []
 filter-analysis = []
 filter-design = []
@@ -76,6 +81,7 @@ kalman = ["matrix"]
 lut = []
 matrix = ["basic-math"]
 pipeline = ["filtering"]
+pll = []
 psd = ["transform", "window"]
 quaternion = []
 resampling = []

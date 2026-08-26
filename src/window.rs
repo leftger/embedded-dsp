@@ -128,6 +128,46 @@ pub fn flattop_f32(dst: &mut [f32]) {
     }
 }
 
+/// Zero-order modified Bessel function of the first kind $I_0(x)$ for Kaiser windowing.
+#[inline]
+pub fn bessel_i0(x: f32) -> f32 {
+    let mut sum = 1.0f32;
+    let mut term = 1.0f32;
+    let half_x = 0.5 * x;
+    for k in 1..=16 {
+        term *= (half_x / k as f32) * (half_x / k as f32);
+        sum += term;
+        if term < 1e-7 * sum {
+            break;
+        }
+    }
+    sum
+}
+
+/// Generate Kaiser-Bessel window with shape parameter `beta`.
+///
+/// `beta = 0.0` yields rectangular window.
+/// `beta = 5.0` approximates Hamming window.
+/// `beta = 6.0` approximates Hanning window.
+/// `beta = 8.6` approximates Blackman window.
+pub fn kaiser_f32(dst: &mut [f32], beta: f32) {
+    let n = dst.len();
+    if n == 0 {
+        return;
+    }
+    if n == 1 {
+        dst[0] = 1.0;
+        return;
+    }
+    let den = bessel_i0(beta);
+    let n_minus_1 = (n - 1) as f32;
+    for (i, val) in dst.iter_mut().enumerate() {
+        let frac = (2.0 * i as f32 / n_minus_1) - 1.0;
+        let arg = (1.0 - frac * frac).max(0.0).sqrt();
+        *val = bessel_i0(beta * arg) / den;
+    }
+}
+
 /// Multiply signal elements in-place by window array.
 pub fn apply_window_f32(signal: &mut [f32], window: &[f32]) {
     let len = signal.len().min(window.len());

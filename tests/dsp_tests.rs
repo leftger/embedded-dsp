@@ -2316,3 +2316,149 @@ fn test_generalized_filterbank_and_vad() {
     ];
     assert!(vad.is_active(&speech));
 }
+
+#[test]
+fn test_sogi_pll_and_costas_loop() {
+    let mut pll = SogiPll::new(50.0, 10000.0, 1.414, 60.0, 1400.0);
+    // Simulate 50 Hz sinusoid for 2000 samples (0.2s)
+    let mut last_freq = 0.0f32;
+    for n in 0..2000 {
+        let t = n as f32 / 10000.0;
+        let v = (2.0 * core::f32::consts::PI * 50.0 * t).sin();
+        let _ = pll.process(v);
+        last_freq = pll.frequency_hz();
+    }
+    assert!(
+        (last_freq - 50.0).abs() < 1.0,
+        "PLL tracked freq={last_freq}"
+    );
+    let (v_a, v_b) = pll.orthogonal_components();
+    assert!(v_a.is_finite() && v_b.is_finite());
+
+    // Costas Loop
+    let mut costas = CostasLoop::new(1000.0, 10000.0, 50.0, 0.707);
+    for n in 0..1000 {
+        let t = n as f32 / 10000.0;
+        let s = (2.0 * core::f32::consts::PI * 1000.0 * t).cos();
+        let (i_arm, _q_arm) = costas.process_sample(s);
+        assert!(i_arm.is_finite());
+    }
+}
+
+#[test]
+fn test_dynamics_compressor_and_noise_gate() {
+    let mut comp = DynamicsCompressor::new(-20.0, 4.0, 6.0, 0.005, 0.05, 0.0, 48000.0);
+    // Loud signal (0 dBFS = 1.0)
+    let mut out_loud = 0.0f32;
+    for _ in 0..500 {
+        out_loud = comp.process(1.0);
+    }
+    // High compression ratio: 1.0 should be compressed below 0.6
+    assert!(out_loud < 0.6 && out_loud > 0.1);
+
+    // Noise gate: threshold -40 dB (approx 0.01), loud signal passes, quiet attenuated
+    let mut gate = NoiseGate::new(-40.0, -40.0, 0.002, 0.02, 48000.0);
+    let mut out_loud_gate = 0.0f32;
+    for _ in 0..500 {
+        out_loud_gate = gate.process(0.5);
+    }
+    assert!(out_loud_gate > 0.45);
+
+    let mut out_quiet = 0.0f32;
+    for _ in 0..1000 {
+        out_quiet = gate.process(0.0001);
+    }
+    assert!(out_quiet < 0.00005);
+}
+
+#[test]
+fn test_square_root_kalman_filter() {
+    // 2-state constant velocity system
+    let x0 = [0.0f32, 1.0];
+    let s0 = [[1.0f32, 0.0], [0.0, 1.0]]; // S0 = diag(1, 1) => P0 = diag(1, 1)
+    let dt = 0.1f32;
+    let f = [[1.0f32, dt], [0.0, 1.0]];
+    let s_q = [[0.1f32, 0.0], [0.0, 0.1]];
+    let h = [[1.0f32, 0.0]]; // Measure position
+    let s_r = [[0.5f32]];
+
+    let mut srkf = SquareRootKalmanFilter::new(x0, s0, f, s_q, h, s_r);
+
+    for k in 1..=20 {
+        srkf.predict();
+        let true_pos = k as f32 * dt;
+        let meas = [true_pos + 0.05];
+        let status = srkf.update(&meas);
+        assert_eq!(status, Status::Success);
+    }
+
+    let p = srkf.covariance();
+    assert!(
+        p[0][0] > 0.0 && p[1][1] > 0.0,
+        "P must be positive definite"
+    );
+    assert!((srkf.x[1] - 1.0).abs() < 0.3, "Velocity estimate tracked");
+}
+
+#[test]
+fn test_burg_ar_psd_and_kaiser_window() {
+    let mut sig = [0.0f32; 64];
+    for (i, val) in sig.iter_mut().enumerate() {
+        *val = (2.0 * core::f32::consts::PI * 8.0 * i as f32 / 64.0).sin();
+    }
+
+    let mut ar_coeffs = [0.0f32; 4];
+    let var_res = ar_burg_f32(&sig, 4, &mut ar_coeffs);
+    assert!(var_res.is_ok());
+    let var = var_res.unwrap();
+    assert!(var > 0.0);
+
+    let mut psd = [0.0f32; 32];
+    let status = ar_psd_f32(&ar_coeffs, var, 32, &mut psd, false);
+    assert_eq!(status, Status::Success);
+    // Peak near bin 4 (8 cycles / 64 = bin 4 of 32)
+    let mut max_p = 0.0f32;
+    let mut max_idx = 0;
+    for (i, &p) in psd.iter().enumerate() {
+        if p > max_p {
+            max_p = p;
+            max_idx = i;
+        }
+    }
+    assert!((max_idx as i32 - 8).abs() <= 1, "Peak bin: {max_idx}");
+
+    // Kaiser window
+    let mut k_win = [0.0f32; 32];
+    kaiser_f32(&mut k_win, 5.0);
+    assert!(k_win[16] > k_win[0]); // Peak at center
+}
+
+#[test]
+fn test_delay_and_sum_beamformer_and_gcc_phat() {
+    let mut bf: DelayAndSumBeamformer<2, 32> = DelayAndSumBeamformer::new();
+    bf.set_delays(&[0.0, 2.0]);
+
+    // Feed pulse to ch0 at t=2 and ch1 at t=0
+    let mut output = [0.0f32; 8];
+    for (t, out) in output.iter_mut().enumerate() {
+        let ch0 = if t == 2 { 1.0 } else { 0.0 };
+        let ch1 = if t == 0 { 1.0 } else { 0.0 };
+        *out = bf.process_sample(&[ch0, ch1]);
+    }
+    // Both signals align at t=2
+    assert!(output[2] > 0.4);
+
+    // GCC-PHAT TDoA
+    let mut sig1 = [0.0f32; 64];
+    let mut sig2 = [0.0f32; 64];
+    // Pulse at index 10 for sig1, index 14 for sig2 (delay = 4)
+    sig1[10] = 1.0;
+    sig1[11] = 0.5;
+    sig2[14] = 1.0;
+    sig2[15] = 0.5;
+
+    let delay_res = gcc_phat_tdoa_f32(&sig1, &sig2, 16);
+    assert!(delay_res.is_ok());
+    let delay = delay_res.unwrap();
+    assert!((delay.abs() - 4.0).abs() < 0.5, "Estimated delay: {delay}");
+}

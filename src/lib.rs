@@ -58,12 +58,14 @@ macro_rules! gated_mod {
 
 gated_mod!(math "audio", audio);
 gated_mod!("basic-math", basic_math);
+gated_mod!(math "beamforming", beamforming);
 gated_mod!("companding", companding);
 gated_mod!("complex-math", complex_math);
 gated_mod!("const-generics", const_generics);
 gated_mod!("controller", controller);
 gated_mod!("cordic", cordic);
 gated_mod!("distance", distance);
+gated_mod!(math "dynamics", dynamics);
 gated_mod!("fast-math", fast_math);
 gated_mod!(math "filter-analysis", filter_analysis);
 gated_mod!(math "filter-design", filter_design);
@@ -75,6 +77,7 @@ gated_mod!("lut", lut);
 pub mod math;
 gated_mod!("matrix", matrix);
 gated_mod!("pipeline", pipeline);
+gated_mod!(math "pll", pll);
 gated_mod!("psd", psd);
 gated_mod!("quaternion", quaternion);
 gated_mod!("resampling", resampling);

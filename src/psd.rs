@@ -126,3 +126,121 @@ pub fn periodogram_f32(
 ) -> Status {
     welch_psd_f32(src, dst_psd, fft_len, 0, sample_rate, window, return_db)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Burg's Maximum Entropy Method (Autoregressive Spectral Estimation)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Computes Autoregressive (AR) model coefficients of order `p` using Burg's Maximum Entropy Method.
+///
+/// Burg's method estimates reflection coefficients directly from data without computing autocorrelation,
+/// guaranteeing minimum-phase stable all-pole filters and superior frequency resolution on short frames.
+///
+/// `signal`: input sample vector ($N \ge 2p$).
+/// `order`: AR model order $p$ ($\le 32$).
+/// `ar_coeffs_out`: receives $p$ autoregressive coefficients $[a_1, a_2, \dots, a_p]$.
+/// Returns `Ok(noise_variance)` on success.
+pub fn ar_burg_f32(signal: &[f32], order: usize, ar_coeffs_out: &mut [f32]) -> Result<f32, Status> {
+    let n = signal.len();
+    if order == 0 || order > 32 || n < 2 * order {
+        return Err(Status::ArgumentError);
+    }
+    if ar_coeffs_out.len() < order {
+        return Err(Status::LengthError);
+    }
+
+    let mut f_err = [0.0f32; 256];
+    let mut b_err = [0.0f32; 256];
+    if n > f_err.len() {
+        return Err(Status::ArgumentError);
+    }
+
+    f_err[..n].copy_from_slice(signal);
+    b_err[..n].copy_from_slice(signal);
+
+    let mut total_energy = 0.0f32;
+    for &x in signal {
+        total_energy += x * x;
+    }
+    let mut noise_var = total_energy / n as f32;
+
+    let mut a_prev = [0.0f32; 32];
+
+    for m in 1..=order {
+        let mut num = 0.0f32;
+        let mut den = 0.0f32;
+
+        for i in m..n {
+            let f = f_err[i];
+            let b = b_err[i - 1];
+            num += f * b;
+            den += f * f + b * b;
+        }
+
+        if den.abs() < 1e-12 {
+            break;
+        }
+
+        let k_m = -2.0 * num / den;
+
+        // Update AR coefficients: a_i = a_prev_i + k_m * a_prev_{m-i}
+        ar_coeffs_out[m - 1] = k_m;
+        for i in 1..m {
+            ar_coeffs_out[i - 1] = a_prev[i - 1] + k_m * a_prev[m - 1 - i];
+        }
+        a_prev[..m].copy_from_slice(&ar_coeffs_out[..m]);
+
+        // Update forward and backward prediction errors
+        for i in (m..n).rev() {
+            let f = f_err[i];
+            let b = b_err[i - 1];
+            f_err[i] = f + k_m * b;
+            b_err[i] = b + k_m * f;
+        }
+
+        noise_var *= (1.0 - k_m * k_m).max(0.0);
+    }
+
+    Ok(noise_var)
+}
+
+/// Evaluates the Power Spectral Density from AR model coefficients at `num_bins` uniform frequency points.
+///
+/// Computes $P(e^{j\omega}) = \frac{\sigma^2}{|1 + \sum_{k=1}^p a_k e^{-j k \omega}|^2}$.
+pub fn ar_psd_f32(
+    ar_coeffs: &[f32],
+    noise_variance: f32,
+    num_bins: usize,
+    psd_out: &mut [f32],
+    return_db: bool,
+) -> Status {
+    if num_bins == 0 || psd_out.len() < num_bins {
+        return Status::LengthError;
+    }
+
+    let p = ar_coeffs.len();
+    let d_omega = core::f32::consts::PI / (num_bins as f32);
+
+    for bin in 0..num_bins {
+        let omega = bin as f32 * d_omega;
+        let mut re = 1.0f32;
+        let mut im = 0.0f32;
+
+        for k in 1..=p {
+            let angle = -(k as f32) * omega;
+            re += ar_coeffs[k - 1] * angle.cos();
+            im += ar_coeffs[k - 1] * angle.sin();
+        }
+
+        let denom = (re * re + im * im).max(1e-12);
+        let p_linear = noise_variance / denom;
+
+        if return_db {
+            psd_out[bin] = 10.0 * p_linear.max(1e-14).log10();
+        } else {
+            psd_out[bin] = p_linear;
+        }
+    }
+
+    Status::Success
+}
