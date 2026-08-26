@@ -2187,3 +2187,132 @@ fn test_filter_quantization_and_sqnr_analysis() {
         "Expected FIR SQNR > 60 dB, got {fir_sqnr} dB"
     );
 }
+
+#[test]
+fn test_bfp_fft_and_real_cepstrum() {
+    const N: usize = 32;
+    let mut data_q15 = [0i16; 2 * N];
+    for i in 0..N {
+        let x = (2.0 * core::f32::consts::PI * 4.0 * i as f32 / N as f32).sin();
+        data_q15[2 * i] = (x * 30000.0) as i16;
+    }
+
+    let scale_count = cfft_bfp_q15(&mut data_q15, N, 0, 1);
+    assert!(scale_count <= 5);
+
+    // Peak at bin 4
+    let mut max_mag = 0i64;
+    let mut max_bin = 0;
+    for k in 0..N {
+        let re = data_q15[2 * k] as i64;
+        let im = data_q15[2 * k + 1] as i64;
+        let mag = re * re + im * im;
+        if mag > max_mag {
+            max_mag = mag;
+            max_bin = k;
+        }
+    }
+    assert_eq!(max_bin, 4);
+
+    // Q31 BFP FFT
+    let mut data_q31 = [0i32; 2 * N];
+    for i in 0..N {
+        data_q31[2 * i] = (data_q15[2 * i] as i32) << 16;
+    }
+    let scale_q31 = cfft_bfp_q31(&mut data_q31, N, 0, 1);
+    assert!(scale_q31 <= 5);
+
+    // Real Cepstrum
+    let mut sig = [0.0f32; 32];
+    for (i, val) in sig.iter_mut().enumerate() {
+        *val = (2.0 * core::f32::consts::PI * 2.0 * i as f32 / 32.0).cos();
+    }
+    let mut cep = [0.0f32; 32];
+    let status = real_cepstrum_f32(&sig, &mut cep);
+    assert_eq!(status, Status::Success);
+    assert!(cep[0].is_finite());
+}
+
+#[test]
+fn test_cordic_engine() {
+    // Rotation: 0 rad -> sin ≈ 0 (within 2 LSB), cos ≈ 1
+    let (s0, c0) = cordic_sin_cos_q15(0);
+    assert!(s0.abs() <= 2);
+    assert!((c0 as i32 - 32767).abs() < 100);
+
+    // Rotation: pi/4 rad (25736 in Q15) -> sin ≈ 0.7071, cos ≈ 0.7071
+    let (s_pi4, c_pi4) = cordic_sin_cos_q15(25736);
+    let expected = (core::f32::consts::FRAC_1_SQRT_2 * 32768.0) as i32;
+    assert!((s_pi4 as i32 - expected).abs() < 150);
+    assert!((c_pi4 as i32 - expected).abs() < 150);
+
+    // Vectoring: (1.0, 1.0) in Q15 -> mag ≈ 1.414 (scaled), angle ≈ pi/4
+    let (mag, angle) = cordic_cartesian_to_polar_q15(10000, 10000);
+    assert!((angle as i32 - 25736).abs() < 150);
+    assert!((mag as i32 - 14142).abs() < 200);
+
+    // Atan2
+    let atan_val = cordic_atan2_q15(10000, 10000);
+    assert!((atan_val as i32 - 25736).abs() < 150);
+
+    // Sqrt
+    let root = cordic_sqrt_q15(16384); // sqrt(0.5) in Q15
+    assert!((root as i32 - expected).abs() < 250);
+}
+
+#[test]
+fn test_dsp_pipeline_and_streaming() {
+    use crate::pipeline::*;
+
+    let lowpass = SinglePoleFilter::lowpass(0.1);
+    let gain = Gain::new(2.0f32);
+    let limiter = Limiter::new(-1.0f32, 1.0f32);
+
+    let mut chain = lowpass.then(gain).then(limiter);
+
+    let mut buffer = [0.0f32, 0.5, 1.0, 2.0, -3.0];
+    chain.process_in_place(&mut buffer);
+
+    for &s in &buffer {
+        assert!((-1.0..=1.0).contains(&s));
+    }
+
+    // Q15 DC blocker in pipeline
+    let dc = DcBlockerQ15::new(32000);
+    let q_gain = Gain::new(16384i16);
+    let mut q_chain = dc.then(q_gain);
+
+    let mut q_buf = [10000i16; 8];
+    q_chain.process_in_place(&mut q_buf);
+    assert!(q_buf[7].abs() < q_buf[0].abs());
+}
+
+#[test]
+fn test_generalized_filterbank_and_vad() {
+    let power_spec = [1.0f32; 16];
+    let left = [0, 2, 4];
+    let center = [2, 4, 6];
+    let right = [4, 6, 8];
+    let mut energies = [0.0f32; 3];
+
+    let status =
+        generalized_triangular_filterbank(&power_spec, &left, &center, &right, &mut energies);
+    assert_eq!(status, Status::Success);
+    for &e in &energies {
+        assert!(e > 0.0);
+    }
+
+    // Fast log2
+    let l2 = fast_log2_q15(16384); // 0.5 -> log2 is -1.0
+    assert!(l2 < 0);
+
+    // VAD detector
+    let vad = VadDetectorQ15::new(10, 2);
+    let silence = [0i16; 32];
+    assert!(!vad.is_active(&silence));
+
+    let speech = [
+        10000i16, -10000, 20000, -20000, 15000, -15000, 10000, -10000,
+    ];
+    assert!(vad.is_active(&speech));
+}

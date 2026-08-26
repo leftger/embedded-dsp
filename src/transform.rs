@@ -302,6 +302,189 @@ pub fn cfft_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag: u8)
     }
 }
 
+/// In-place Block Floating-Point (BFP) Complex FFT for Q15.
+///
+/// Unlike standard fixed-point FFT which down-shifts by 1 bit at every stage (losing `log2(N)` bits
+/// of SNR), Block Floating-Point dynamically scans maximum stage amplitude and only divides by 2
+/// when overflow is imminent.
+///
+/// Returns the total scale count `scale_count: u16` (the block exponent).
+/// The true mathematical frequency amplitude is `output[k] * 2^{scale_count}`.
+pub fn cfft_bfp_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag: u8) -> u16 {
+    if n < 2 || n > TWIDDLE_N || (n & (n - 1)) != 0 || data.len() < 2 * n {
+        return 0;
+    }
+
+    if bit_reverse_flag != 0 {
+        bit_reversal_q15(data, n);
+    }
+
+    let mut scale_count: u16 = 0;
+    let mut len = 2;
+    while len <= n {
+        let half_len = len / 2;
+
+        // Stage headroom check: find max absolute value
+        let mut max_val: i16 = 0;
+        for i in 0..2 * n {
+            let val = data[i].abs();
+            if val > max_val {
+                max_val = val;
+            }
+        }
+
+        // Butterfly addition can double magnitude: if max_val > 16383, scale stage down by 1 bit.
+        let stage_shift = if max_val > 16383 {
+            scale_count += 1;
+            1
+        } else {
+            0
+        };
+
+        let mut i = 0;
+        while i < n {
+            for j in 0..half_len {
+                let (w_re_s, mut w_im_s) = twiddle_q15(j, len);
+                if ifft_flag == 0 {
+                    w_im_s = w_im_s.saturating_neg();
+                }
+
+                let u_idx = 2 * (i + j);
+                let v_idx = 2 * (i + j + half_len);
+                let u_re = data[u_idx] as i32;
+                let u_im = data[u_idx + 1] as i32;
+                let v_re = data[v_idx] as i32;
+                let v_im = data[v_idx + 1] as i32;
+                let wr = w_re_s as i32;
+                let wi = w_im_s as i32;
+
+                let t_re = (v_re * wr - v_im * wi) >> 15;
+                let t_im = (v_re * wi + v_im * wr) >> 15;
+
+                data[u_idx] = sat_q15((u_re + t_re) >> stage_shift);
+                data[u_idx + 1] = sat_q15((u_im + t_im) >> stage_shift);
+                data[v_idx] = sat_q15((u_re - t_re) >> stage_shift);
+                data[v_idx + 1] = sat_q15((u_im - t_im) >> stage_shift);
+            }
+            i += len;
+        }
+        len <<= 1;
+    }
+
+    scale_count
+}
+
+/// In-place Block Floating-Point (BFP) Complex FFT for Q31.
+///
+/// Dynamically scales only when overflow is imminent, returning total `scale_count`.
+pub fn cfft_bfp_q31(data: &mut [q31], n: usize, ifft_flag: u8, bit_reverse_flag: u8) -> u16 {
+    if n < 2 || n > TWIDDLE_N || (n & (n - 1)) != 0 || data.len() < 2 * n {
+        return 0;
+    }
+
+    if bit_reverse_flag != 0 {
+        bit_reversal_q31(data, n);
+    }
+
+    let mut scale_count: u16 = 0;
+    let mut len = 2;
+    while len <= n {
+        let half_len = len / 2;
+
+        let mut max_val: i32 = 0;
+        for i in 0..2 * n {
+            let val = data[i].abs();
+            if val > max_val {
+                max_val = val;
+            }
+        }
+
+        let stage_shift = if max_val > 1073741823 {
+            scale_count += 1;
+            1
+        } else {
+            0
+        };
+
+        let mut i = 0;
+        while i < n {
+            for j in 0..half_len {
+                let (w_re_s, w_im_s) = twiddle_q15(j, len);
+                let w_re = (w_re_s as i32) << 16;
+                let mut w_im = (w_im_s as i32) << 16;
+                if ifft_flag == 0 {
+                    w_im = -w_im;
+                }
+
+                let u_idx = 2 * (i + j);
+                let v_idx = 2 * (i + j + half_len);
+                let u_re = data[u_idx] as i64;
+                let u_im = data[u_idx + 1] as i64;
+                let v_re = data[v_idx] as i64;
+                let v_im = data[v_idx + 1] as i64;
+                let wr = w_re as i64;
+                let wi = w_im as i64;
+
+                let t_re = (v_re * wr - v_im * wi) >> 31;
+                let t_im = (v_re * wi + v_im * wr) >> 31;
+
+                data[u_idx] = sat_q31((u_re + t_re) >> stage_shift);
+                data[u_idx + 1] = sat_q31((u_im + t_im) >> stage_shift);
+                data[v_idx] = sat_q31((u_re - t_re) >> stage_shift);
+                data[v_idx + 1] = sat_q31((u_im - t_im) >> stage_shift);
+            }
+            i += len;
+        }
+        len <<= 1;
+    }
+
+    scale_count
+}
+
+/// Real Cepstrum: `c(n) = IFFT(ln |FFT(x)|)`.
+///
+/// Computes homomorphic deconvolution of `src` into `cepstrum_out`.
+/// Used in echo detection, sonar multipath analysis, pitch tracking, and seismic deconvolution.
+/// `n` must be a power of two `<= 512`.
+pub fn real_cepstrum_f32(src: &[f32], cepstrum_out: &mut [f32]) -> Status {
+    let n = src.len();
+    if n < 2 || (n & (n - 1)) != 0 || n > 512 {
+        return Status::ArgumentError;
+    }
+    if cepstrum_out.len() < n {
+        return Status::LengthError;
+    }
+
+    let mut c_buf = [0.0f32; 1024];
+    for i in 0..n {
+        c_buf[2 * i] = src[i];
+        c_buf[2 * i + 1] = 0.0;
+    }
+
+    // 1. Forward FFT
+    cfft_f32(&mut c_buf[..2 * n], n, 0, 1);
+
+    // 2. Log magnitude
+    for i in 0..n {
+        let re = c_buf[2 * i];
+        let im = c_buf[2 * i + 1];
+        let mag = (re * re + im * im).sqrt().max(1e-12);
+        c_buf[2 * i] = mag.ln();
+        c_buf[2 * i + 1] = 0.0;
+    }
+
+    // 3. Inverse FFT
+    cfft_f32(&mut c_buf[..2 * n], n, 1, 1);
+
+    // 4. Output real part scaled by 1/n
+    let inv_n = 1.0 / (n as f32);
+    for i in 0..n {
+        cepstrum_out[i] = c_buf[2 * i] * inv_n;
+    }
+
+    Status::Success
+}
+
 /// Real FFT for floating point 32-bit (`f32`).
 /// `src` has `n` real samples. `dst` receives `2 * n` complex outputs.
 pub fn rfft_f32(src: &[f32], dst: &mut [f32], n: usize, ifft_flag: u8) {

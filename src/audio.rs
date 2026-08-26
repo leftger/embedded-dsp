@@ -409,3 +409,122 @@ pub fn mfcc_f32(
 
     Status::Success
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generalized Filterbank & Fixed-Point Feature Extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Generalized triangular filterbank applicable to any spectral scale (Linear, Octave, Constant-Q, Bark, Mel).
+///
+/// Integrates `power_spectrum` against triangular weighting windows defined by parallel slices
+/// of `left_bins`, `center_bins`, and `right_bins`.
+pub fn generalized_triangular_filterbank(
+    power_spectrum: &[f32],
+    left_bins: &[usize],
+    center_bins: &[usize],
+    right_bins: &[usize],
+    energies_out: &mut [f32],
+) -> Status {
+    let num_filters = energies_out.len();
+    if left_bins.len() < num_filters
+        || center_bins.len() < num_filters
+        || right_bins.len() < num_filters
+        || num_filters == 0
+    {
+        return Status::LengthError;
+    }
+
+    for (i, energy) in energies_out.iter_mut().enumerate() {
+        let left = left_bins[i];
+        let center = center_bins[i];
+        let right = right_bins[i];
+
+        if left > center || center > right || right >= power_spectrum.len() {
+            return Status::ArgumentError;
+        }
+
+        let mut sum = 0.0f32;
+        if center > left {
+            let span = (center - left) as f32;
+            for bin in left..=center {
+                let weight = (bin - left) as f32 / span;
+                sum += weight * power_spectrum[bin];
+            }
+        }
+        if right > center {
+            let span = (right - center) as f32;
+            for bin in (center + 1)..=right {
+                let weight = (right - bin) as f32 / span;
+                sum += weight * power_spectrum[bin];
+            }
+        }
+        *energy = sum;
+    }
+
+    Status::Success
+}
+
+/// Fast integer base-2 logarithm approximation in Q15 format using leading zeros.
+///
+/// Input is a positive Q15 number (`(0, 32767]`).
+/// Returns `log2(x)` scaled to Q8.7 format (or Q15 where -1.0..0.0 maps to fractions).
+#[inline]
+pub fn fast_log2_q15(x: q15) -> q15 {
+    if x <= 0 {
+        return -32768;
+    }
+    let lz = (x as u16).leading_zeros() as i32;
+    // Integer part of log2 is 15 - lz
+    let int_part = 14 - lz;
+    // Fractional part via linear interpolation of remainder bits
+    let shifted = (x as i32) << lz;
+    let frac = (shifted & 0x7FFF) >> 8; // top 7 bits of fraction
+    let log_val = (int_part << 7) + frac;
+    (log_val - (15 << 7)).clamp(i16::MIN as i32, i16::MAX as i32) as q15
+}
+
+/// Simple Voice Activity Detector (VAD) in pure Q15 integer arithmetic.
+///
+/// Combines Short-Time Energy (STE) and Zero-Crossing Rate (ZCR) thresholds to classify frames
+/// as speech/activity vs background noise.
+#[derive(Debug, Clone, Copy)]
+pub struct VadDetectorQ15 {
+    energy_threshold: i32,
+    zcr_threshold: u16,
+}
+
+impl VadDetectorQ15 {
+    /// Create a new VAD detector with energy and zero-crossing rate thresholds.
+    pub const fn new(energy_threshold: i32, zcr_threshold: u16) -> Self {
+        Self {
+            energy_threshold,
+            zcr_threshold,
+        }
+    }
+
+    /// Classify frame as active (`true`) or silence/noise (`false`).
+    pub fn is_active(&self, frame: &[q15]) -> bool {
+        if frame.is_empty() {
+            return false;
+        }
+
+        let mut energy_acc: i64 = 0;
+        let mut zcr_count: u16 = 0;
+
+        for i in 0..frame.len() {
+            let sample = frame[i] as i64;
+            energy_acc += (sample * sample) >> 15;
+
+            if i > 0 {
+                let prev = frame[i - 1];
+                let cur = frame[i];
+                if (prev >= 0 && cur < 0) || (prev < 0 && cur >= 0) {
+                    zcr_count += 1;
+                }
+            }
+        }
+
+        let avg_energy = (energy_acc / frame.len() as i64) as i32;
+        avg_energy >= self.energy_threshold && zcr_count >= self.zcr_threshold
+    }
+}

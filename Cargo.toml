@@ -32,6 +32,7 @@ full = [
     "complex-math",
     "const-generics",
     "controller",
+    "cordic",
     "distance",
     "fast-math",
     "filter-analysis",
@@ -42,6 +43,7 @@ full = [
     "kalman",
     "lut",
     "matrix",
+    "pipeline",
     "psd",
     "quaternion",
     "resampling",
@@ -59,6 +61,7 @@ companding = []
 complex-math = []
 const-generics = ["filtering", "matrix"]
 controller = []
+cordic = []
 distance = []
 fast-math = []
 filter-analysis = []
@@ -72,6 +75,7 @@ kalman = ["matrix"]
 # Precomputed 256-entry sin/cos tables (i16), an alternative to `fast-math`.
 lut = []
 matrix = ["basic-math"]
+pipeline = ["filtering"]
 psd = ["transform", "window"]
 quaternion = []
 resampling = []
@@ -120,3 +124,8 @@ path = "examples/spatial_vision_processing.rs"
 [[example]]
 name = "filter_workbench_and_analysis"
 path = "examples/filter_workbench_and_analysis.rs"
+
+[[bench]]
+name = "dsp_benchmarks"
+harness = false
+path = "benches/dsp_benchmarks.rs"
