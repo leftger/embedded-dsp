@@ -1263,6 +1263,72 @@ fn test_biquad_frequency_response_and_stability() {
 }
 
 // =========================================================================================
+// 29b. STATE VARIABLE FILTER (SVF) TESTS
+// =========================================================================================
+
+#[test]
+fn test_svf_lowpass_dc_settles_to_unity_and_highpass_to_zero() {
+    let mut svf = StateVariableFilter::new(48_000.0);
+    svf.set_cutoff(1000.0);
+    svf.set_resonance(0.3);
+
+    for _ in 0..4000 {
+        svf.process(1.0);
+    }
+
+    assert!((svf.low() - 1.0).abs() < 1e-2, "low={}", svf.low());
+    assert!(svf.high().abs() < 1e-2, "high={}", svf.high());
+}
+
+#[test]
+fn test_svf_parameter_clamping_and_stability_under_resonance_sweep() {
+    let mut svf = StateVariableFilter::new(48_000.0);
+
+    // Out-of-range settings must clamp rather than panic or destabilize the filter.
+    svf.set_cutoff(-10.0);
+    svf.set_cutoff(1.0e9);
+    svf.set_resonance(-1.0);
+    svf.set_resonance(2.0);
+    svf.set_drive(2.0);
+
+    svf.set_cutoff(2000.0);
+    svf.set_resonance(1.0);
+    let mut x = 0.123f32;
+    for _ in 0..10_000 {
+        // Cheap deterministic pseudo-noise excitation.
+        x = (x * 1.0000123 + 0.618).fract() * 2.0 - 1.0;
+        svf.process(x);
+        for out in [svf.low(), svf.high(), svf.band(), svf.notch(), svf.peak()] {
+            assert!(out.is_finite(), "svf output diverged: {out}");
+        }
+    }
+
+    svf.reset();
+    assert_eq!(svf.low(), 0.0);
+    assert_eq!(svf.band(), 0.0);
+}
+
+#[test]
+fn test_svf_stays_bounded_at_cutoff_ceiling_with_max_resonance() {
+    // Regression test: cutoff pinned at the filter's `sample_rate_hz / 3` ceiling with resonance
+    // saturated at 1.0 (damp -> 0, near-undamped) is exactly the edge case that made a
+    // structurally identical filter diverge to NaN within ~12 samples of constant excitation
+    // in downstream use (a low sample rate pushing a realistic resonant filter's cutoff close
+    // to this ceiling).
+    let sample_rate_hz = 16_000.0;
+    let mut svf = StateVariableFilter::new(sample_rate_hz);
+    svf.set_cutoff(sample_rate_hz / 3.0);
+    svf.set_resonance(1.0);
+
+    for _ in 0..2000 {
+        svf.process(0.05);
+        for out in [svf.low(), svf.high(), svf.band(), svf.notch(), svf.peak()] {
+            assert!(out.is_finite(), "svf output diverged: {out}");
+        }
+    }
+}
+
+// =========================================================================================
 // 30. FAST WALSH-HADAMARD TRANSFORM (FWHT) TESTS
 // =========================================================================================
 

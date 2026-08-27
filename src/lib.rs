@@ -21,7 +21,7 @@
 //! - **Statistics**: Mean, variance, standard deviation, RMS, power, min/max, entropy, Kullback-Leibler, LogSumExp.
 //! - **Support**: Vector copy, fill, type conversions (Q7, Q15, Q31, F32), sort, barycenter, weighted sum.
 //! - **Matrix**: Matrix addition, subtraction, multiplication, scale, transpose, Gauss-Jordan inverse.
-//! - **Filtering**: FIR, Biquad IIR Direct Form I and transposed DF-II (f32/q15/q31), LMS / leaky LMS / NLMS, Convolution, Correlation, single-pole recursive filters (f32/q15), Q15 DC blocker, and O(1) recursive moving average.
+//! - **Filtering**: FIR, Biquad IIR Direct Form I and transposed DF-II (f32/q15/q31), LMS / leaky LMS / NLMS, Convolution, Correlation, single-pole recursive filters (f32/q15), Q15 DC blocker, O(1) recursive moving average, and a double-sampled State Variable Filter (simultaneous LP/HP/BP/notch/peak, sweepable cutoff/resonance).
 //! - **Filter Design**: Biquad Lowpass, Highpass, Bandpass, Notch, Peaking EQ, Allpass, Butterworth, Chebyshev, and arbitrary-response (frequency-sampling) design.
 //! - **Filter Analysis**: Frequency response (DTFT) evaluation for FIR/biquad filters, FIR group delay, and pole-based IIR stability checks.
 //! - **Resampling & Multi-rate**: CIC Decimator & Interpolator, linear fractional resampler.
@@ -83,6 +83,7 @@ gated_mod!("quaternion", quaternion);
 gated_mod!("resampling", resampling);
 gated_mod!("spatial", spatial);
 gated_mod!("statistics", statistics);
+gated_mod!(math "filtering", svf);
 gated_mod!("support", support);
 gated_mod!("transform", transform);
 pub mod intrinsics;
