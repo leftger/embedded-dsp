@@ -34,7 +34,7 @@
 //! - **Spatial & 2D Signal Processing**: 2D DCT/IDCT, 2D Convolution, 2D Non-linear Filtering (Min/Max/Median), Sobel edge detection, 2D Histogram, MSE, PSNR.
 //! - **Controller**: PID motor controller, Clarke/Park (f32 and q15).
 //! - **Interpolation**: Linear, Bilinear, Cubic spline interpolation.
-//! - **Quaternion**: Norm, normalization, product, conjugate, inverse, rotation matrix conversion.
+//! - **Quaternion**: Norm, normalization, product, conjugate, inverse, rotation matrix conversion, and `nalgebra` interop (`nalgebra` feature).
 //! - **Window**: Hanning, Hamming, Blackman, Blackman-Harris, Bartlett, Welch, Flat-top generators (f32), plus Q15 Hanning/Hamming/Blackman/Bartlett.
 //! - **Distance**: Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Jaccard, Hamming, Canberra, Bray-Curtis.
 
@@ -76,6 +76,7 @@ gated_mod!("kalman", kalman);
 gated_mod!("lut", lut);
 pub mod math;
 gated_mod!("matrix", matrix);
+gated_mod!("nalgebra", nalgebra_interop);
 gated_mod!("pipeline", pipeline);
 gated_mod!(math "pll", pll);
 gated_mod!("psd", psd);

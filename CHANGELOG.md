@@ -5,6 +5,10 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- **`nalgebra` interop**: New optional `nalgebra` feature (implies `quaternion`) adding `quaternion_to_nalgebra`, `quaternion_from_nalgebra`, `quaternion_to_unit_nalgebra`, and `quaternion_from_unit_nalgebra` to bridge the `[w, x, y, z]` quaternion representation used by `quaternion` with `nalgebra`'s `Quaternion`/`UnitQuaternion`, for pipelines that pair `embedded-dsp` with a `nalgebra`-based crate downstream.
+
 ### Removed
 
 - **Breaking**: Removed the `Q15`/`Q31` strongly-typed newtypes added in 0.4.1. They were never adopted internally; the crate's fixed-point story is now the CMSIS-style `q7`/`q15`/`q31`/`q63` aliases plus the `fixed` crate for anyone wanting a strongly-typed wrapper.

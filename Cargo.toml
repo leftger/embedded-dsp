@@ -20,6 +20,9 @@ std = []
 libm = ["dep:libm"]
 defmt = ["dep:defmt"]
 serde = ["dep:serde"]
+# Conversions between the `[f32; 4]` quaternion representation used by
+# `quaternion` and `nalgebra`'s `Quaternion`/`UnitQuaternion`.
+nalgebra = ["quaternion", "dep:nalgebra"]
 alloc = []
 cortex-m-dsp = []
 
@@ -96,6 +99,7 @@ fixed = { version = "1.31.0", default-features = false }
 libm = { version = "0.2.11", optional = true }
 defmt = { version = "0.3", optional = true, default-features = false }
 serde = { version = "1.0", optional = true, default-features = false, features = ["derive"] }
+nalgebra = { version = "0.35", optional = true, default-features = false, features = ["libm"] }
 
 [package.metadata.docs.rs]
 all-features = true

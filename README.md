@@ -34,7 +34,7 @@ A high-performance **`#![no_std]` Rust Digital Signal Processing library** desig
 | **Control & Power** | FOC current/speed PID, Clarke & Park transforms, SOGI-PLL (grid synchronization/resolvers), Costas Loop carrier recovery. |
 | **Sensor Fusion & Spatial** | Square-Root Kalman Filter (`SquareRootKalmanFilter`), EKF, 2D Spatial/Vision (Sobel, Median, DCT-II), Delay-and-Sum Beamformer, GCC-PHAT TDoA locator. |
 | **Multi-rate & Resampling** | CIC Decimator/Interpolator with bit-growth normalization, Polyphase Decimation & Interpolation (Float & Q15), fractional linear resampler. |
-| **Math, CORDIC & Windows** | CORDIC engine, Complex math, Fast math, Quaternions, 9 Window functions (Kaiser-Bessel with $I_0(\beta)$, Flat-top), G.711 $\mu$-law/A-law companding. |
+| **Math, CORDIC & Windows** | CORDIC engine, Complex math, Fast math, Quaternions (`nalgebra` interop), 9 Window functions (Kaiser-Bessel with $I_0(\beta)$, Flat-top), G.711 $\mu$-law/A-law companding. |
 
 ---
 
