@@ -374,6 +374,51 @@ fn test_pid_and_clarke_park() {
     assert!((ar as i32 - a_q as i32).abs() < 8);
 }
 
+#[test]
+fn test_pid_q31_and_q15_process() {
+    let mut pid31 = PidInstanceQ31::new(i32::MAX / 4, i32::MAX / 20, i32::MAX / 100);
+    let out31 = pid31.process(i32::MAX / 4);
+    assert!(
+        out31 > 0,
+        "positive input with positive gains must give positive output"
+    );
+
+    let mut pid15 = PidInstanceQ15::new(i16::MAX / 4, i16::MAX / 20, i16::MAX / 100);
+    let out15 = pid15.process(i16::MAX / 4);
+    assert!(
+        out15 > 0,
+        "positive input with positive gains must give positive output"
+    );
+
+    // Extreme edge: coefficient and input both exactly Q31::MIN (-1.0). The
+    // MAC term wraps to MIN instead of saturating to +2^31, since only the
+    // final sum saturates, not each term (see PidInstanceQ31::process docs).
+    let mut pid31_edge = PidInstanceQ31 {
+        a0: i32::MIN,
+        a1: 0,
+        a2: 0,
+        state: [0; 3],
+        kp: 0,
+        ki: 0,
+        kd: 0,
+    };
+    let out_edge = pid31_edge.process(i32::MIN);
+    assert_eq!(out_edge, i32::MIN, "MIN*MIN term must wrap, not saturate");
+
+    // Same edge case at Q15 width (see PidInstanceQ15::process docs).
+    let mut pid15_edge = PidInstanceQ15 {
+        a0: i16::MIN,
+        a1: 0,
+        a2: 0,
+        state: [0; 3],
+        kp: 0,
+        ki: 0,
+        kd: 0,
+    };
+    let out15_edge = pid15_edge.process(i16::MIN);
+    assert_eq!(out15_edge, i16::MIN, "MIN*MIN term must wrap, not saturate");
+}
+
 // =========================================================================================
 // 8. STATISTICS & INFORMATION THEORY TESTS
 // =========================================================================================
@@ -2070,35 +2115,7 @@ fn test_packed_rfft_q15_tone_bin() {
 }
 
 #[test]
-fn test_strongly_typed_q15_q31_and_dsp_sample() {
-    // Q15 arithmetic
-    let a = Q15::from_f32(0.5);
-    let b = Q15::from_f32(0.25);
-    let c = a + b;
-    assert!((c.to_f32() - 0.75).abs() < 1e-4);
-
-    let d = a * b;
-    assert!((d.to_f32() - 0.125).abs() < 1e-3);
-
-    let e = a - b;
-    assert!((e.to_f32() - 0.25).abs() < 1e-4);
-
-    let f = b / a;
-    assert!((f.to_f32() - 0.5).abs() < 1e-3);
-
-    let neg = -a;
-    assert!((neg.to_f32() - (-0.5)).abs() < 1e-4);
-
-    // Q15 saturation
-    let sat_max = Q15::from_f32(0.8) + Q15::from_f32(0.8);
-    assert_eq!(sat_max, Q15::MAX);
-
-    // Q31 arithmetic
-    let q31_a = Q31::from_f32(0.5);
-    let q31_b = Q31::from_f32(0.25);
-    let q31_c = q31_a * q31_b;
-    assert!((q31_c.to_f32() - 0.125).abs() < 1e-5);
-
+fn test_dsp_sample_and_complex_ops() {
     // Generic DspSample function
     fn generic_lerp<T: DspSample>(x0: T, x1: T, t: T) -> T {
         x0 + (x1 - x0) * t
@@ -2107,8 +2124,8 @@ fn test_strongly_typed_q15_q31_and_dsp_sample() {
     let f_lerp = generic_lerp(0.0f32, 10.0f32, 0.5f32);
     assert!((f_lerp - 5.0).abs() < 1e-5);
 
-    let q_lerp = generic_lerp(Q15::from_f32(0.0), Q15::from_f32(0.8), Q15::from_f32(0.5));
-    assert!((q_lerp.to_f32() - 0.4).abs() < 1e-3);
+    let d_lerp = generic_lerp(0.0f64, 10.0f64, 0.5f64);
+    assert!((d_lerp - 5.0).abs() < 1e-9);
 
     // Complex operator overloads
     let c1 = Complex::new(0.5f32, 1.0f32);

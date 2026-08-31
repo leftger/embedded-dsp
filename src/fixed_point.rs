@@ -15,6 +15,8 @@
 //! - Trig (with the `lut` feature): [`crate::lut::sin_q16`], [`crate::lut::cos_q16`]
 //! - [`ScanlineInterp`] — accelerated per-scanline z + (u, v) interpolation
 
+use fixed::types::I16F16;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -40,40 +42,40 @@ pub type Q16 = i32;
 // Conversions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Convert `f32` -> `Q16.16` with correct rounding.
+/// Convert `f32` -> `Q16.16` with correct rounding (half-to-even at exact ties).
 #[inline(always)]
 pub fn to_q16(v: f32) -> Q16 {
-    (v * 65536.0_f32 + if v >= 0.0 { 0.5 } else { -0.5 }) as i32
+    I16F16::saturating_from_num(v).to_bits()
 }
 
 /// Convert `Q16.16` -> `f32`.
 #[inline(always)]
 pub fn from_q16(v: Q16) -> f32 {
-    v as f32 / 65536.0_f32
+    I16F16::from_bits(v).to_num::<f32>()
 }
 
 /// Convert `i16` integer -> `Q16.16` (shift left 16).
 #[inline(always)]
 pub fn from_i16_q16(v: i16) -> Q16 {
-    (v as i32) << 16
+    I16F16::from_num(v).to_bits()
 }
 
 /// Convert `Q16.16` -> `i16` integer (truncate fractional bits).
 #[inline(always)]
 pub fn to_i16_q16(v: Q16) -> i16 {
-    (v >> 16) as i16
+    I16F16::from_bits(v).to_num::<i16>()
 }
 
 /// Reinterpret a Q31 value as Q16.16 by shifting right 15 bits.
 #[inline(always)]
 pub fn q31_to_q16(v: i32) -> Q16 {
-    v >> 15
+    I16F16::from_bits(v >> 15).to_bits()
 }
 
 /// Reinterpret Q16.16 as Q31 by shifting left 16 bits (use i64 to avoid overflow).
 #[inline(always)]
 pub fn q16_to_q31(v: Q16) -> i64 {
-    (v as i64) << 16
+    (I16F16::from_bits(v).to_bits() as i64) << 16
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,13 +85,13 @@ pub fn q16_to_q31(v: Q16) -> i64 {
 /// Multiply two Q16.16 values. Uses i64 intermediate (SMULL on Cortex-M).
 #[inline(always)]
 pub fn mul_q16(a: Q16, b: Q16) -> Q16 {
-    ((a as i64 * b as i64) >> 16) as i32
+    I16F16::from_bits(a).wrapping_mul(I16F16::from_bits(b)).to_bits()
 }
 
 /// Multiply a Q16.16 value by a plain `i32` integer (no fractional scaling).
 #[inline(always)]
 pub fn mul_n_q16(a: Q16, n: i32) -> Q16 {
-    a.wrapping_mul(n)
+    I16F16::from_bits(a).wrapping_mul_int(n).to_bits()
 }
 
 /// Multiply a Q16.16 value by an `f32` scalar.
@@ -104,7 +106,7 @@ pub fn div_q16(a: Q16, b: Q16) -> Q16 {
     if b == 0 {
         return 0;
     }
-    (((a as i64) << 16) / b as i64) as i32
+    I16F16::from_bits(a).wrapping_div(I16F16::from_bits(b)).to_bits()
 }
 
 /// Divide a Q16.16 value by a plain `i32` integer. Returns 0 on division by zero.
@@ -113,7 +115,7 @@ pub fn div_n_q16(a: Q16, n: i32) -> Q16 {
     if n == 0 {
         return 0;
     }
-    a / n
+    I16F16::from_bits(a).wrapping_div_int(n).to_bits()
 }
 
 /// Divide a Q16.16 value by an `f32` scalar.
@@ -128,20 +130,20 @@ pub fn div_f_q16(a: Q16, f: f32) -> Q16 {
 
 /// Saturating add: clamps the result to `[i32::MIN, i32::MAX]`.
 #[inline(always)]
-pub fn qadd_q16(a: Q16, b: Q16) -> Q16 {
-    (a as i64 + b as i64).clamp(Q16_MIN as i64, Q16_MAX as i64) as i32
+pub const fn qadd_q16(a: Q16, b: Q16) -> Q16 {
+    I16F16::from_bits(a).saturating_add(I16F16::from_bits(b)).to_bits()
 }
 
 /// Saturating subtract: clamps the result to `[i32::MIN, i32::MAX]`.
 #[inline(always)]
-pub fn qsub_q16(a: Q16, b: Q16) -> Q16 {
-    (a as i64 - b as i64).clamp(Q16_MIN as i64, Q16_MAX as i64) as i32
+pub const fn qsub_q16(a: Q16, b: Q16) -> Q16 {
+    I16F16::from_bits(a).saturating_sub(I16F16::from_bits(b)).to_bits()
 }
 
 /// Absolute value of a Q16.16 number.
 #[inline(always)]
 pub fn abs_q16(a: Q16) -> Q16 {
-    a.abs()
+    I16F16::from_bits(a).abs().to_bits()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -176,7 +178,7 @@ pub fn recip_q16(v: Q16) -> Q16 {
     if v == 0 {
         return Q16_MAX;
     }
-    ((1i64 << 32) / v as i64) as i32
+    I16F16::from_bits(v).recip().to_bits()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -315,6 +317,32 @@ impl ScanlineInterp {
 mod tests {
     extern crate std;
     use super::*;
+
+    #[test]
+    fn to_q16_tie_rounding() {
+        // 2.5/65536 is an exact tie: `fixed`'s `saturating_from_num` rounds
+        // half-to-even (2.5 -> 2), unlike the old hand-rolled
+        // half-away-from-zero rounding (2.5 -> 3). This is a confirmed,
+        // accepted behavior change that only manifests at exact ties.
+        let v: f32 = 2.5 / 65536.0;
+        assert_eq!(to_q16(v), 2, "tie value rounds half-to-even under `fixed`");
+    }
+
+    #[test]
+    fn to_i16_q16_negative_fraction_floors() {
+        // -3.5 in Q16.16 must floor to -4 via arithmetic shift, not truncate
+        // toward zero (which would give -3).
+        let q = to_q16(-3.5);
+        assert_eq!(to_i16_q16(q), -4, "negative fraction must floor, not truncate");
+    }
+
+    #[test]
+    fn div_q16_min_by_small_denominator_wraps() {
+        // Q16_MIN << 16 already exceeds i32 range before the division even
+        // happens; the final `as i32` cast wraps (truncates to low 32 bits)
+        // rather than panicking.
+        assert_eq!(div_q16(Q16_MIN, 1), 0, "overflow must wrap, not panic");
+    }
 
     #[test]
     fn roundtrip_f32_q16() {

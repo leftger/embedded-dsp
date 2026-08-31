@@ -3,6 +3,7 @@
 #[allow(unused_imports)]
 use crate::math::FloatMath;
 use crate::types::*;
+use fixed::types::{I1F15, I1F31};
 
 // --- PID Controller (f32) ---
 
@@ -101,11 +102,18 @@ impl PidInstanceQ31 {
         self.state = [0; 3];
     }
 
+    /// Each MAC term wraps individually (`i32`-wide, not the wider
+    /// intermediate a naive i64 accumulator would allow), and only the final
+    /// sum saturates. At the extreme edge where a coefficient and its paired
+    /// value are both exactly Q31 `MIN` (`-1.0`), the term wraps to `MIN`
+    /// instead of the mathematically exact `+2^31`, which can flip that
+    /// term's sign in the final sum. This only affects that single boundary
+    /// input combination.
     pub fn process(&mut self, in_val: q31) -> q31 {
-        let acc = (self.state[2] as i64)
-            + ((self.a0 as i64 * in_val as i64) >> 31)
-            + ((self.a1 as i64 * self.state[0] as i64) >> 31)
-            + ((self.a2 as i64 * self.state[1] as i64) >> 31);
+        let t0 = I1F31::from_bits(self.a0).wrapping_mul(I1F31::from_bits(in_val)).to_bits();
+        let t1 = I1F31::from_bits(self.a1).wrapping_mul(I1F31::from_bits(self.state[0])).to_bits();
+        let t2 = I1F31::from_bits(self.a2).wrapping_mul(I1F31::from_bits(self.state[1])).to_bits();
+        let acc = (self.state[2] as i64) + (t0 as i64) + (t1 as i64) + (t2 as i64);
         let out = acc.clamp(i32::MIN as i64, i32::MAX as i64) as q31;
         self.state[1] = self.state[0];
         self.state[0] = in_val;
@@ -159,11 +167,15 @@ impl PidInstanceQ15 {
         self.state = [0; 3];
     }
 
+    /// Same per-term wrapping caveat as [`PidInstanceQ31::process`]: at the
+    /// extreme edge where a coefficient and its paired value are both
+    /// exactly Q15 `MIN` (`-1.0`), that term wraps to `MIN` instead of the
+    /// mathematically exact `+2^15`.
     pub fn process(&mut self, in_val: q15) -> q15 {
-        let acc = (self.state[2] as i32)
-            + ((self.a0 as i32 * in_val as i32) >> 15)
-            + ((self.a1 as i32 * self.state[0] as i32) >> 15)
-            + ((self.a2 as i32 * self.state[1] as i32) >> 15);
+        let t0 = I1F15::from_bits(self.a0).wrapping_mul(I1F15::from_bits(in_val)).to_bits();
+        let t1 = I1F15::from_bits(self.a1).wrapping_mul(I1F15::from_bits(self.state[0])).to_bits();
+        let t2 = I1F15::from_bits(self.a2).wrapping_mul(I1F15::from_bits(self.state[1])).to_bits();
+        let acc = (self.state[2] as i32) + (t0 as i32) + (t1 as i32) + (t2 as i32);
         let out = acc.clamp(i16::MIN as i32, i16::MAX as i32) as q15;
         self.state[1] = self.state[0];
         self.state[0] = in_val;

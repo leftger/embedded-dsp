@@ -129,6 +129,7 @@ pub fn bray_curtis_distance_f32(a: &[f32], b: &[f32]) -> f32 {
 // ─────────────────────────────────────────────────────────────────────────────
 
 use crate::types::{q15, q31, q63};
+use fixed::types::{I1F15, I1F31};
 
 /// Euclidean distance in Q15 normalized per sample: `sqrt(sum((a_i - b_i)^2) / N)`.
 ///
@@ -150,8 +151,8 @@ pub fn euclidean_distance_q15(a: &[q15], b: &[q15]) -> q15 {
     let mut root: q15 = 0;
     let _ = crate::fast_math::sqrt_q15(scaled_mean, &mut root);
     // rescale back
-    let out = ((root as i32) << 1).clamp(0, i16::MAX as i32) as q15;
-    out
+    let root_fx = I1F15::from_bits(root);
+    root_fx.saturating_add(root_fx).to_bits()
 }
 
 /// Euclidean distance in Q31 normalized per sample: `sqrt(sum((a_i - b_i)^2) / N)`.
@@ -169,8 +170,8 @@ pub fn euclidean_distance_q31(a: &[q31], b: &[q31]) -> q31 {
     let scaled_mean = (mean_sq >> 33).clamp(0, i32::MAX as i64) as q31;
     let mut root: q31 = 0;
     let _ = crate::fast_math::sqrt_q31(scaled_mean, &mut root);
-    let out = ((root as i64) << 1).clamp(0, i32::MAX as i64) as q31;
-    out
+    let root_fx = I1F31::from_bits(root);
+    root_fx.saturating_add(root_fx).to_bits()
 }
 
 /// Chebyshev distance in Q15: `max(|a_i - b_i|)`.

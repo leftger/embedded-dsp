@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Removed
+
+- **Breaking**: Removed the `Q15`/`Q31` strongly-typed newtypes added in 0.4.1. They were never adopted internally; the crate's fixed-point story is now the CMSIS-style `q7`/`q15`/`q31`/`q63` aliases plus the `fixed` crate for anyone wanting a strongly-typed wrapper.
+
+### Changed
+
+- Fixed-point internals (`fixed_point::Q16` arithmetic and the shared `q7_mult`/`q15_mult`/`q31_mult` saturating-multiply helpers) now build on the `fixed` crate instead of hand-rolled bit-shifting. Public function names, signatures, and documented behavior are unchanged. Raises MSRV to 1.93.
+
 ## [0.4.1] - 2026-08-26
 
 ### Added

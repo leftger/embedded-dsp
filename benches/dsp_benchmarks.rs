@@ -130,11 +130,54 @@ fn bench_cordic_vs_lut() {
     );
 }
 
+fn bench_mult_q31() {
+    let a = [1_234_567_890i32; 1024];
+    let b = [-987_654_321i32; 1024];
+
+    let iterations = 20_000;
+    let start = Instant::now();
+    let mut sum: q31 = 0;
+    for _ in 0..iterations {
+        for i in 0..a.len() {
+            sum = sum.wrapping_add(q31_mult(a[i], b[i]));
+        }
+    }
+    let elapsed = start.elapsed();
+    let throughput_mops = (iterations as f64 * a.len() as f64) / elapsed.as_secs_f64() / 1e6;
+    println!(
+        "q31_mult:             {:.2} MOps/s ({:?} for {} iterations, sum={})",
+        throughput_mops, elapsed, iterations, sum
+    );
+}
+
+fn bench_pid_q31() {
+    let mut pid = PidInstanceQ31::new(i32::MAX / 4, i32::MAX / 20, i32::MAX / 100);
+
+    let iterations = 200_000;
+    let start = Instant::now();
+    let mut sum: i64 = 0;
+    for i in 0..iterations {
+        let in_val = ((i % 1000) as i32).wrapping_mul(1_000_000);
+        sum = sum.wrapping_add(pid.process(in_val) as i64);
+    }
+    let elapsed = start.elapsed();
+    let ops_per_sec = iterations as f64 / elapsed.as_secs_f64();
+    println!(
+        "PidInstanceQ31::process: {:.2} MOps/s ({:?} for {} iterations, sum={})",
+        ops_per_sec / 1e6,
+        elapsed,
+        iterations,
+        sum
+    );
+}
+
 fn main() {
     println!("=== embedded-dsp Performance Benchmarks ===\n");
     bench_dot_prod_q15();
     bench_fir_q15();
     bench_cfft();
     bench_cordic_vs_lut();
+    bench_mult_q31();
+    bench_pid_q31();
     println!("\n=== Benchmark Complete ===");
 }
