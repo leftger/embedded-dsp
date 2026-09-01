@@ -51,7 +51,7 @@ pub struct FirInstanceQ31<'a> {
 
 impl<'a> FirInstanceQ31<'a> {
     pub fn init(num_taps: u16, coeffs: &'a [q31], state: &'a mut [q31]) -> Self {
-        state.fill(0);
+        state.fill(q31::ZERO);
         Self {
             num_taps,
             coeffs,
@@ -72,9 +72,9 @@ pub fn fir_q31(instance: &mut FirInstanceQ31, src: &[q31], dst: &mut [q31]) {
 
         let mut acc: i64 = 0;
         for k in 0..num_taps {
-            acc += (instance.state[k] as i64 * instance.coeffs[k] as i64) >> 31;
+            acc += (instance.state[k].to_bits() as i64 * instance.coeffs[k].to_bits() as i64) >> 31;
         }
-        dst[i] = acc.clamp(i32::MIN as i64, i32::MAX as i64) as q31;
+        dst[i] = q31::from_bits(acc.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
     }
 }
 
@@ -87,7 +87,7 @@ pub struct FirInstanceQ15<'a> {
 
 impl<'a> FirInstanceQ15<'a> {
     pub fn init(num_taps: u16, coeffs: &'a [q15], state: &'a mut [q15]) -> Self {
-        state.fill(0);
+        state.fill(q15::ZERO);
         Self {
             num_taps,
             coeffs,
@@ -108,9 +108,9 @@ pub fn fir_q15(instance: &mut FirInstanceQ15, src: &[q15], dst: &mut [q15]) {
 
         let mut acc: i32 = 0;
         for k in 0..num_taps {
-            acc += (instance.state[k] as i32 * instance.coeffs[k] as i32) >> 15;
+            acc += (instance.state[k].to_bits() as i32 * instance.coeffs[k].to_bits() as i32) >> 15;
         }
-        dst[i] = acc.clamp(i16::MIN as i32, i16::MAX as i32) as q15;
+        dst[i] = q15::from_bits(acc.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
     }
 }
 
@@ -236,7 +236,7 @@ pub struct BiquadCascadeInstanceQ15<'a> {
 
 impl<'a> BiquadCascadeInstanceQ15<'a> {
     pub fn init(num_stages: u8, coeffs: &'a [q15], state: &'a mut [q15], post_shift: u8) -> Self {
-        state.fill(0);
+        state.fill(q15::ZERO);
         Self {
             num_stages,
             post_shift,
@@ -256,30 +256,30 @@ pub fn biquad_cascade_df1_q15(
     let shift = 15u32.saturating_sub(instance.post_shift as u32).min(31);
 
     for i in 0..block_size {
-        let mut in_val = src[i] as i64;
+        let mut in_val = src[i].to_bits() as i64;
         for stage in 0..num_stages {
-            let b0 = instance.coeffs[stage * 5] as i64;
-            let b1 = instance.coeffs[stage * 5 + 1] as i64;
-            let b2 = instance.coeffs[stage * 5 + 2] as i64;
-            let a1 = instance.coeffs[stage * 5 + 3] as i64;
-            let a2 = instance.coeffs[stage * 5 + 4] as i64;
+            let b0 = instance.coeffs[stage * 5].to_bits() as i64;
+            let b1 = instance.coeffs[stage * 5 + 1].to_bits() as i64;
+            let b2 = instance.coeffs[stage * 5 + 2].to_bits() as i64;
+            let a1 = instance.coeffs[stage * 5 + 3].to_bits() as i64;
+            let a2 = instance.coeffs[stage * 5 + 4].to_bits() as i64;
 
-            let x1 = instance.state[stage * 4] as i64;
-            let x2 = instance.state[stage * 4 + 1] as i64;
-            let y1 = instance.state[stage * 4 + 2] as i64;
-            let y2 = instance.state[stage * 4 + 3] as i64;
+            let x1 = instance.state[stage * 4].to_bits() as i64;
+            let x2 = instance.state[stage * 4 + 1].to_bits() as i64;
+            let y1 = instance.state[stage * 4 + 2].to_bits() as i64;
+            let y2 = instance.state[stage * 4 + 3].to_bits() as i64;
 
             let acc = b0 * in_val + b1 * x1 + b2 * x2 + a1 * y1 + a2 * y2;
             let out_val = (acc >> shift).clamp(i16::MIN as i64, i16::MAX as i64);
 
-            instance.state[stage * 4 + 1] = x1 as q15;
-            instance.state[stage * 4] = in_val as q15;
-            instance.state[stage * 4 + 3] = y1 as q15;
-            instance.state[stage * 4 + 2] = out_val as q15;
+            instance.state[stage * 4 + 1] = q15::from_bits(x1 as i16);
+            instance.state[stage * 4] = q15::from_bits(in_val as i16);
+            instance.state[stage * 4 + 3] = q15::from_bits(y1 as i16);
+            instance.state[stage * 4 + 2] = q15::from_bits(out_val as i16);
 
             in_val = out_val;
         }
-        dst[i] = in_val as q15;
+        dst[i] = q15::from_bits(in_val as i16);
     }
 }
 
@@ -293,7 +293,7 @@ pub struct BiquadCascadeInstanceQ31<'a> {
 
 impl<'a> BiquadCascadeInstanceQ31<'a> {
     pub fn init(num_stages: u8, coeffs: &'a [q31], state: &'a mut [q31], post_shift: u8) -> Self {
-        state.fill(0);
+        state.fill(q31::ZERO);
         Self {
             num_stages,
             post_shift,
@@ -313,30 +313,30 @@ pub fn biquad_cascade_df1_q31(
     let shift = 31u32.saturating_sub(instance.post_shift as u32).min(63);
 
     for i in 0..block_size {
-        let mut in_val = src[i] as i64;
+        let mut in_val = src[i].to_bits() as i64;
         for stage in 0..num_stages {
-            let b0 = instance.coeffs[stage * 5] as i64;
-            let b1 = instance.coeffs[stage * 5 + 1] as i64;
-            let b2 = instance.coeffs[stage * 5 + 2] as i64;
-            let a1 = instance.coeffs[stage * 5 + 3] as i64;
-            let a2 = instance.coeffs[stage * 5 + 4] as i64;
+            let b0 = instance.coeffs[stage * 5].to_bits() as i64;
+            let b1 = instance.coeffs[stage * 5 + 1].to_bits() as i64;
+            let b2 = instance.coeffs[stage * 5 + 2].to_bits() as i64;
+            let a1 = instance.coeffs[stage * 5 + 3].to_bits() as i64;
+            let a2 = instance.coeffs[stage * 5 + 4].to_bits() as i64;
 
-            let x1 = instance.state[stage * 4] as i64;
-            let x2 = instance.state[stage * 4 + 1] as i64;
-            let y1 = instance.state[stage * 4 + 2] as i64;
-            let y2 = instance.state[stage * 4 + 3] as i64;
+            let x1 = instance.state[stage * 4].to_bits() as i64;
+            let x2 = instance.state[stage * 4 + 1].to_bits() as i64;
+            let y1 = instance.state[stage * 4 + 2].to_bits() as i64;
+            let y2 = instance.state[stage * 4 + 3].to_bits() as i64;
 
             let acc = b0 * in_val + b1 * x1 + b2 * x2 + a1 * y1 + a2 * y2;
             let out_val = (acc >> shift).clamp(i32::MIN as i64, i32::MAX as i64);
 
-            instance.state[stage * 4 + 1] = x1 as q31;
-            instance.state[stage * 4] = in_val as q31;
-            instance.state[stage * 4 + 3] = y1 as q31;
-            instance.state[stage * 4 + 2] = out_val as q31;
+            instance.state[stage * 4 + 1] = q31::from_bits(x1 as i32);
+            instance.state[stage * 4] = q31::from_bits(in_val as i32);
+            instance.state[stage * 4 + 3] = q31::from_bits(y1 as i32);
+            instance.state[stage * 4 + 2] = q31::from_bits(out_val as i32);
 
             in_val = out_val;
         }
-        dst[i] = in_val as q31;
+        dst[i] = q31::from_bits(in_val as i32);
     }
 }
 
@@ -354,7 +354,7 @@ pub struct BiquadCascadeDf2tInstanceQ15<'a> {
 
 impl<'a> BiquadCascadeDf2tInstanceQ15<'a> {
     pub fn init(num_stages: u8, coeffs: &'a [q15], state: &'a mut [q15], post_shift: u8) -> Self {
-        state.fill(0);
+        state.fill(q15::ZERO);
         Self {
             num_stages,
             post_shift,
@@ -374,16 +374,16 @@ pub fn biquad_cascade_df2t_q15(
     let shift = 15u32.saturating_sub(instance.post_shift as u32).min(31);
 
     for i in 0..block_size {
-        let mut in_val = src[i] as i64;
+        let mut in_val = src[i].to_bits() as i64;
         for stage in 0..num_stages {
-            let b0 = instance.coeffs[stage * 5] as i64;
-            let b1 = instance.coeffs[stage * 5 + 1] as i64;
-            let b2 = instance.coeffs[stage * 5 + 2] as i64;
-            let a1 = instance.coeffs[stage * 5 + 3] as i64;
-            let a2 = instance.coeffs[stage * 5 + 4] as i64;
+            let b0 = instance.coeffs[stage * 5].to_bits() as i64;
+            let b1 = instance.coeffs[stage * 5 + 1].to_bits() as i64;
+            let b2 = instance.coeffs[stage * 5 + 2].to_bits() as i64;
+            let a1 = instance.coeffs[stage * 5 + 3].to_bits() as i64;
+            let a2 = instance.coeffs[stage * 5 + 4].to_bits() as i64;
 
-            let s1 = instance.state[stage * 2] as i64;
-            let s2 = instance.state[stage * 2 + 1] as i64;
+            let s1 = instance.state[stage * 2].to_bits() as i64;
+            let s2 = instance.state[stage * 2 + 1].to_bits() as i64;
 
             let y = (b0 * in_val + (s1 << shift)).clamp(i64::MIN >> 1, i64::MAX >> 1) >> shift;
             let out_val = y.clamp(i16::MIN as i64, i16::MAX as i64);
@@ -391,12 +391,12 @@ pub fn biquad_cascade_df2t_q15(
             let s2_new = (b2 * in_val + a2 * out_val) >> shift;
 
             instance.state[stage * 2] =
-                s1_new.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+                q15::from_bits(s1_new.clamp(i16::MIN as i64, i16::MAX as i64) as i16);
             instance.state[stage * 2 + 1] =
-                s2_new.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+                q15::from_bits(s2_new.clamp(i16::MIN as i64, i16::MAX as i64) as i16);
             in_val = out_val;
         }
-        dst[i] = in_val as q15;
+        dst[i] = q15::from_bits(in_val as i16);
     }
 }
 
@@ -410,7 +410,7 @@ pub struct BiquadCascadeDf2tInstanceQ31<'a> {
 
 impl<'a> BiquadCascadeDf2tInstanceQ31<'a> {
     pub fn init(num_stages: u8, coeffs: &'a [q31], state: &'a mut [q31], post_shift: u8) -> Self {
-        state.fill(0);
+        state.fill(q31::ZERO);
         Self {
             num_stages,
             post_shift,
@@ -430,16 +430,16 @@ pub fn biquad_cascade_df2t_q31(
     let shift = 31u32.saturating_sub(instance.post_shift as u32).min(63);
 
     for i in 0..block_size {
-        let mut in_val = src[i] as i64;
+        let mut in_val = src[i].to_bits() as i64;
         for stage in 0..num_stages {
-            let b0 = instance.coeffs[stage * 5] as i64;
-            let b1 = instance.coeffs[stage * 5 + 1] as i64;
-            let b2 = instance.coeffs[stage * 5 + 2] as i64;
-            let a1 = instance.coeffs[stage * 5 + 3] as i64;
-            let a2 = instance.coeffs[stage * 5 + 4] as i64;
+            let b0 = instance.coeffs[stage * 5].to_bits() as i64;
+            let b1 = instance.coeffs[stage * 5 + 1].to_bits() as i64;
+            let b2 = instance.coeffs[stage * 5 + 2].to_bits() as i64;
+            let a1 = instance.coeffs[stage * 5 + 3].to_bits() as i64;
+            let a2 = instance.coeffs[stage * 5 + 4].to_bits() as i64;
 
-            let s1 = instance.state[stage * 2] as i64;
-            let s2 = instance.state[stage * 2 + 1] as i64;
+            let s1 = instance.state[stage * 2].to_bits() as i64;
+            let s2 = instance.state[stage * 2 + 1].to_bits() as i64;
 
             let y = (b0 * in_val + (s1 << shift)).clamp(i64::MIN >> 1, i64::MAX >> 1) >> shift;
             let out_val = y.clamp(i32::MIN as i64, i32::MAX as i64);
@@ -447,12 +447,12 @@ pub fn biquad_cascade_df2t_q31(
             let s2_new = (b2 * in_val + a2 * out_val) >> shift;
 
             instance.state[stage * 2] =
-                s1_new.clamp(i32::MIN as i64, i32::MAX as i64) as q31;
+                q31::from_bits(s1_new.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
             instance.state[stage * 2 + 1] =
-                s2_new.clamp(i32::MIN as i64, i32::MAX as i64) as q31;
+                q31::from_bits(s2_new.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
             in_val = out_val;
         }
-        dst[i] = in_val as q31;
+        dst[i] = q31::from_bits(in_val as i32);
     }
 }
 
@@ -630,8 +630,8 @@ pub struct LmsInstanceQ15<'a> {
 
 impl<'a> LmsInstanceQ15<'a> {
     pub fn init(num_taps: u16, coeffs: &'a mut [q15], state: &'a mut [q15], mu: q15) -> Self {
-        state.fill(0);
-        coeffs.fill(0);
+        state.fill(q15::ZERO);
+        coeffs.fill(q15::ZERO);
         Self {
             num_taps,
             coeffs,
@@ -655,7 +655,7 @@ fn lms_q15_inner(
         .min(ref_signal.len())
         .min(out.len())
         .min(err.len());
-    let keep = 32767i32 - leak.max(0) as i32;
+    let keep = 32767i32 - leak.to_bits().max(0) as i32;
 
     for i in 0..block_size {
         for k in (1..num_taps).rev() {
@@ -665,18 +665,18 @@ fn lms_q15_inner(
 
         let mut acc: i64 = 0;
         for k in 0..num_taps {
-            acc += instance.state[k] as i64 * instance.coeffs[k] as i64;
+            acc += instance.state[k].to_bits() as i64 * instance.coeffs[k].to_bits() as i64;
         }
         let y = (acc >> 15).clamp(i16::MIN as i64, i16::MAX as i64);
-        out[i] = y as q15;
-        let e = (ref_signal[i] as i32 - y as i32).clamp(i16::MIN as i32, i16::MAX as i32);
-        err[i] = e as q15;
+        out[i] = q15::from_bits(y as i16);
+        let e = (ref_signal[i].to_bits() as i32 - y as i32).clamp(i16::MIN as i32, i16::MAX as i32);
+        err[i] = q15::from_bits(e as i16);
 
-        let alpha = (2i64 * instance.mu as i64 * e as i64) >> 15;
+        let alpha = (2i64 * instance.mu.to_bits() as i64 * e as i64) >> 15;
         for k in 0..num_taps {
-            let leaked = (keep as i64 * instance.coeffs[k] as i64) >> 15;
-            let upd = leaked + ((alpha * instance.state[k] as i64) >> 15);
-            instance.coeffs[k] = upd.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+            let leaked = (keep as i64 * instance.coeffs[k].to_bits() as i64) >> 15;
+            let upd = leaked + ((alpha * instance.state[k].to_bits() as i64) >> 15);
+            instance.coeffs[k] = q15::from_bits(upd.clamp(i16::MIN as i64, i16::MAX as i64) as i16);
         }
     }
 }
@@ -688,7 +688,7 @@ pub fn lms_q15(
     out: &mut [q15],
     err: &mut [q15],
 ) {
-    lms_q15_inner(instance, src, ref_signal, out, err, 0);
+    lms_q15_inner(instance, src, ref_signal, out, err, q15::ZERO);
 }
 
 /// Leaky LMS in Q15. `leak` is Q1.15 (`0` matches [`lms_q15`]).
@@ -720,8 +720,8 @@ impl<'a> NlmsInstanceQ15<'a> {
         mu: q15,
         eps: q15,
     ) -> Self {
-        state.fill(0);
-        coeffs.fill(0);
+        state.fill(q15::ZERO);
+        coeffs.fill(q15::ZERO);
         Self {
             num_taps,
             coeffs,
@@ -753,22 +753,22 @@ pub fn nlms_q15(
         instance.state[0] = src[i];
 
         let mut acc: i64 = 0;
-        let mut power: i64 = instance.eps.max(1) as i64;
+        let mut power: i64 = instance.eps.to_bits().max(1) as i64;
         for k in 0..num_taps {
-            let x = instance.state[k] as i64;
-            acc += x * instance.coeffs[k] as i64;
+            let x = instance.state[k].to_bits() as i64;
+            acc += x * instance.coeffs[k].to_bits() as i64;
             power += (x * x) >> 15;
         }
         let y = (acc >> 15).clamp(i16::MIN as i64, i16::MAX as i64);
-        out[i] = y as q15;
-        let e = (ref_signal[i] as i32 - y as i32).clamp(i16::MIN as i32, i16::MAX as i32);
-        err[i] = e as q15;
+        out[i] = q15::from_bits(y as i16);
+        let e = (ref_signal[i].to_bits() as i32 - y as i32).clamp(i16::MIN as i32, i16::MAX as i32);
+        err[i] = q15::from_bits(e as i16);
 
-        let alpha = (instance.mu as i64 * e as i64) / power;
+        let alpha = (instance.mu.to_bits() as i64 * e as i64) / power;
         for k in 0..num_taps {
-            let upd =
-                instance.coeffs[k] as i64 + ((alpha * instance.state[k] as i64) >> 15);
-            instance.coeffs[k] = upd.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+            let upd = instance.coeffs[k].to_bits() as i64
+                + ((alpha * instance.state[k].to_bits() as i64) >> 15);
+            instance.coeffs[k] = q15::from_bits(upd.clamp(i16::MIN as i64, i16::MAX as i64) as i16);
         }
     }
 }
@@ -800,9 +800,9 @@ pub fn conv_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
         let k_min = if n >= len_b - 1 { n - (len_b - 1) } else { 0 };
         let k_max = n.min(len_a - 1);
         for k in k_min..=k_max {
-            acc += (src_a[k] as i64 * src_b[n - k] as i64) >> 31;
+            acc += (src_a[k].to_bits() as i64 * src_b[n - k].to_bits() as i64) >> 31;
         }
-        dst[n] = acc.clamp(i32::MIN as i64, i32::MAX as i64) as q31;
+        dst[n] = q31::from_bits(acc.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
     }
 }
 
@@ -816,9 +816,9 @@ pub fn conv_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
         let k_min = if n >= len_b - 1 { n - (len_b - 1) } else { 0 };
         let k_max = n.min(len_a - 1);
         for k in k_min..=k_max {
-            acc += (src_a[k] as i32 * src_b[n - k] as i32) >> 15;
+            acc += (src_a[k].to_bits() as i32 * src_b[n - k].to_bits() as i32) >> 15;
         }
-        dst[n] = acc.clamp(i16::MIN as i32, i16::MAX as i32) as q15;
+        dst[n] = q15::from_bits(acc.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
     }
 }
 
@@ -832,9 +832,9 @@ pub fn conv_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
         let k_min = if n >= len_b - 1 { n - (len_b - 1) } else { 0 };
         let k_max = n.min(len_a - 1);
         for k in k_min..=k_max {
-            acc += (src_a[k] as i32 * src_b[n - k] as i32) >> 7;
+            acc += (src_a[k].to_bits() as i32 * src_b[n - k].to_bits() as i32) >> 7;
         }
-        dst[n] = acc.clamp(i8::MIN as i32, i8::MAX as i32) as q7;
+        dst[n] = q7::from_bits(acc.clamp(i8::MIN as i32, i8::MAX as i32) as i8);
     }
 }
 
@@ -868,10 +868,10 @@ pub fn correlate_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
         for k in 0..len_a {
             let idx_b = (k as isize) + (len_b as isize - 1) - (n as isize);
             if idx_b >= 0 && (idx_b as usize) < len_b {
-                acc += (src_a[k] as i64 * src_b[idx_b as usize] as i64) >> 31;
+                acc += (src_a[k].to_bits() as i64 * src_b[idx_b as usize].to_bits() as i64) >> 31;
             }
         }
-        dst[n] = acc.clamp(i32::MIN as i64, i32::MAX as i64) as q31;
+        dst[n] = q31::from_bits(acc.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
     }
 }
 
@@ -885,10 +885,10 @@ pub fn correlate_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
         for k in 0..len_a {
             let idx_b = (k as isize) + (len_b as isize - 1) - (n as isize);
             if idx_b >= 0 && (idx_b as usize) < len_b {
-                acc += (src_a[k] as i32 * src_b[idx_b as usize] as i32) >> 15;
+                acc += (src_a[k].to_bits() as i32 * src_b[idx_b as usize].to_bits() as i32) >> 15;
             }
         }
-        dst[n] = acc.clamp(i16::MIN as i32, i16::MAX as i32) as q15;
+        dst[n] = q15::from_bits(acc.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
     }
 }
 
@@ -966,7 +966,7 @@ pub fn median_filter_1d_q15(
     }
 
     let half = window_len / 2;
-    let mut sort_buf = [0i16; 64];
+    let mut sort_buf = [q15::ZERO; 64];
 
     for i in 0..n {
         for j in 0..window_len {
@@ -984,8 +984,8 @@ pub fn median_filter_1d_q15(
 
         let med = sort_buf[half];
         let center = src[i];
-        let diff = (center as i32 - med as i32).abs();
-        if diff >= threshold as i32 {
+        let diff = (center.to_bits() as i32 - med.to_bits() as i32).abs();
+        if diff >= threshold.to_bits() as i32 {
             dst[i] = med;
         } else {
             dst[i] = center;
@@ -1011,7 +1011,7 @@ pub fn median_filter_1d_q31(
     }
 
     let half = window_len / 2;
-    let mut sort_buf = [0i32; 64];
+    let mut sort_buf = [q31::ZERO; 64];
 
     for i in 0..n {
         for j in 0..window_len {
@@ -1029,8 +1029,8 @@ pub fn median_filter_1d_q31(
 
         let med = sort_buf[half];
         let center = src[i];
-        let diff = (center as i64 - med as i64).abs();
-        if diff >= threshold as i64 {
+        let diff = (center.to_bits() as i64 - med.to_bits() as i64).abs();
+        if diff >= threshold.to_bits() as i64 {
             dst[i] = med;
         } else {
             dst[i] = center;
@@ -1269,48 +1269,48 @@ pub struct SinglePoleFilterQ15 {
 impl SinglePoleFilterQ15 {
     /// Creates a single-pole low-pass filter from Q15 decay `x`.
     pub fn lowpass(decay: q15) -> Self {
-        let decay = decay.max(0);
+        let decay = decay.max(q15::ZERO);
         Self {
-            b0: (32767i32 - decay as i32) as q15,
-            b1: 0,
+            b0: q15::from_bits((32767i32 - decay.to_bits() as i32) as i16),
+            b1: q15::ZERO,
             a1: decay,
-            x1: 0,
-            y1: 0,
+            x1: q15::ZERO,
+            y1: q15::ZERO,
         }
     }
 
     /// Creates a single-pole high-pass filter from the same Q15 decay used by
     /// [`SinglePoleFilterQ15::lowpass`].
     pub fn highpass(decay: q15) -> Self {
-        let decay = decay.max(0);
-        let b0 = ((32767i32 + decay as i32) / 2) as q15;
+        let decay = decay.max(q15::ZERO);
+        let b0 = q15::from_bits(((32767i32 + decay.to_bits() as i32) / 2) as i16);
         Self {
             b0,
             b1: -b0,
             a1: decay,
-            x1: 0,
-            y1: 0,
+            x1: q15::ZERO,
+            y1: q15::ZERO,
         }
     }
 
     /// Quantizes a floating-point decay in `0.0..1.0` to Q15 and builds a low-pass.
     pub fn lowpass_from_f32(decay: f32) -> Self {
-        Self::lowpass((decay * 32767.0).clamp(0.0, 32767.0) as q15)
+        Self::lowpass(q15::saturating_from_num(decay.clamp(0.0, 1.0)))
     }
 
     /// Quantizes a floating-point decay in `0.0..1.0` to Q15 and builds a high-pass.
     pub fn highpass_from_f32(decay: f32) -> Self {
-        Self::highpass((decay * 32767.0).clamp(0.0, 32767.0) as q15)
+        Self::highpass(q15::saturating_from_num(decay.clamp(0.0, 1.0)))
     }
 
     /// Processes a single Q15 input sample and returns the filtered output.
     #[inline(always)]
     pub fn process(&mut self, x: q15) -> q15 {
-        let y = (self.b0 as i64 * x as i64
-            + self.b1 as i64 * self.x1 as i64
-            + self.a1 as i64 * self.y1 as i64)
+        let y = (self.b0.to_bits() as i64 * x.to_bits() as i64
+            + self.b1.to_bits() as i64 * self.x1.to_bits() as i64
+            + self.a1.to_bits() as i64 * self.y1.to_bits() as i64)
             >> 15;
-        let y = y.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+        let y = q15::from_bits(y.clamp(i16::MIN as i64, i16::MAX as i64) as i16);
         self.x1 = x;
         self.y1 = y;
         y
@@ -1318,8 +1318,8 @@ impl SinglePoleFilterQ15 {
 
     /// Resets the filter's delay state to zero.
     pub fn reset(&mut self) {
-        self.x1 = 0;
-        self.y1 = 0;
+        self.x1 = q15::ZERO;
+        self.y1 = q15::ZERO;
     }
 }
 
@@ -1418,7 +1418,7 @@ pub struct RecursiveMovingAverageQ15<const N: usize> {
 impl<const N: usize> RecursiveMovingAverageQ15<N> {
     pub const fn new() -> Self {
         Self {
-            history: CircularBuffer::new(0),
+            history: CircularBuffer::new(q15::ZERO),
             sum: 0,
         }
     }
@@ -1426,21 +1426,24 @@ impl<const N: usize> RecursiveMovingAverageQ15<N> {
     #[inline(always)]
     pub fn process(&mut self, x: q15) -> q15 {
         let oldest = if self.history.is_full() {
-            self.history.oldest().unwrap_or(0)
+            self.history.oldest().unwrap_or(q15::ZERO)
         } else {
-            0
+            q15::ZERO
         };
-        self.sum += x as i32 - oldest as i32;
+        self.sum += x.to_bits() as i32 - oldest.to_bits() as i32;
         self.history.push(x);
         if self.history.len() == 0 {
-            0
+            q15::ZERO
         } else {
-            (self.sum / self.history.len() as i32).clamp(i16::MIN as i32, i16::MAX as i32) as q15
+            q15::from_bits(
+                (self.sum / self.history.len() as i32).clamp(i16::MIN as i32, i16::MAX as i32)
+                    as i16,
+            )
         }
     }
 
     pub fn reset(&mut self) {
-        self.history.clear(0);
+        self.history.clear(q15::ZERO);
         self.sum = 0;
     }
 }

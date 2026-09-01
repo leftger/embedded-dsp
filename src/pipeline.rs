@@ -79,7 +79,7 @@ impl<T: DspSample> DspNode<T> for Gain<T> {
 impl DspNode<i16> for Gain<i16> {
     #[inline(always)]
     fn process_sample(&mut self, input: i16) -> i16 {
-        crate::types::q15_mult(input, self.gain)
+        crate::types::q15_mult(q15::from_bits(input), q15::from_bits(self.gain)).to_bits()
     }
 }
 

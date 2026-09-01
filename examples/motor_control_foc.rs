@@ -104,16 +104,16 @@ fn main() {
     );
 
     // Q31 Fixed-Point CORDIC Sine/Cosine (angle in [-π, π) mapped to Q31)
-    let angle_q31 = ((test_angle / core::f32::consts::PI) * 2147483648.0) as i32;
+    let angle_q31 = q31::from_bits(((test_angle / core::f32::consts::PI) * 2147483648.0) as i32);
     let s_q31 = sin_q31(angle_q31);
     let c_q31 = cos_q31(angle_q31);
     println!(
         "  CORDIC Q31 Sine/Cosine: sin = {} ({:.4}, Exact: {:.4}), cos = {} ({:.4}, Exact: {:.4})",
         s_q31,
-        s_q31 as f64 / 2147483648.0,
+        s_q31.to_bits() as f64 / 2147483648.0,
         std_s,
         c_q31,
-        c_q31 as f64 / 2147483648.0,
+        c_q31.to_bits() as f64 / 2147483648.0,
         std_c
     );
 
@@ -148,16 +148,16 @@ fn main() {
 
     // Fixed-point Q15 Clarke and Park verification
     let q15_scale = 1000.0f32; // 1 Amp = 1000 Q15 counts
-    let ia_q15 = (ia_filtered[step_idx] * q15_scale) as q15;
-    let ib_q15 = (ib_filtered[step_idx] * q15_scale) as q15;
-    let mut q15_alpha = 0i16;
-    let mut q15_beta = 0i16;
-    let mut q15_d = 0i16;
-    let mut q15_q = 0i16;
+    let ia_q15 = q15::from_bits((ia_filtered[step_idx] * q15_scale) as i16);
+    let ib_q15 = q15::from_bits((ib_filtered[step_idx] * q15_scale) as i16);
+    let mut q15_alpha = q15::ZERO;
+    let mut q15_beta = q15::ZERO;
+    let mut q15_d = q15::ZERO;
+    let mut q15_q = q15::ZERO;
 
     clarke_q15(ia_q15, ib_q15, &mut q15_alpha, &mut q15_beta);
-    let sin_q15 = fast_sin_i16(theta_e[step_idx]);
-    let cos_q15 = fast_cos_i16(theta_e[step_idx]);
+    let sin_q15 = q15::from_bits(fast_sin_i16(theta_e[step_idx]));
+    let cos_q15 = q15::from_bits(fast_cos_i16(theta_e[step_idx]));
     park_q15(
         q15_alpha, q15_beta, sin_q15, cos_q15, &mut q15_d, &mut q15_q,
     );
@@ -166,16 +166,16 @@ fn main() {
     println!(
         "    • Q15 Clarke: alpha = {} ({:.3} A), beta = {} ({:.3} A)",
         q15_alpha,
-        q15_alpha as f32 / q15_scale,
+        q15_alpha.to_bits() as f32 / q15_scale,
         q15_beta,
-        q15_beta as f32 / q15_scale
+        q15_beta.to_bits() as f32 / q15_scale
     );
     println!(
         "    • Q15 Park  : d = {} ({:.3} A), q = {} ({:.3} A)",
         q15_d,
-        q15_d as f32 / q15_scale,
+        q15_d.to_bits() as f32 / q15_scale,
         q15_q,
-        q15_q as f32 / q15_scale
+        q15_q.to_bits() as f32 / q15_scale
     );
 
     // -----------------------------------------------------------------------------------------

@@ -3,7 +3,6 @@
 #[allow(unused_imports)]
 use crate::math::FloatMath;
 use crate::types::*;
-use fixed::types::{I1F15, I1F31};
 
 // --- PID Controller (f32) ---
 
@@ -77,10 +76,10 @@ pub struct PidInstanceQ31 {
 impl PidInstanceQ31 {
     pub fn new(kp: q31, ki: q31, kd: q31) -> Self {
         let mut pid = Self {
-            a0: 0,
-            a1: 0,
-            a2: 0,
-            state: [0; 3],
+            a0: q31::ZERO,
+            a1: q31::ZERO,
+            a2: q31::ZERO,
+            state: [q31::ZERO; 3],
             kp,
             ki,
             kd,
@@ -91,7 +90,7 @@ impl PidInstanceQ31 {
 
     pub fn init(&mut self, reset_state_flag: i32) {
         self.a0 = self.kp.saturating_add(self.ki).saturating_add(self.kd);
-        self.a1 = (-self.kp).saturating_sub(2 * self.kd);
+        self.a1 = (-self.kp).saturating_sub(self.kd.wrapping_mul_int(2));
         self.a2 = self.kd;
         if reset_state_flag != 0 {
             self.reset();
@@ -99,7 +98,7 @@ impl PidInstanceQ31 {
     }
 
     pub fn reset(&mut self) {
-        self.state = [0; 3];
+        self.state = [q31::ZERO; 3];
     }
 
     /// Each MAC term wraps individually (`i32`-wide, not the wider
@@ -110,11 +109,11 @@ impl PidInstanceQ31 {
     /// term's sign in the final sum. This only affects that single boundary
     /// input combination.
     pub fn process(&mut self, in_val: q31) -> q31 {
-        let t0 = I1F31::from_bits(self.a0).wrapping_mul(I1F31::from_bits(in_val)).to_bits();
-        let t1 = I1F31::from_bits(self.a1).wrapping_mul(I1F31::from_bits(self.state[0])).to_bits();
-        let t2 = I1F31::from_bits(self.a2).wrapping_mul(I1F31::from_bits(self.state[1])).to_bits();
-        let acc = (self.state[2] as i64) + (t0 as i64) + (t1 as i64) + (t2 as i64);
-        let out = acc.clamp(i32::MIN as i64, i32::MAX as i64) as q31;
+        let t0 = self.a0.wrapping_mul(in_val).to_bits();
+        let t1 = self.a1.wrapping_mul(self.state[0]).to_bits();
+        let t2 = self.a2.wrapping_mul(self.state[1]).to_bits();
+        let acc = (self.state[2].to_bits() as i64) + (t0 as i64) + (t1 as i64) + (t2 as i64);
+        let out = q31::from_bits(acc.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
         self.state[1] = self.state[0];
         self.state[0] = in_val;
         self.state[2] = out;
@@ -142,10 +141,10 @@ pub struct PidInstanceQ15 {
 impl PidInstanceQ15 {
     pub fn new(kp: q15, ki: q15, kd: q15) -> Self {
         let mut pid = Self {
-            a0: 0,
-            a1: 0,
-            a2: 0,
-            state: [0; 3],
+            a0: q15::ZERO,
+            a1: q15::ZERO,
+            a2: q15::ZERO,
+            state: [q15::ZERO; 3],
             kp,
             ki,
             kd,
@@ -156,7 +155,7 @@ impl PidInstanceQ15 {
 
     pub fn init(&mut self, reset_state_flag: i32) {
         self.a0 = self.kp.saturating_add(self.ki).saturating_add(self.kd);
-        self.a1 = (-self.kp).saturating_sub(2 * self.kd);
+        self.a1 = (-self.kp).saturating_sub(self.kd.wrapping_mul_int(2));
         self.a2 = self.kd;
         if reset_state_flag != 0 {
             self.reset();
@@ -164,7 +163,7 @@ impl PidInstanceQ15 {
     }
 
     pub fn reset(&mut self) {
-        self.state = [0; 3];
+        self.state = [q15::ZERO; 3];
     }
 
     /// Same per-term wrapping caveat as [`PidInstanceQ31::process`]: at the
@@ -172,11 +171,11 @@ impl PidInstanceQ15 {
     /// exactly Q15 `MIN` (`-1.0`), that term wraps to `MIN` instead of the
     /// mathematically exact `+2^15`.
     pub fn process(&mut self, in_val: q15) -> q15 {
-        let t0 = I1F15::from_bits(self.a0).wrapping_mul(I1F15::from_bits(in_val)).to_bits();
-        let t1 = I1F15::from_bits(self.a1).wrapping_mul(I1F15::from_bits(self.state[0])).to_bits();
-        let t2 = I1F15::from_bits(self.a2).wrapping_mul(I1F15::from_bits(self.state[1])).to_bits();
-        let acc = (self.state[2] as i32) + (t0 as i32) + (t1 as i32) + (t2 as i32);
-        let out = acc.clamp(i16::MIN as i32, i16::MAX as i32) as q15;
+        let t0 = self.a0.wrapping_mul(in_val).to_bits();
+        let t1 = self.a1.wrapping_mul(self.state[0]).to_bits();
+        let t2 = self.a2.wrapping_mul(self.state[1]).to_bits();
+        let acc = (self.state[2].to_bits() as i32) + (t0 as i32) + (t1 as i32) + (t2 as i32);
+        let out = q15::from_bits(acc.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
         self.state[1] = self.state[0];
         self.state[0] = in_val;
         self.state[2] = out;
@@ -227,36 +226,48 @@ const SQRT3_2_Q15: i32 = 28378; // √3/2 in Q15
 
 #[inline]
 fn sat_q15_i32(v: i32) -> q15 {
-    v.clamp(i16::MIN as i32, i16::MAX as i32) as q15
+    q15::from_bits(v.clamp(i16::MIN as i32, i16::MAX as i32) as i16)
 }
 
 /// Forward Clarke transform in Q15.
 pub fn clarke_q15(ia: q15, ib: q15, p_alpha: &mut q15, p_beta: &mut q15) {
     *p_alpha = ia;
-    let acc = (ia as i32 + 2 * ib as i32) * INV_SQRT3_Q15;
+    let acc = (ia.to_bits() as i32 + 2 * ib.to_bits() as i32) * INV_SQRT3_Q15;
     *p_beta = sat_q15_i32(acc >> 15);
 }
 
 /// Inverse Clarke transform in Q15.
 pub fn inv_clarke_q15(alpha: q15, beta: q15, p_ia: &mut q15, p_ib: &mut q15) {
     *p_ia = alpha;
-    let acc = -((alpha as i32) << 14) + SQRT3_2_Q15 * beta as i32;
+    let acc = -((alpha.to_bits() as i32) << 14) + SQRT3_2_Q15 * beta.to_bits() as i32;
     *p_ib = sat_q15_i32(acc >> 15);
 }
 
 /// Forward Park transform in Q15. `sin_t` / `cos_t` are Q15 sine/cosine of θ
 /// (CMSIS-style; e.g. take `sin_cos_q31` and shift `>> 16`).
 pub fn park_q15(alpha: q15, beta: q15, sin_t: q15, cos_t: q15, p_d: &mut q15, p_q: &mut q15) {
-    let d = (alpha as i32 * cos_t as i32 + beta as i32 * sin_t as i32) >> 15;
-    let q = (-alpha as i32 * sin_t as i32 + beta as i32 * cos_t as i32) >> 15;
+    let (alpha, beta, sin_t, cos_t) = (
+        alpha.to_bits() as i32,
+        beta.to_bits() as i32,
+        sin_t.to_bits() as i32,
+        cos_t.to_bits() as i32,
+    );
+    let d = (alpha * cos_t + beta * sin_t) >> 15;
+    let q = (-alpha * sin_t + beta * cos_t) >> 15;
     *p_d = sat_q15_i32(d);
     *p_q = sat_q15_i32(q);
 }
 
 /// Inverse Park transform in Q15. `sin_t` / `cos_t` are Q15 sine/cosine of θ.
 pub fn inv_park_q15(d: q15, q: q15, sin_t: q15, cos_t: q15, p_alpha: &mut q15, p_beta: &mut q15) {
-    let alpha = (d as i32 * cos_t as i32 - q as i32 * sin_t as i32) >> 15;
-    let beta = (d as i32 * sin_t as i32 + q as i32 * cos_t as i32) >> 15;
+    let (d, q, sin_t, cos_t) = (
+        d.to_bits() as i32,
+        q.to_bits() as i32,
+        sin_t.to_bits() as i32,
+        cos_t.to_bits() as i32,
+    );
+    let alpha = (d * cos_t - q * sin_t) >> 15;
+    let beta = (d * sin_t + q * cos_t) >> 15;
     *p_alpha = sat_q15_i32(alpha);
     *p_beta = sat_q15_i32(beta);
 }

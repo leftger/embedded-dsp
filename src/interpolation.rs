@@ -20,24 +20,24 @@ pub fn linear_interp_f32(table: &[f32], x: f32, x_step: f32) -> f32 {
 
 pub fn linear_interp_q31(table: &[q31], x: q31) -> q31 {
     if table.len() < 2 {
-        return 0;
+        return q31::ZERO;
     }
-    let idx_f = ((x as i64 + 2147483648) as u64 * (table.len() - 1) as u64) >> 31;
+    let idx_f = ((x.to_bits() as i64 + 2147483648) as u64 * (table.len() - 1) as u64) >> 31;
     let idx = (idx_f as usize).min(table.len() - 2);
-    let y0 = table[idx] as i64;
-    let y1 = table[idx + 1] as i64;
-    ((y0 + y1) / 2) as q31
+    let y0 = table[idx].to_bits() as i64;
+    let y1 = table[idx + 1].to_bits() as i64;
+    q31::from_bits(((y0 + y1) / 2) as i32)
 }
 
 pub fn linear_interp_q15(table: &[q15], x: q15) -> q15 {
     if table.len() < 2 {
-        return 0;
+        return q15::ZERO;
     }
-    let idx_f = ((x as i32 + 32768) as u32 * (table.len() - 1) as u32) >> 15;
+    let idx_f = ((x.to_bits() as i32 + 32768) as u32 * (table.len() - 1) as u32) >> 15;
     let idx = (idx_f as usize).min(table.len() - 2);
-    let y0 = table[idx] as i32;
-    let y1 = table[idx + 1] as i32;
-    ((y0 + y1) / 2) as q15
+    let y0 = table[idx].to_bits() as i32;
+    let y1 = table[idx + 1].to_bits() as i32;
+    q15::from_bits(((y0 + y1) / 2) as i16)
 }
 
 // --- Bilinear Interpolation ---

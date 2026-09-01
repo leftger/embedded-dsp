@@ -129,7 +129,6 @@ pub fn bray_curtis_distance_f32(a: &[f32], b: &[f32]) -> f32 {
 // ─────────────────────────────────────────────────────────────────────────────
 
 use crate::types::{q15, q31, q63};
-use fixed::types::{I1F15, I1F31};
 
 /// Euclidean distance in Q15 normalized per sample: `sqrt(sum((a_i - b_i)^2) / N)`.
 ///
@@ -137,41 +136,39 @@ use fixed::types::{I1F15, I1F31};
 pub fn euclidean_distance_q15(a: &[q15], b: &[q15]) -> q15 {
     let len = a.len().min(b.len());
     if len == 0 {
-        return 0;
+        return q15::ZERO;
     }
     let mut sum_sq: q63 = 0;
     for i in 0..len {
-        let diff = (a[i] as i32) - (b[i] as i32);
+        let diff = (a[i].to_bits() as i32) - (b[i].to_bits() as i32);
         sum_sq += (diff * diff) as q63;
     }
-    let mean_sq = (sum_sq / (len as q63)) as q31;
+    let mean_sq = (sum_sq / (len as q63)) as i32;
     // mean_sq is at most (32768 - (-32768))^2 = (65536)^2 = 4.0 * 2^30.
     // Scale to Q15 range [0, 32767]
-    let scaled_mean = (mean_sq >> 17).clamp(0, i16::MAX as i32) as q15;
-    let mut root: q15 = 0;
+    let scaled_mean = q15::from_bits((mean_sq >> 17).clamp(0, i16::MAX as i32) as i16);
+    let mut root = q15::ZERO;
     let _ = crate::fast_math::sqrt_q15(scaled_mean, &mut root);
     // rescale back
-    let root_fx = I1F15::from_bits(root);
-    root_fx.saturating_add(root_fx).to_bits()
+    root.saturating_add(root)
 }
 
 /// Euclidean distance in Q31 normalized per sample: `sqrt(sum((a_i - b_i)^2) / N)`.
 pub fn euclidean_distance_q31(a: &[q31], b: &[q31]) -> q31 {
     let len = a.len().min(b.len());
     if len == 0 {
-        return 0;
+        return q31::ZERO;
     }
     let mut sum_sq: i128 = 0;
     for i in 0..len {
-        let diff = (a[i] as i64) - (b[i] as i64);
+        let diff = (a[i].to_bits() as i64) - (b[i].to_bits() as i64);
         sum_sq += (diff * diff) as i128;
     }
     let mean_sq = (sum_sq / (len as i128)) as i64;
-    let scaled_mean = (mean_sq >> 33).clamp(0, i32::MAX as i64) as q31;
-    let mut root: q31 = 0;
+    let scaled_mean = q31::from_bits((mean_sq >> 33).clamp(0, i32::MAX as i64) as i32);
+    let mut root = q31::ZERO;
     let _ = crate::fast_math::sqrt_q31(scaled_mean, &mut root);
-    let root_fx = I1F31::from_bits(root);
-    root_fx.saturating_add(root_fx).to_bits()
+    root.saturating_add(root)
 }
 
 /// Chebyshev distance in Q15: `max(|a_i - b_i|)`.
@@ -179,12 +176,12 @@ pub fn chebyshev_distance_q15(a: &[q15], b: &[q15]) -> q15 {
     let len = a.len().min(b.len());
     let mut max_diff: i32 = 0;
     for i in 0..len {
-        let diff = ((a[i] as i32) - (b[i] as i32)).abs();
+        let diff = ((a[i].to_bits() as i32) - (b[i].to_bits() as i32)).abs();
         if diff > max_diff {
             max_diff = diff;
         }
     }
-    max_diff.clamp(0, i16::MAX as i32) as q15
+    q15::from_bits(max_diff.clamp(0, i16::MAX as i32) as i16)
 }
 
 /// Chebyshev distance in Q31: `max(|a_i - b_i|)`.
@@ -192,21 +189,21 @@ pub fn chebyshev_distance_q31(a: &[q31], b: &[q31]) -> q31 {
     let len = a.len().min(b.len());
     let mut max_diff: i64 = 0;
     for i in 0..len {
-        let diff = ((a[i] as i64) - (b[i] as i64)).abs();
+        let diff = ((a[i].to_bits() as i64) - (b[i].to_bits() as i64)).abs();
         if diff > max_diff {
             max_diff = diff;
         }
     }
-    max_diff.clamp(0, i32::MAX as i64) as q31
+    q31::from_bits(max_diff.clamp(0, i32::MAX as i64) as i32)
 }
 
 /// Manhattan distance in Q15: `sum(|a_i - b_i|)`.
 pub fn manhattan_distance_q15(a: &[q15], b: &[q15]) -> q31 {
     let len = a.len().min(b.len());
-    let mut sum: q31 = 0;
+    let mut sum = q31::ZERO;
     for i in 0..len {
-        let diff = ((a[i] as i32) - (b[i] as i32)).abs();
-        sum = sum.saturating_add(diff);
+        let diff = ((a[i].to_bits() as i32) - (b[i].to_bits() as i32)).abs();
+        sum = sum.saturating_add(q31::from_bits(diff));
     }
     sum
 }
@@ -216,7 +213,7 @@ pub fn manhattan_distance_q31(a: &[q31], b: &[q31]) -> q63 {
     let len = a.len().min(b.len());
     let mut sum: q63 = 0;
     for i in 0..len {
-        let diff = ((a[i] as i64) - (b[i] as i64)).abs();
+        let diff = ((a[i].to_bits() as i64) - (b[i].to_bits() as i64)).abs();
         sum = sum.saturating_add(diff);
     }
     sum
@@ -226,80 +223,92 @@ pub fn manhattan_distance_q31(a: &[q31], b: &[q31]) -> q63 {
 pub fn cosine_distance_q15(a: &[q15], b: &[q15]) -> q15 {
     let len = a.len().min(b.len());
     if len == 0 {
-        return 0;
+        return q15::ZERO;
     }
     let mut dot: i64 = 0;
     let mut norm_a_sq: i64 = 0;
     let mut norm_b_sq: i64 = 0;
 
     for i in 0..len {
-        let ai = a[i] as i64;
-        let bi = b[i] as i64;
+        let ai = a[i].to_bits() as i64;
+        let bi = b[i].to_bits() as i64;
         dot += ai * bi;
         norm_a_sq += ai * ai;
         norm_b_sq += bi * bi;
     }
 
     if norm_a_sq == 0 || norm_b_sq == 0 {
-        return 32767; // Distance 1.0
+        return q15::from_bits(32767); // Distance 1.0
     }
 
-    let norm_a_mean = (norm_a_sq / len as i64).clamp(0, i32::MAX as i64) as q31;
-    let norm_b_mean = (norm_b_sq / len as i64).clamp(0, i32::MAX as i64) as q31;
+    let norm_a_mean = (norm_a_sq / len as i64).clamp(0, i32::MAX as i64) as i32;
+    let norm_b_mean = (norm_b_sq / len as i64).clamp(0, i32::MAX as i64) as i32;
 
-    let mut norm_a: q15 = 0;
-    let mut norm_b: q15 = 0;
-    let _ = crate::fast_math::sqrt_q15((norm_a_mean >> 15).clamp(0, i16::MAX as i32) as q15, &mut norm_a);
-    let _ = crate::fast_math::sqrt_q15((norm_b_mean >> 15).clamp(0, i16::MAX as i32) as q15, &mut norm_b);
+    let mut norm_a = q15::ZERO;
+    let mut norm_b = q15::ZERO;
+    let _ = crate::fast_math::sqrt_q15(
+        q15::from_bits((norm_a_mean >> 15).clamp(0, i16::MAX as i32) as i16),
+        &mut norm_a,
+    );
+    let _ = crate::fast_math::sqrt_q15(
+        q15::from_bits((norm_b_mean >> 15).clamp(0, i16::MAX as i32) as i16),
+        &mut norm_b,
+    );
 
-    let denom = (norm_a as i64 * norm_b as i64) * len as i64;
+    let denom = (norm_a.to_bits() as i64 * norm_b.to_bits() as i64) * len as i64;
     if denom == 0 {
-        return 32767;
+        return q15::from_bits(32767);
     }
 
     let sim = (dot << 15) / denom;
     let sim_clamped = sim.clamp(-32768, 32767) as i32;
-    (32767 - sim_clamped).clamp(0, 32767) as q15
+    q15::from_bits((32767 - sim_clamped).clamp(0, 32767) as i16)
 }
 
 /// Cosine distance in Q31: `1.0 - (a . b) / (||a|| * ||b||)` in Q31 representation `[0, 1.0]`.
 pub fn cosine_distance_q31(a: &[q31], b: &[q31]) -> q31 {
     let len = a.len().min(b.len());
     if len == 0 {
-        return 0;
+        return q31::ZERO;
     }
     let mut dot: i128 = 0;
     let mut norm_a_sq: i128 = 0;
     let mut norm_b_sq: i128 = 0;
 
     for i in 0..len {
-        let ai = a[i] as i128;
-        let bi = b[i] as i128;
+        let ai = a[i].to_bits() as i128;
+        let bi = b[i].to_bits() as i128;
         dot += ai * bi;
         norm_a_sq += ai * ai;
         norm_b_sq += bi * bi;
     }
 
     if norm_a_sq == 0 || norm_b_sq == 0 {
-        return i32::MAX;
+        return q31::from_bits(i32::MAX);
     }
 
     let norm_a_mean = (norm_a_sq / len as i128) as i64;
     let norm_b_mean = (norm_b_sq / len as i128) as i64;
 
-    let mut norm_a: q31 = 0;
-    let mut norm_b: q31 = 0;
-    let _ = crate::fast_math::sqrt_q31((norm_a_mean >> 31).clamp(0, i32::MAX as i64) as q31, &mut norm_a);
-    let _ = crate::fast_math::sqrt_q31((norm_b_mean >> 31).clamp(0, i32::MAX as i64) as q31, &mut norm_b);
+    let mut norm_a = q31::ZERO;
+    let mut norm_b = q31::ZERO;
+    let _ = crate::fast_math::sqrt_q31(
+        q31::from_bits((norm_a_mean >> 31).clamp(0, i32::MAX as i64) as i32),
+        &mut norm_a,
+    );
+    let _ = crate::fast_math::sqrt_q31(
+        q31::from_bits((norm_b_mean >> 31).clamp(0, i32::MAX as i64) as i32),
+        &mut norm_b,
+    );
 
-    let denom = (norm_a as i128 * norm_b as i128) * len as i128;
+    let denom = (norm_a.to_bits() as i128 * norm_b.to_bits() as i128) * len as i128;
     if denom == 0 {
-        return i32::MAX;
+        return q31::from_bits(i32::MAX);
     }
 
     let sim = (dot << 31) / denom;
     let sim_clamped = sim.clamp(i32::MIN as i128, i32::MAX as i128) as i64;
-    (i32::MAX as i64 - sim_clamped).clamp(0, i32::MAX as i64) as q31
+    q31::from_bits((i32::MAX as i64 - sim_clamped).clamp(0, i32::MAX as i64) as i32)
 }
 
 /// Hamming distance between Q15 vectors (mismatch count).
@@ -330,35 +339,37 @@ pub fn hamming_distance_q31(a: &[q31], b: &[q31]) -> usize {
 pub fn canberra_distance_q15(a: &[q15], b: &[q15]) -> q15 {
     let len = a.len().min(b.len());
     if len == 0 {
-        return 0;
+        return q15::ZERO;
     }
     let mut sum_q15: i64 = 0;
     for i in 0..len {
-        let num = ((a[i] as i32) - (b[i] as i32)).abs();
-        let denom = (a[i] as i32).abs() + (b[i] as i32).abs();
+        let (ai, bi) = (a[i].to_bits() as i32, b[i].to_bits() as i32);
+        let num = (ai - bi).abs();
+        let denom = ai.abs() + bi.abs();
         if denom != 0 {
             let term = ((num as i64) << 15) / (denom as i64);
             sum_q15 += term;
         }
     }
-    ((sum_q15 / len as i64).clamp(0, 32767)) as q15
+    q15::from_bits((sum_q15 / len as i64).clamp(0, 32767) as i16)
 }
 
 /// Bray-Curtis distance in Q15: `sum(|a_i - b_i|) / sum(|a_i + b_i|)` in `[0, 1.0]` (Q15).
 pub fn bray_curtis_distance_q15(a: &[q15], b: &[q15]) -> q15 {
     let len = a.len().min(b.len());
     if len == 0 {
-        return 0;
+        return q15::ZERO;
     }
     let mut num: i64 = 0;
     let mut denom: i64 = 0;
     for i in 0..len {
-        num += ((a[i] as i32) - (b[i] as i32)).abs() as i64;
-        denom += ((a[i] as i32) + (b[i] as i32)).abs() as i64;
+        let (ai, bi) = (a[i].to_bits() as i32, b[i].to_bits() as i32);
+        num += (ai - bi).abs() as i64;
+        denom += (ai + bi).abs() as i64;
     }
     if denom == 0 {
-        0
+        q15::ZERO
     } else {
-        (((num << 15) / denom).clamp(0, 32767)) as q15
+        q15::from_bits(((num << 15) / denom).clamp(0, 32767) as i16)
     }
 }

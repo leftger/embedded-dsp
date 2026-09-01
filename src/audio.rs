@@ -8,7 +8,7 @@ use crate::filter_design::single_pole_decay_from_time_constant;
 use crate::math::FloatMath;
 use crate::math::isqrt_u64;
 use crate::transform::cfft_f32;
-use crate::types::{q15, Status};
+use crate::types::{q15, Q8F7, Status};
 
 // --- Goertzel Single-Frequency Detector ---
 
@@ -64,11 +64,15 @@ impl GoertzelDetector {
     }
 }
 
+/// Q2.14 fixed-point type for coefficients that can range up to `±2.0`
+/// (e.g. `2 cos(ω)`), which does not fit `q15`'s `[-1.0, 1.0)` range.
+type Q2F14 = fixed::FixedI16<fixed::types::extra::U14>;
+
 /// Q15 Goertzel detector: same two-pole recurrence as [`GoertzelDetector`], with
 /// Q2.14 `2 cos(ω)` and i32 delays so a typical block (`N ≲ 256`) does not wrap.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct GoertzelDetectorQ15 {
-    coeff: q15,
+    coeff: Q2F14,
     s_prev: i32,
     s_prev2: i32,
     count: u32,
@@ -78,7 +82,7 @@ impl GoertzelDetectorQ15 {
     /// Creates a detector tuned to `target_freq_hz` at the given `sample_rate_hz`.
     pub fn new(target_freq_hz: f32, sample_rate_hz: f32) -> Self {
         let w = 2.0 * core::f32::consts::PI * target_freq_hz / sample_rate_hz;
-        let coeff = (2.0 * w.cos() * 16384.0).clamp(-32768.0, 32767.0) as q15;
+        let coeff = Q2F14::saturating_from_num(2.0 * w.cos());
         Self {
             coeff,
             s_prev: 0,
@@ -90,8 +94,8 @@ impl GoertzelDetectorQ15 {
     /// Feeds one Q15 input sample into the detector.
     #[inline(always)]
     pub fn process_sample(&mut self, x: q15) {
-        let s = x as i32
-            + ((((self.coeff as i64) * (self.s_prev as i64)) >> 14) as i32)
+        let s = x.to_bits() as i32
+            + ((((self.coeff.to_bits() as i64) * (self.s_prev as i64)) >> 14) as i32)
             - self.s_prev2;
         self.s_prev2 = self.s_prev;
         self.s_prev = s;
@@ -101,18 +105,18 @@ impl GoertzelDetectorQ15 {
     /// Magnitude of the target bin, normalized by `N/2` like [`GoertzelDetector::magnitude`].
     pub fn magnitude(&self) -> q15 {
         if self.count == 0 {
-            return 0;
+            return q15::ZERO;
         }
         let s = self.s_prev as i64;
         let s2 = self.s_prev2 as i64;
-        let c = self.coeff as i64;
+        let c = self.coeff.to_bits() as i64;
         let mag_sq = s * s + s2 * s2 - ((c * s * s2) >> 14);
         if mag_sq <= 0 {
-            return 0;
+            return q15::ZERO;
         }
         let mag = isqrt_u64(mag_sq as u64);
         let out = (mag * 2) / (self.count as u64);
-        out.min(32767) as q15
+        q15::from_bits(out.min(32767) as i16)
     }
 
     /// Resets the detector's internal state to start a new detection block.
@@ -208,28 +212,29 @@ impl PeakEnvelopeFollowerQ15 {
         let attack = 1.0 - single_pole_decay_from_time_constant(attack_samples);
         let release = 1.0 - single_pole_decay_from_time_constant(release_samples);
         Self {
-            attack_coeff: (attack * 32767.0).clamp(0.0, 32767.0) as q15,
-            release_coeff: (release * 32767.0).clamp(0.0, 32767.0) as q15,
-            envelope: 0,
+            attack_coeff: q15::saturating_from_num(attack),
+            release_coeff: q15::saturating_from_num(release),
+            envelope: q15::ZERO,
         }
     }
 
     #[inline(always)]
     pub fn process(&mut self, x: q15) -> q15 {
-        let rectified = x.unsigned_abs() as i32;
-        let env = self.envelope as i32;
+        let rectified = x.to_bits().unsigned_abs() as i32;
+        let env = self.envelope.to_bits() as i32;
         let coeff = if rectified > env {
             self.attack_coeff
         } else {
             self.release_coeff
-        } as i32;
+        }
+        .to_bits() as i32;
         let y = env + ((coeff * (rectified - env)) >> 15);
-        self.envelope = y.clamp(0, 32767) as q15;
+        self.envelope = q15::from_bits(y.clamp(0, 32767) as i16);
         self.envelope
     }
 
     pub fn reset(&mut self) {
-        self.envelope = 0;
+        self.envelope = q15::ZERO;
     }
 }
 
@@ -244,23 +249,23 @@ impl RmsEnvelopeFollowerQ15 {
     pub fn new(time_constant_samples: f32) -> Self {
         let c = 1.0 - single_pole_decay_from_time_constant(time_constant_samples);
         Self {
-            coeff: (c * 32767.0).clamp(0.0, 32767.0) as q15,
-            mean_sq: 0,
+            coeff: q15::saturating_from_num(c),
+            mean_sq: q15::ZERO,
         }
     }
 
     #[inline(always)]
     pub fn process(&mut self, x: q15) -> q15 {
-        let inst = ((x as i32 * x as i32) >> 15).clamp(0, 32767);
-        let ms = self.mean_sq as i32;
-        let y = ms + ((self.coeff as i32 * (inst - ms)) >> 15);
-        self.mean_sq = y.clamp(0, 32767) as q15;
-        let mag = isqrt_u64((self.mean_sq as u64) << 15);
-        mag.min(32767) as q15
+        let inst = ((x.to_bits() as i32 * x.to_bits() as i32) >> 15).clamp(0, 32767);
+        let ms = self.mean_sq.to_bits() as i32;
+        let y = ms + ((self.coeff.to_bits() as i32 * (inst - ms)) >> 15);
+        self.mean_sq = q15::from_bits(y.clamp(0, 32767) as i16);
+        let mag = isqrt_u64((self.mean_sq.to_bits() as u64) << 15);
+        q15::from_bits(mag.min(32767) as i16)
     }
 
     pub fn reset(&mut self) {
-        self.mean_sq = 0;
+        self.mean_sq = q15::ZERO;
     }
 }
 
@@ -464,23 +469,23 @@ pub fn generalized_triangular_filterbank(
     Status::Success
 }
 
-/// Fast integer base-2 logarithm approximation in Q15 format using leading zeros.
+/// Fast integer base-2 logarithm approximation using leading zeros.
 ///
 /// Input is a positive Q15 number (`(0, 32767]`).
-/// Returns `log2(x)` scaled to Q8.7 format (or Q15 where -1.0..0.0 maps to fractions).
+/// Returns `log2(x)` scaled to Q8.7 format.
 #[inline]
-pub fn fast_log2_q15(x: q15) -> q15 {
-    if x <= 0 {
-        return -32768;
+pub fn fast_log2_q15(x: q15) -> Q8F7 {
+    if x <= q15::ZERO {
+        return Q8F7::MIN;
     }
-    let lz = (x as u16).leading_zeros() as i32;
+    let lz = (x.to_bits() as u16).leading_zeros() as i32;
     // Integer part of log2 is 15 - lz
     let int_part = 14 - lz;
     // Fractional part via linear interpolation of remainder bits
-    let shifted = (x as i32) << lz;
+    let shifted = (x.to_bits() as i32) << lz;
     let frac = (shifted & 0x7FFF) >> 8; // top 7 bits of fraction
     let log_val = (int_part << 7) + frac;
-    (log_val - (15 << 7)).clamp(i16::MIN as i32, i16::MAX as i32) as q15
+    Q8F7::from_bits((log_val - (15 << 7)).clamp(i16::MIN as i32, i16::MAX as i32) as i16)
 }
 
 /// Simple Voice Activity Detector (VAD) in pure Q15 integer arithmetic.
@@ -512,7 +517,7 @@ impl VadDetectorQ15 {
         let mut zcr_count: u16 = 0;
 
         for i in 0..frame.len() {
-            let sample = frame[i] as i64;
+            let sample = frame[i].to_bits() as i64;
             energy_acc += (sample * sample) >> 15;
 
             if i > 0 {

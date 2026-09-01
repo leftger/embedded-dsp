@@ -91,7 +91,7 @@ impl<const TAPS: usize> FirFilterQ15<TAPS> {
     pub fn new(coeffs: [q15; TAPS]) -> Self {
         Self {
             coeffs,
-            state: [0; TAPS],
+            state: [q15::ZERO; TAPS],
         }
     }
 
@@ -105,7 +105,7 @@ impl<const TAPS: usize> FirFilterQ15<TAPS> {
     }
 
     pub fn reset(&mut self) {
-        self.state.fill(0);
+        self.state.fill(q15::ZERO);
     }
 }
 
@@ -124,7 +124,7 @@ impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascadeQ15<COEFFS_LE
         let num_stages = (COEFFS_LEN / 5) as u8;
         Self {
             coeffs,
-            state: [0; STATE_LEN],
+            state: [q15::ZERO; STATE_LEN],
             num_stages,
             post_shift,
         }
@@ -141,7 +141,7 @@ impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascadeQ15<COEFFS_LE
     }
 
     pub fn reset(&mut self) {
-        self.state.fill(0);
+        self.state.fill(q15::ZERO);
     }
 }
 

@@ -36,9 +36,9 @@ pub fn mean_q31(src: &[q31], result: &mut q31) -> Status {
     }
     let mut sum: q63 = 0;
     for &val in src {
-        sum += val as q63;
+        sum += val.to_bits() as q63;
     }
-    *result = (sum / (src.len() as q63)) as q31;
+    *result = q31::from_bits((sum / (src.len() as q63)) as i32);
     Status::Success
 }
 
@@ -48,9 +48,9 @@ pub fn mean_q15(src: &[q15], result: &mut q15) -> Status {
     }
     let mut sum: i32 = 0;
     for &val in src {
-        sum += val as i32;
+        sum += val.to_bits() as i32;
     }
-    *result = (sum / (src.len() as i32)) as q15;
+    *result = q15::from_bits((sum / (src.len() as i32)) as i16);
     Status::Success
 }
 
@@ -60,9 +60,9 @@ pub fn mean_q7(src: &[q7], result: &mut q7) -> Status {
     }
     let mut sum: i32 = 0;
     for &val in src {
-        sum += val as i32;
+        sum += val.to_bits() as i32;
     }
-    *result = (sum / (src.len() as i32)) as q7;
+    *result = q7::from_bits((sum / (src.len() as i32)) as i8);
     Status::Success
 }
 
@@ -102,14 +102,16 @@ pub fn var_q31(src: &[q31], result: &mut q31) -> Status {
     if src.len() <= 1 {
         return Status::LengthError;
     }
-    let mut m = 0;
+    let mut m = q31::ZERO;
     mean_q31(src, &mut m);
     let mut sum_sq: u64 = 0;
     for &val in src {
-        let diff = (val as i64) - (m as i64);
+        let diff = (val.to_bits() as i64) - (m.to_bits() as i64);
         sum_sq += ((diff * diff) >> 31) as u64;
     }
-    *result = ((sum_sq / (src.len() - 1) as u64) as i64).clamp(0, i32::MAX as i64) as q31;
+    *result = q31::from_bits(
+        ((sum_sq / (src.len() - 1) as u64) as i64).clamp(0, i32::MAX as i64) as i32,
+    );
     Status::Success
 }
 
@@ -117,14 +119,16 @@ pub fn var_q15(src: &[q15], result: &mut q15) -> Status {
     if src.len() <= 1 {
         return Status::LengthError;
     }
-    let mut m = 0;
+    let mut m = q15::ZERO;
     mean_q15(src, &mut m);
     let mut sum_sq: u32 = 0;
     for &val in src {
-        let diff = (val as i32) - (m as i32);
+        let diff = (val.to_bits() as i32) - (m.to_bits() as i32);
         sum_sq += ((diff * diff) >> 15) as u32;
     }
-    *result = ((sum_sq / (src.len() - 1) as u32) as i32).clamp(0, i16::MAX as i32) as q15;
+    *result = q15::from_bits(
+        ((sum_sq / (src.len() - 1) as u32) as i32).clamp(0, i16::MAX as i32) as i16,
+    );
     Status::Success
 }
 
@@ -132,14 +136,15 @@ pub fn var_q7(src: &[q7], result: &mut q7) -> Status {
     if src.len() <= 1 {
         return Status::LengthError;
     }
-    let mut m = 0;
+    let mut m = q7::ZERO;
     mean_q7(src, &mut m);
     let mut sum_sq: u32 = 0;
     for &val in src {
-        let diff = (val as i32) - (m as i32);
+        let diff = (val.to_bits() as i32) - (m.to_bits() as i32);
         sum_sq += ((diff * diff) >> 7) as u32;
     }
-    *result = ((sum_sq / (src.len() - 1) as u32) as i32).clamp(0, i8::MAX as i32) as q7;
+    *result =
+        q7::from_bits(((sum_sq / (src.len() - 1) as u32) as i32).clamp(0, i8::MAX as i32) as i8);
     Status::Success
 }
 
@@ -164,7 +169,7 @@ pub fn std_f64(src: &[f64], result: &mut f64) -> Status {
 }
 
 pub fn std_q31(src: &[q31], result: &mut q31) -> Status {
-    let mut v = 0;
+    let mut v = q31::ZERO;
     let status = var_q31(src, &mut v);
     if status == Status::Success {
         let _ = crate::fast_math::sqrt_q31(v, result);
@@ -173,7 +178,7 @@ pub fn std_q31(src: &[q31], result: &mut q31) -> Status {
 }
 
 pub fn std_q15(src: &[q15], result: &mut q15) -> Status {
-    let mut v = 0;
+    let mut v = q15::ZERO;
     let status = var_q15(src, &mut v);
     if status == Status::Success {
         let _ = crate::fast_math::sqrt_q15(v, result);
@@ -182,11 +187,11 @@ pub fn std_q15(src: &[q15], result: &mut q15) -> Status {
 }
 
 pub fn std_q7(src: &[q7], result: &mut q7) -> Status {
-    let mut v = 0;
+    let mut v = q7::ZERO;
     let status = var_q7(src, &mut v);
     if status == Status::Success {
-        let n = (v.max(0) as u32) << 7;
-        *result = crate::math::isqrt_u32(n).min(i8::MAX as u32) as q7;
+        let n = (v.to_bits().max(0) as u32) << 7;
+        *result = q7::from_bits(crate::math::isqrt_u32(n).min(i8::MAX as u32) as i8);
     }
     status
 }
@@ -211,10 +216,10 @@ pub fn rms_q31(src: &[q31], result: &mut q31) -> Status {
     }
     let mut sum_sq: u64 = 0;
     for &val in src {
-        let v = val as i64;
+        let v = val.to_bits() as i64;
         sum_sq += ((v * v) >> 31) as u64;
     }
-    let mean_sq = (sum_sq / (src.len() as u64)).min(i32::MAX as u64) as q31;
+    let mean_sq = q31::from_bits((sum_sq / (src.len() as u64)).min(i32::MAX as u64) as i32);
     let _ = crate::fast_math::sqrt_q31(mean_sq, result);
     Status::Success
 }
@@ -225,10 +230,10 @@ pub fn rms_q15(src: &[q15], result: &mut q15) -> Status {
     }
     let mut sum_sq: u32 = 0;
     for &val in src {
-        let v = val as i32;
+        let v = val.to_bits() as i32;
         sum_sq += ((v * v) >> 15) as u32;
     }
-    let mean_sq = (sum_sq / (src.len() as u32)).min(i16::MAX as u32) as q15;
+    let mean_sq = q15::from_bits((sum_sq / (src.len() as u32)).min(i16::MAX as u32) as i16);
     let _ = crate::fast_math::sqrt_q15(mean_sq, result);
     Status::Success
 }
@@ -253,7 +258,7 @@ pub fn power_q31(src: &[q31], result: &mut q63) -> Status {
     }
     let mut sum_sq: q63 = 0;
     for &val in src {
-        let v = val as i64;
+        let v = val.to_bits() as i64;
         sum_sq += (v * v) >> 14;
     }
     *result = sum_sq;
@@ -266,7 +271,7 @@ pub fn power_q15(src: &[q15], result: &mut q63) -> Status {
     }
     let mut sum_sq: q63 = 0;
     for &val in src {
-        let v = val as i32;
+        let v = val.to_bits() as i32;
         sum_sq += (v * v) as q63;
     }
     *result = sum_sq;
@@ -277,10 +282,10 @@ pub fn power_q7(src: &[q7], result: &mut q31) -> Status {
     if src.is_empty() {
         return Status::LengthError;
     }
-    let mut sum_sq: q31 = 0;
+    let mut sum_sq = q31::ZERO;
     for &val in src {
-        let v = val as i32;
-        sum_sq += v * v;
+        let v = val.to_bits() as i32;
+        sum_sq += q31::from_bits(v * v);
     }
     *result = sum_sq;
     Status::Success

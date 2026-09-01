@@ -194,12 +194,12 @@ fn bit_reversal_q31(data: &mut [q31], n: usize) {
 
 #[inline]
 fn sat_q15(v: i32) -> q15 {
-    v.clamp(i16::MIN as i32, i16::MAX as i32) as q15
+    q15::from_bits(v.clamp(i16::MIN as i32, i16::MAX as i32) as i16)
 }
 
 #[inline]
 fn sat_q31(v: i64) -> q31 {
-    v.clamp(i32::MIN as i64, i32::MAX as i64) as q31
+    q31::from_bits(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
 }
 
 /// In-place radix-2 DIT Complex FFT for Q31.
@@ -234,10 +234,10 @@ pub fn cfft_q31(data: &mut [q31], n: usize, ifft_flag: u8, bit_reverse_flag: u8)
 
                 let u_idx = 2 * (i + j);
                 let v_idx = 2 * (i + j + half_len);
-                let u_re = data[u_idx] as i64;
-                let u_im = data[u_idx + 1] as i64;
-                let v_re = data[v_idx] as i64;
-                let v_im = data[v_idx + 1] as i64;
+                let u_re = data[u_idx].to_bits() as i64;
+                let u_im = data[u_idx + 1].to_bits() as i64;
+                let v_re = data[v_idx].to_bits() as i64;
+                let v_im = data[v_idx + 1].to_bits() as i64;
                 let wr = w_re as i64;
                 let wi = w_im as i64;
 
@@ -281,10 +281,10 @@ pub fn cfft_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag: u8)
 
                 let u_idx = 2 * (i + j);
                 let v_idx = 2 * (i + j + half_len);
-                let u_re = data[u_idx] as i32;
-                let u_im = data[u_idx + 1] as i32;
-                let v_re = data[v_idx] as i32;
-                let v_im = data[v_idx + 1] as i32;
+                let u_re = data[u_idx].to_bits() as i32;
+                let u_im = data[u_idx + 1].to_bits() as i32;
+                let v_re = data[v_idx].to_bits() as i32;
+                let v_im = data[v_idx + 1].to_bits() as i32;
                 let wr = w_re_s as i32;
                 let wi = w_im_s as i32;
 
@@ -327,7 +327,7 @@ pub fn cfft_bfp_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag:
         // Stage headroom check: find max absolute value
         let mut max_val: i16 = 0;
         for i in 0..2 * n {
-            let val = data[i].abs();
+            let val = data[i].abs().to_bits();
             if val > max_val {
                 max_val = val;
             }
@@ -351,10 +351,10 @@ pub fn cfft_bfp_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag:
 
                 let u_idx = 2 * (i + j);
                 let v_idx = 2 * (i + j + half_len);
-                let u_re = data[u_idx] as i32;
-                let u_im = data[u_idx + 1] as i32;
-                let v_re = data[v_idx] as i32;
-                let v_im = data[v_idx + 1] as i32;
+                let u_re = data[u_idx].to_bits() as i32;
+                let u_im = data[u_idx + 1].to_bits() as i32;
+                let v_re = data[v_idx].to_bits() as i32;
+                let v_im = data[v_idx + 1].to_bits() as i32;
                 let wr = w_re_s as i32;
                 let wi = w_im_s as i32;
 
@@ -393,7 +393,7 @@ pub fn cfft_bfp_q31(data: &mut [q31], n: usize, ifft_flag: u8, bit_reverse_flag:
 
         let mut max_val: i32 = 0;
         for i in 0..2 * n {
-            let val = data[i].abs();
+            let val = data[i].abs().to_bits();
             if val > max_val {
                 max_val = val;
             }
@@ -418,10 +418,10 @@ pub fn cfft_bfp_q31(data: &mut [q31], n: usize, ifft_flag: u8, bit_reverse_flag:
 
                 let u_idx = 2 * (i + j);
                 let v_idx = 2 * (i + j + half_len);
-                let u_re = data[u_idx] as i64;
-                let u_im = data[u_idx + 1] as i64;
-                let v_re = data[v_idx] as i64;
-                let v_im = data[v_idx + 1] as i64;
+                let u_re = data[u_idx].to_bits() as i64;
+                let u_im = data[u_idx + 1].to_bits() as i64;
+                let v_re = data[v_idx].to_bits() as i64;
+                let v_im = data[v_idx + 1].to_bits() as i64;
                 let wr = w_re as i64;
                 let wi = w_im as i64;
 
@@ -507,7 +507,7 @@ pub fn rfft_f32(src: &[f32], dst: &mut [f32], n: usize, ifft_flag: u8) {
 /// Forward only (`ifft_flag == 0`); inverse still uses a complex FFT of real+0j.
 fn packed_rfft_q15_forward(src: &[q15], dst: &mut [q15], n: usize) {
     let m = n / 2;
-    let mut z = [0i16; 1024];
+    let mut z = [q15::ZERO; 1024];
     if 2 * m > z.len() {
         return;
     }
@@ -517,18 +517,18 @@ fn packed_rfft_q15_forward(src: &[q15], dst: &mut [q15], n: usize) {
     }
     cfft_q15(&mut z[..2 * m], m, 0, 1);
 
-    let z0r = z[0] as i32;
-    let z0i = z[1] as i32;
+    let z0r = z[0].to_bits() as i32;
+    let z0i = z[1].to_bits() as i32;
     dst[0] = sat_q15((z0r + z0i) >> 1);
-    dst[1] = 0;
+    dst[1] = q15::ZERO;
     dst[n] = sat_q15((z0r - z0i) >> 1);
-    dst[n + 1] = 0;
+    dst[n + 1] = q15::ZERO;
 
     for k in 1..m {
-        let zr = z[2 * k] as i32;
-        let zi = z[2 * k + 1] as i32;
-        let znr = z[2 * (m - k)] as i32;
-        let zni = z[2 * (m - k) + 1] as i32;
+        let zr = z[2 * k].to_bits() as i32;
+        let zi = z[2 * k + 1].to_bits() as i32;
+        let znr = z[2 * (m - k)].to_bits() as i32;
+        let zni = z[2 * (m - k) + 1].to_bits() as i32;
 
         let xe_re = (zr + znr) >> 1;
         let xe_im = (zi - zni) >> 1;
@@ -551,7 +551,7 @@ fn packed_rfft_q15_forward(src: &[q15], dst: &mut [q15], n: usize) {
 
 fn packed_rfft_q31_forward(src: &[q31], dst: &mut [q31], n: usize) {
     let m = n / 2;
-    let mut z = [0i32; 1024];
+    let mut z = [q31::ZERO; 1024];
     if 2 * m > z.len() {
         return;
     }
@@ -561,18 +561,18 @@ fn packed_rfft_q31_forward(src: &[q31], dst: &mut [q31], n: usize) {
     }
     cfft_q31(&mut z[..2 * m], m, 0, 1);
 
-    let z0r = z[0] as i64;
-    let z0i = z[1] as i64;
+    let z0r = z[0].to_bits() as i64;
+    let z0i = z[1].to_bits() as i64;
     dst[0] = sat_q31((z0r + z0i) >> 1);
-    dst[1] = 0;
+    dst[1] = q31::ZERO;
     dst[n] = sat_q31((z0r - z0i) >> 1);
-    dst[n + 1] = 0;
+    dst[n + 1] = q31::ZERO;
 
     for k in 1..m {
-        let zr = z[2 * k] as i64;
-        let zi = z[2 * k + 1] as i64;
-        let znr = z[2 * (m - k)] as i64;
-        let zni = z[2 * (m - k) + 1] as i64;
+        let zr = z[2 * k].to_bits() as i64;
+        let zi = z[2 * k + 1].to_bits() as i64;
+        let znr = z[2 * (m - k)].to_bits() as i64;
+        let zni = z[2 * (m - k) + 1].to_bits() as i64;
 
         let xe_re = (zr + znr) >> 1;
         let xe_im = (zi - zni) >> 1;
@@ -595,21 +595,21 @@ fn packed_rfft_q31_forward(src: &[q31], dst: &mut [q31], n: usize) {
 
 fn packed_irfft_q15(src: &[q15], dst: &mut [q15], n: usize) {
     let m = n / 2;
-    let mut z = [0i16; 1024];
+    let mut z = [q15::ZERO; 1024];
     if 2 * m > z.len() {
         return;
     }
 
-    let dc = src[0] as i32;
-    let ny = src[n] as i32;
+    let dc = src[0].to_bits() as i32;
+    let ny = src[n].to_bits() as i32;
     z[0] = sat_q15(dc + ny);
     z[1] = sat_q15(dc - ny);
 
     for k in 1..m {
-        let xkr = src[2 * k] as i32;
-        let xki = src[2 * k + 1] as i32;
-        let xnr = src[2 * (n - k)] as i32;
-        let xni = src[2 * (n - k) + 1] as i32;
+        let xkr = src[2 * k].to_bits() as i32;
+        let xki = src[2 * k + 1].to_bits() as i32;
+        let xnr = src[2 * (n - k)].to_bits() as i32;
+        let xni = src[2 * (n - k) + 1].to_bits() as i32;
 
         let xe_re = xkr + xnr;
         let xe_im = xki - xni;
@@ -628,28 +628,28 @@ fn packed_irfft_q15(src: &[q15], dst: &mut [q15], n: usize) {
 
     cfft_q15(&mut z[..2 * m], m, 1, 1);
     for k in 0..m {
-        dst[2 * k] = sat_q15((z[2 * k] as i32) >> 1);
-        dst[2 * k + 1] = sat_q15((z[2 * k + 1] as i32) >> 1);
+        dst[2 * k] = sat_q15((z[2 * k].to_bits() as i32) >> 1);
+        dst[2 * k + 1] = sat_q15((z[2 * k + 1].to_bits() as i32) >> 1);
     }
 }
 
 fn packed_irfft_q31(src: &[q31], dst: &mut [q31], n: usize) {
     let m = n / 2;
-    let mut z = [0i32; 1024];
+    let mut z = [q31::ZERO; 1024];
     if 2 * m > z.len() {
         return;
     }
 
-    let dc = src[0] as i64;
-    let ny = src[n] as i64;
+    let dc = src[0].to_bits() as i64;
+    let ny = src[n].to_bits() as i64;
     z[0] = sat_q31(dc + ny);
     z[1] = sat_q31(dc - ny);
 
     for k in 1..m {
-        let xkr = src[2 * k] as i64;
-        let xki = src[2 * k + 1] as i64;
-        let xnr = src[2 * (n - k)] as i64;
-        let xni = src[2 * (n - k) + 1] as i64;
+        let xkr = src[2 * k].to_bits() as i64;
+        let xki = src[2 * k + 1].to_bits() as i64;
+        let xnr = src[2 * (n - k)].to_bits() as i64;
+        let xni = src[2 * (n - k) + 1].to_bits() as i64;
 
         let xe_re = xkr + xnr;
         let xe_im = xki - xni;
@@ -668,8 +668,8 @@ fn packed_irfft_q31(src: &[q31], dst: &mut [q31], n: usize) {
 
     cfft_q31(&mut z[..2 * m], m, 1, 1);
     for k in 0..m {
-        dst[2 * k] = sat_q31((z[2 * k] as i64) >> 1);
-        dst[2 * k + 1] = sat_q31((z[2 * k + 1] as i64) >> 1);
+        dst[2 * k] = sat_q31((z[2 * k].to_bits() as i64) >> 1);
+        dst[2 * k + 1] = sat_q31((z[2 * k + 1].to_bits() as i64) >> 1);
     }
 }
 
@@ -694,14 +694,14 @@ pub fn rfft_q31(src: &[q31], dst: &mut [q31], n: usize, ifft_flag: u8) {
         return;
     }
 
-    let mut c_data = [0; 1024];
+    let mut c_data = [q31::ZERO; 1024];
     if 2 * len > c_data.len() {
         return;
     }
 
     for i in 0..len {
         c_data[2 * i] = src[i];
-        c_data[2 * i + 1] = 0;
+        c_data[2 * i + 1] = q31::ZERO;
     }
     cfft_q31(&mut c_data[..2 * len], len, ifft_flag, 1);
     dst[..2 * len].copy_from_slice(&c_data[..2 * len]);
@@ -722,14 +722,14 @@ pub fn rfft_q15(src: &[q15], dst: &mut [q15], n: usize, ifft_flag: u8) {
         return;
     }
 
-    let mut c_data = [0; 1024];
+    let mut c_data = [q15::ZERO; 1024];
     if 2 * len > c_data.len() {
         return;
     }
 
     for i in 0..len {
         c_data[2 * i] = src[i];
-        c_data[2 * i + 1] = 0;
+        c_data[2 * i + 1] = q15::ZERO;
     }
     cfft_q15(&mut c_data[..2 * len], len, ifft_flag, 1);
     dst[..2 * len].copy_from_slice(&c_data[..2 * len]);

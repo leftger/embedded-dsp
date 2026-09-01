@@ -16,7 +16,7 @@ A high-performance **`#![no_std]` Rust Digital Signal Processing library** desig
 ## Highlights
 
 - **`#![no_std]` First**: Pure `core` compatibility with zero heap allocations.
-- **Fixed & Float Parity**: CMSIS-style `f32`, `f64`, `q7`, `q15`, `q31`, and the polymorphic `DspSample` trait.
+- **Fixed & Float Parity**: CMSIS-style `f32`, `f64`, and `q7`/`q15`/`q31` — real [`fixed`](https://crates.io/crates/fixed) crate types (`I1F7`/`I1F15`/`I1F31`), interoperable with the rest of the Rust fixed-point ecosystem — plus the polymorphic `DspSample` trait.
 - **Hardware Acceleration**: ARM Cortex-M assembly intrinsics (`smlad`, `smlald`, `ssat`, `qadd16`) via `cortex-m-dsp`, with portable SWAR vector fallbacks.
 - **Pure-Integer CORDIC Engine**: Shift-and-add `sin`, `cos`, `atan2`, polar conversion, and `sqrt` requiring no hardware multipliers.
 - **Streaming Pipelines**: Zero-allocation [`DspNode`](src/pipeline.rs) composable processing chains (`Chain`, `Gain`, `Limiter`).
@@ -45,13 +45,13 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 # Standard std environment (all modules enabled)
-embedded-dsp = "0.4.1"
+embedded-dsp = "0.5.0"
 
 # Bare-metal #![no_std] with libm
-embedded-dsp = { version = "0.4.1", default-features = false, features = ["libm", "full"] }
+embedded-dsp = { version = "0.5.0", default-features = false, features = ["libm", "full"] }
 
 # Minimal firmware footprint (only FIR/Biquad filtering + basic math)
-embedded-dsp = { version = "0.4.1", default-features = false, features = ["libm", "filtering", "basic-math"] }
+embedded-dsp = { version = "0.5.0", default-features = false, features = ["libm", "filtering", "basic-math"] }
 ```
 
 ### Basic Example
@@ -61,10 +61,10 @@ use embedded_dsp::*;
 
 fn main() {
     // 1. Fixed-Point Saturating Addition
-    let a = [20000i16, 25000];
-    let b = [15000i16, 10000];
-    let mut out = [0i16; 2];
-    add_q15(&a, &b, &mut out); // [32767, 32767] (clamped at i16::MAX)
+    let a = [q15::from_bits(20000), q15::from_bits(25000)];
+    let b = [q15::from_bits(15000), q15::from_bits(10000)];
+    let mut out = [q15::ZERO; 2];
+    add_q15(&a, &b, &mut out); // [I1F15::MAX, I1F15::MAX] (saturated)
 
     // 2. Biquad Filter Cascade
     let coeffs = biquad_lowpass_coeffs(1000.0, 48000.0, core::f32::consts::FRAC_1_SQRT_2);

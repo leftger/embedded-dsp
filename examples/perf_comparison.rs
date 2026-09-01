@@ -44,9 +44,9 @@ fn main() {
 
     // embedded-dsp q31 sin (Fixed Point Integer Math)
     let start = Instant::now();
-    let mut sum_dsp_q31 = 0i32;
+    let mut sum_dsp_q31 = q31::ZERO;
     for i in 0..ITERATIONS {
-        let theta_q31 = ((i % 360) as i64 * 2147483648 / 360) as i32;
+        let theta_q31 = q31::from_bits(((i % 360) as i64 * 2147483648 / 360) as i32);
         sum_dsp_q31 = sum_dsp_q31.wrapping_add(sin_q31(theta_q31));
     }
     let duration_dsp_q31_sin = start.elapsed();
@@ -93,10 +93,10 @@ fn main() {
 
     // embedded-dsp sqrt_q31 (Fixed-point)
     let start = Instant::now();
-    let mut sum_dsp_sqrt_q31 = 0i32;
-    let mut out_q31 = 0i32;
+    let mut sum_dsp_sqrt_q31 = q31::ZERO;
+    let mut out_q31 = q31::ZERO;
     for i in 1..=ITERATIONS {
-        let val_q31 = (i as i64 * 2147483647 / ITERATIONS as i64) as i32;
+        let val_q31 = q31::from_bits((i as i64 * 2147483647 / ITERATIONS as i64) as i32);
         sqrt_q31(val_q31, &mut out_q31);
         sum_dsp_sqrt_q31 = sum_dsp_sqrt_q31.wrapping_add(out_q31);
     }
@@ -128,11 +128,11 @@ fn main() {
     let src_a_f32 = vec![1.5f32; VECTOR_SIZE];
     let src_b_f32 = vec![2.5f32; VECTOR_SIZE];
 
-    let src_a_q31 = vec![1000000i32; VECTOR_SIZE];
-    let src_b_q31 = vec![2000000i32; VECTOR_SIZE];
+    let src_a_q31 = vec![q31::from_bits(1000000); VECTOR_SIZE];
+    let src_b_q31 = vec![q31::from_bits(2000000); VECTOR_SIZE];
 
-    let src_a_q15 = vec![1000i16; VECTOR_SIZE];
-    let src_b_q15 = vec![2000i16; VECTOR_SIZE];
+    let src_a_q15 = vec![q15::from_bits(1000); VECTOR_SIZE];
+    let src_b_q15 = vec![q15::from_bits(2000); VECTOR_SIZE];
 
     // f32 Dot Product
     let start = Instant::now();
@@ -186,13 +186,13 @@ fn main() {
     );
 
     let mut fft_data_f32 = vec![0.0f32; 512]; // 256 complex pairs
-    let mut fft_data_q31 = vec![0i32; 512];
-    let mut fft_data_q15 = vec![0i16; 512];
+    let mut fft_data_q31 = vec![q31::ZERO; 512];
+    let mut fft_data_q15 = vec![q15::ZERO; 512];
 
     for i in 0..256 {
         fft_data_f32[2 * i] = (i as f32).sin();
-        fft_data_q31[2 * i] = (i * 1000) as i32;
-        fft_data_q15[2 * i] = (i * 100) as i16;
+        fft_data_q31[2 * i] = q31::from_bits((i * 1000) as i32);
+        fft_data_q15[2 * i] = q15::from_bits((i * 100) as i16);
     }
 
     // cfft_f32

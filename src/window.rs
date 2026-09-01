@@ -6,7 +6,7 @@ use crate::types::q15;
 
 #[inline]
 fn q15_from_unit(v: f32) -> q15 {
-    (v * 32767.0).clamp(-32768.0, 32767.0) as q15
+    q15::saturating_from_num(v)
 }
 
 /// Generate Hanning window of length `n`.
@@ -182,7 +182,7 @@ fn fill_window_q15(dst: &mut [q15], fill: impl Fn(usize, usize) -> f32) {
         return;
     }
     if n == 1 {
-        dst[0] = 32767;
+        dst[0] = q15::MAX;
         return;
     }
     for i in 0..n {
@@ -227,6 +227,6 @@ pub fn bartlett_q15(dst: &mut [q15]) {
 pub fn apply_window_q15(signal: &mut [q15], window: &[q15]) {
     let len = signal.len().min(window.len());
     for i in 0..len {
-        signal[i] = (((signal[i] as i32) * (window[i] as i32)) >> 15) as q15;
+        signal[i] = signal[i].wrapping_mul(window[i]);
     }
 }

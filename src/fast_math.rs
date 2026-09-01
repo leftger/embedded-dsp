@@ -124,23 +124,23 @@ fn atan2_from_xy_q31(y: i32, x: i32) -> i32 {
 
 /// Q31 sine and cosine. `theta` is in CMSIS units: `[-1, 1) → [-π, π)`.
 pub fn sin_cos_q31(theta: q31, sin_val: &mut q31, cos_val: &mut q31) {
-    let (c, s) = cordic_rotate_q31(theta);
-    *cos_val = c;
-    *sin_val = s;
+    let (c, s) = cordic_rotate_q31(theta.to_bits());
+    *cos_val = q31::from_bits(c);
+    *sin_val = q31::from_bits(s);
 }
 
 /// Q31 sine function.
 pub fn sin_q31(x: q31) -> q31 {
-    let mut s = 0;
-    let mut c = 0;
+    let mut s = q31::ZERO;
+    let mut c = q31::ZERO;
     sin_cos_q31(x, &mut s, &mut c);
     s
 }
 
 /// Q31 cosine function.
 pub fn cos_q31(x: q31) -> q31 {
-    let mut s = 0;
-    let mut c = 0;
+    let mut s = q31::ZERO;
+    let mut c = q31::ZERO;
     sin_cos_q31(x, &mut s, &mut c);
     c
 }
@@ -158,24 +158,24 @@ pub fn sqrt_f32(in_val: f32, out_val: &mut f32) -> Status {
 
 /// Q31 square root (`sqrt(x / 2^31) * 2^31`).
 pub fn sqrt_q31(in_val: q31, out_val: &mut q31) -> Status {
-    if in_val < 0 {
-        *out_val = 0;
+    if in_val < q31::ZERO {
+        *out_val = q31::ZERO;
         Status::ArgumentError
     } else {
-        let n = (in_val as u64) << 31;
-        *out_val = isqrt_u64(n).min(i32::MAX as u64) as q31;
+        let n = (in_val.to_bits() as u64) << 31;
+        *out_val = q31::from_bits(isqrt_u64(n).min(i32::MAX as u64) as i32);
         Status::Success
     }
 }
 
 /// Q15 square root (`sqrt(x / 2^15) * 2^15`).
 pub fn sqrt_q15(in_val: q15, out_val: &mut q15) -> Status {
-    if in_val < 0 {
-        *out_val = 0;
+    if in_val < q15::ZERO {
+        *out_val = q15::ZERO;
         Status::ArgumentError
     } else {
-        let n = (in_val as u32) << 15;
-        *out_val = isqrt_u32(n).min(i16::MAX as u32) as q15;
+        let n = (in_val.to_bits() as u32) << 15;
+        *out_val = q15::from_bits(isqrt_u32(n).min(i16::MAX as u32) as i16);
         Status::Success
     }
 }
@@ -194,34 +194,34 @@ pub fn vsqrt_f32(src: &[f32], dst: &mut [f32]) {
 
 /// Fixed-point division for Q31 types (numerator / denominator).
 pub fn divide_q31(numerator: q31, denominator: q31, quotient: &mut q31, shift: &mut i16) -> Status {
-    if denominator == 0 {
+    if denominator == q31::ZERO {
         return Status::ArgumentError;
     }
-    let n = numerator as i64;
-    let d = denominator as i64;
+    let n = numerator.to_bits() as i64;
+    let d = denominator.to_bits() as i64;
 
     let res = (n << 31) / d;
     if res > i32::MAX as i64 || res < i32::MIN as i64 {
         *shift = 0;
-        *quotient = res.clamp(i32::MIN as i64, i32::MAX as i64) as q31;
+        *quotient = q31::from_bits(res.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
     } else {
         *shift = 0;
-        *quotient = res as q31;
+        *quotient = q31::from_bits(res as i32);
     }
     Status::Success
 }
 
 /// Fixed-point division for Q15 types (numerator / denominator).
 pub fn divide_q15(numerator: q15, denominator: q15, quotient: &mut q15, shift: &mut i16) -> Status {
-    if denominator == 0 {
+    if denominator == q15::ZERO {
         return Status::ArgumentError;
     }
-    let n = numerator as i32;
-    let d = denominator as i32;
+    let n = numerator.to_bits() as i32;
+    let d = denominator.to_bits() as i32;
 
     let res = (n << 15) / d;
     *shift = 0;
-    *quotient = res.clamp(i16::MIN as i32, i16::MAX as i32) as q15;
+    *quotient = q15::from_bits(res.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
     Status::Success
 }
 
@@ -243,13 +243,13 @@ pub fn atan2_f32(y: f32, x: f32, res: &mut f32) -> Status {
 
 /// Q31 arc-tangent 2. Result is `atan2(y, x) / π` in Q1.31 (`[-1, 1)`).
 pub fn atan2_q31(y: q31, x: q31, res: &mut q31) -> Status {
-    *res = atan2_from_xy_q31(y, x);
+    *res = q31::from_bits(atan2_from_xy_q31(y.to_bits(), x.to_bits()));
     Status::Success
 }
 
 /// Q15 arc-tangent 2. Result is `atan2(y, x) / π` in Q1.15.
 pub fn atan2_q15(y: q15, x: q15, res: &mut q15) -> Status {
-    let z = atan2_from_xy_q31((y as i32) << 16, (x as i32) << 16);
-    *res = (z >> 16) as q15;
+    let z = atan2_from_xy_q31((y.to_bits() as i32) << 16, (x.to_bits() as i32) << 16);
+    *res = q15::from_bits((z >> 16) as i16);
     Status::Success
 }

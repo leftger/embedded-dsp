@@ -163,21 +163,21 @@ pub fn saturate_q15(val: i32) -> q15 {
                 options(pure, nomem, nostack)
             );
         }
-        res as q15
+        q15::from_bits(res as i16)
     }
     #[cfg(not(all(
         target_arch = "arm",
         any(target_feature = "dsp", feature = "cortex-m-dsp")
     )))]
     {
-        val.clamp(i16::MIN as i32, i16::MAX as i32) as q15
+        q15::from_bits(val.clamp(i16::MIN as i32, i16::MAX as i32) as i16)
     }
 }
 
 /// Signed 32-bit saturation for Q31 results.
 #[inline(always)]
 pub fn saturate_q31(val: i64) -> q31 {
-    val.clamp(i32::MIN as i64, i32::MAX as i64) as q31
+    q31::from_bits(val.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
 }
 
 /// High-throughput unrolled dot product in Q15 with SIMD / SWAR acceleration.
@@ -189,10 +189,14 @@ pub fn simd_dot_prod_q15(src_a: &[q15], src_b: &[q15]) -> q63 {
 
     for i in 0..chunks {
         let idx = i * 4;
-        let p_a0 = (src_a[idx] as u16 as u32) | ((src_a[idx + 1] as u16 as u32) << 16);
-        let p_b0 = (src_b[idx] as u16 as u32) | ((src_b[idx + 1] as u16 as u32) << 16);
-        let p_a1 = (src_a[idx + 2] as u16 as u32) | ((src_a[idx + 3] as u16 as u32) << 16);
-        let p_b1 = (src_b[idx + 2] as u16 as u32) | ((src_b[idx + 3] as u16 as u32) << 16);
+        let p_a0 =
+            (src_a[idx].to_bits() as u16 as u32) | ((src_a[idx + 1].to_bits() as u16 as u32) << 16);
+        let p_b0 =
+            (src_b[idx].to_bits() as u16 as u32) | ((src_b[idx + 1].to_bits() as u16 as u32) << 16);
+        let p_a1 = (src_a[idx + 2].to_bits() as u16 as u32)
+            | ((src_a[idx + 3].to_bits() as u16 as u32) << 16);
+        let p_b1 = (src_b[idx + 2].to_bits() as u16 as u32)
+            | ((src_b[idx + 3].to_bits() as u16 as u32) << 16);
 
         sum = dual_mac_q63(p_a0, p_b0, sum);
         sum = dual_mac_q63(p_a1, p_b1, sum);
@@ -200,7 +204,7 @@ pub fn simd_dot_prod_q15(src_a: &[q15], src_b: &[q15]) -> q63 {
 
     let offset = chunks * 4;
     for i in 0..remainder {
-        sum += (src_a[offset + i] as i32 * src_b[offset + i] as i32) as q63;
+        sum += (src_a[offset + i].to_bits() as i32 * src_b[offset + i].to_bits() as i32) as i64;
     }
 
     sum
@@ -214,11 +218,13 @@ pub fn simd_add_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
 
     for i in 0..pairs {
         let idx = i * 2;
-        let p_a = (src_a[idx] as u16 as u32) | ((src_a[idx + 1] as u16 as u32) << 16);
-        let p_b = (src_b[idx] as u16 as u32) | ((src_b[idx + 1] as u16 as u32) << 16);
+        let p_a =
+            (src_a[idx].to_bits() as u16 as u32) | ((src_a[idx + 1].to_bits() as u16 as u32) << 16);
+        let p_b =
+            (src_b[idx].to_bits() as u16 as u32) | ((src_b[idx + 1].to_bits() as u16 as u32) << 16);
         let res = dual_saturating_add_q15(p_a, p_b);
-        dst[idx] = res as q15;
-        dst[idx + 1] = (res >> 16) as q15;
+        dst[idx] = q15::from_bits(res as i16);
+        dst[idx + 1] = q15::from_bits((res >> 16) as i16);
     }
 
     if remainder != 0 {
@@ -235,11 +241,13 @@ pub fn simd_sub_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
 
     for i in 0..pairs {
         let idx = i * 2;
-        let p_a = (src_a[idx] as u16 as u32) | ((src_a[idx + 1] as u16 as u32) << 16);
-        let p_b = (src_b[idx] as u16 as u32) | ((src_b[idx + 1] as u16 as u32) << 16);
+        let p_a =
+            (src_a[idx].to_bits() as u16 as u32) | ((src_a[idx + 1].to_bits() as u16 as u32) << 16);
+        let p_b =
+            (src_b[idx].to_bits() as u16 as u32) | ((src_b[idx + 1].to_bits() as u16 as u32) << 16);
         let res = dual_saturating_sub_q15(p_a, p_b);
-        dst[idx] = res as q15;
-        dst[idx + 1] = (res >> 16) as q15;
+        dst[idx] = q15::from_bits(res as i16);
+        dst[idx + 1] = q15::from_bits((res >> 16) as i16);
     }
 
     if remainder != 0 {

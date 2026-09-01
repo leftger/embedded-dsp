@@ -5,17 +5,22 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-01
+
 ### Added
 
 - **`nalgebra` interop**: New optional `nalgebra` feature (implies `quaternion`) adding `quaternion_to_nalgebra`, `quaternion_from_nalgebra`, `quaternion_to_unit_nalgebra`, and `quaternion_from_unit_nalgebra` to bridge the `[w, x, y, z]` quaternion representation used by `quaternion` with `nalgebra`'s `Quaternion`/`UnitQuaternion`, for pipelines that pair `embedded-dsp` with a `nalgebra`-based crate downstream.
 
 ### Removed
 
-- **Breaking**: Removed the `Q15`/`Q31` strongly-typed newtypes added in 0.4.1. They were never adopted internally; the crate's fixed-point story is now the CMSIS-style `q7`/`q15`/`q31`/`q63` aliases plus the `fixed` crate for anyone wanting a strongly-typed wrapper.
+- **Breaking**: Removed the `Q15`/`Q31` strongly-typed newtypes added in 0.4.1. They were never adopted internally, and would have been a redundant wrapper now that `q7`/`q15`/`q31` are themselves real `fixed` crate types (see below).
 
 ### Changed
 
 - Fixed-point internals (`fixed_point::Q16` arithmetic and the shared `q7_mult`/`q15_mult`/`q31_mult` saturating-multiply helpers) now build on the `fixed` crate instead of hand-rolled bit-shifting. Public function names, signatures, and documented behavior are unchanged. Raises MSRV to 1.93.
+- **Breaking**: `q7`, `q15`, and `q31` are no longer plain `i8`/`i16`/`i32` aliases — they're now real [`fixed`](https://crates.io/crates/fixed) crate types (`fixed::types::I1F7`/`I1F15`/`I1F31`), so they interoperate directly with the rest of the Rust fixed-point ecosystem instead of just being CMSIS-flavored raw integers. Construct a value from a raw CMSIS-style bit pattern with `q15::from_bits(20000)`, get it back with `.to_bits()`, and use `q15::ZERO` / `q15::saturating_from_num(0.5)` in place of `0i16` / manual float-to-fixed shifting. Bare arithmetic operators now panic-on-overflow in debug builds like any other primitive-backed type; existing call sites already used the explicit `wrapping_*`/`saturating_*`/`checked_*` methods and are unaffected. `q63` is unchanged — it remains a plain `i64` wide-accumulator alias, not a fixed-point value.
+- **Breaking**: `fast_log2_q15`'s return type changed from `q15` to a new `Q8F7` type (`fixed::FixedI16<U7>`), matching the Q8.7 range its packed integer result actually occupies (previously mistyped as Q1.15, which would silently saturate legitimate outputs now that `q15` enforces the `[-1, 1)` range). Similarly, `GoertzelDetectorQ15`'s `coeff` field is now the new `Q2F14` type (`fixed::FixedI16<U14>`) instead of `q15`, since Goertzel coefficients (`2*cos(ω)`) range up to ±2.0.
+- Adds `impl DspSample for q15` and `impl DspSample for q31`, restoring generic-programming support over the real fixed-point types (previously only implemented for the now-removed `Q15`/`Q31` newtypes).
 
 ## [0.4.1] - 2026-08-26
 

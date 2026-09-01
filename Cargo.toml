@@ -18,8 +18,8 @@ categories = ["embedded", "no-std", "science"]
 default = ["std", "libm", "full"]
 std = []
 libm = ["dep:libm"]
-defmt = ["dep:defmt"]
-serde = ["dep:serde"]
+defmt = ["dep:defmt", "fixed/defmt"]
+serde = ["dep:serde", "fixed/serde"]
 # Conversions between the `[f32; 4]` quaternion representation used by
 # `quaternion` and `nalgebra`'s `Quaternion`/`UnitQuaternion`.
 nalgebra = ["quaternion", "dep:nalgebra"]
@@ -76,7 +76,7 @@ filter-analysis = []
 filter-design = []
 filtering = []
 # Q16.16 saturating arithmetic (rasterizer / no-FPU pipelines). Complements
-# the always-on CMSIS-style q7/q15/q31 aliases in `types`.
+# the always-on CMSIS-style q7/q15/q31 fixed-point types in `types`.
 fixed-point = []
 interpolation = []
 kalman = ["matrix"]

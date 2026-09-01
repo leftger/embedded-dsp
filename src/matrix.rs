@@ -216,9 +216,13 @@ pub fn mat_mult_q31(
         for c in 0..cols_b {
             let mut sum: i64 = 0;
             for k in 0..cols_a {
-                sum += (a.data[r * cols_a + k] as i64 * b.data[k * cols_b + c] as i64) >> 31;
+                sum +=
+                    (a.data[r * cols_a + k].to_bits() as i64
+                        * b.data[k * cols_b + c].to_bits() as i64)
+                        >> 31;
             }
-            out.data[r * cols_b + c] = sum.clamp(i32::MIN as i64, i32::MAX as i64) as q31;
+            out.data[r * cols_b + c] =
+                q31::from_bits(sum.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
         }
     }
     Status::Success
@@ -240,9 +244,12 @@ pub fn mat_mult_q15(
         for c in 0..cols_b {
             let mut sum: i32 = 0;
             for k in 0..cols_a {
-                sum += (a.data[r * cols_a + k] as i32 * b.data[k * cols_b + c] as i32) >> 15;
+                sum += (a.data[r * cols_a + k].to_bits() as i32
+                    * b.data[k * cols_b + c].to_bits() as i32)
+                    >> 15;
             }
-            out.data[r * cols_b + c] = sum.clamp(i16::MIN as i32, i16::MAX as i32) as q15;
+            out.data[r * cols_b + c] =
+                q15::from_bits(sum.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
         }
     }
     Status::Success

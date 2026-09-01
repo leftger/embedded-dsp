@@ -73,11 +73,12 @@ pub fn cmplx_mult_cmplx_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
         let br = src_b[2 * i];
         let bi = src_b[2 * i + 1];
 
+        let (ar, ai, br, bi) = (ar.to_bits(), ai.to_bits(), br.to_bits(), bi.to_bits());
         let real = ((ar as i64 * br as i64) >> 31) - ((ai as i64 * bi as i64) >> 31);
         let imag = ((ar as i64 * bi as i64) >> 31) + ((ai as i64 * br as i64) >> 31);
 
-        dst[2 * i] = real.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-        dst[2 * i + 1] = imag.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        dst[2 * i] = q31::from_bits(real.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        dst[2 * i + 1] = q31::from_bits(imag.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
     }
 }
 
@@ -90,11 +91,12 @@ pub fn cmplx_mult_cmplx_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
         let br = src_b[2 * i];
         let bi = src_b[2 * i + 1];
 
+        let (ar, ai, br, bi) = (ar.to_bits(), ai.to_bits(), br.to_bits(), bi.to_bits());
         let real = ((ar as i32 * br as i32) >> 15) - ((ai as i32 * bi as i32) >> 15);
         let imag = ((ar as i32 * bi as i32) >> 15) + ((ai as i32 * br as i32) >> 15);
 
-        dst[2 * i] = real.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
-        dst[2 * i + 1] = imag.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+        dst[2 * i] = q15::from_bits(real.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
+        dst[2 * i + 1] = q15::from_bits(imag.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
     }
 }
 
@@ -141,10 +143,10 @@ pub fn cmplx_mag_f32(src: &[f32], dst: &mut [f32]) {
 pub fn cmplx_mag_q31(src: &[q31], dst: &mut [q31]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
-        let r = src[2 * i] as i64;
-        let im = src[2 * i + 1] as i64;
-        let mag_sq = ((r * r + im * im) >> 31).clamp(0, i32::MAX as i64) as q31;
-        let mut mag = 0;
+        let r = src[2 * i].to_bits() as i64;
+        let im = src[2 * i + 1].to_bits() as i64;
+        let mag_sq = q31::from_bits(((r * r + im * im) >> 31).clamp(0, i32::MAX as i64) as i32);
+        let mut mag = q31::ZERO;
         let _ = crate::fast_math::sqrt_q31(mag_sq, &mut mag);
         dst[i] = mag;
     }
@@ -153,10 +155,10 @@ pub fn cmplx_mag_q31(src: &[q31], dst: &mut [q31]) {
 pub fn cmplx_mag_q15(src: &[q15], dst: &mut [q15]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
-        let r = src[2 * i] as i32;
-        let im = src[2 * i + 1] as i32;
-        let mag_sq = ((r * r + im * im) >> 15).clamp(0, i16::MAX as i32) as q15;
-        let mut mag = 0;
+        let r = src[2 * i].to_bits() as i32;
+        let im = src[2 * i + 1].to_bits() as i32;
+        let mag_sq = q15::from_bits(((r * r + im * im) >> 15).clamp(0, i16::MAX as i32) as i16);
+        let mut mag = q15::ZERO;
         let _ = crate::fast_math::sqrt_q15(mag_sq, &mut mag);
         dst[i] = mag;
     }
@@ -176,20 +178,20 @@ pub fn cmplx_mag_squared_f32(src: &[f32], dst: &mut [f32]) {
 pub fn cmplx_mag_squared_q31(src: &[q31], dst: &mut [q31]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
-        let r = src[2 * i] as i64;
-        let im = src[2 * i + 1] as i64;
+        let r = src[2 * i].to_bits() as i64;
+        let im = src[2 * i + 1].to_bits() as i64;
         let acc = ((r * r) >> 33) + ((im * im) >> 33);
-        dst[i] = acc.clamp(0, i32::MAX as i64) as q31;
+        dst[i] = q31::from_bits(acc.clamp(0, i32::MAX as i64) as i32);
     }
 }
 
 pub fn cmplx_mag_squared_q15(src: &[q15], dst: &mut [q15]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
-        let r = src[2 * i] as i32;
-        let im = src[2 * i + 1] as i32;
+        let r = src[2 * i].to_bits() as i32;
+        let im = src[2 * i + 1].to_bits() as i32;
         let acc = ((r * r) >> 17) + ((im * im) >> 17);
-        dst[i] = acc.clamp(0, i16::MAX as i32) as q15;
+        dst[i] = q15::from_bits(acc.clamp(0, i16::MAX as i32) as i16);
     }
 }
 
@@ -242,10 +244,10 @@ pub fn cmplx_dot_prod_q31(src_a: &[q31], src_b: &[q31]) -> Complex<q63> {
     let mut real_sum: q63 = 0;
     let mut imag_sum: q63 = 0;
     for i in 0..num_samples {
-        let ar = src_a[2 * i] as i64;
-        let ai = src_a[2 * i + 1] as i64;
-        let br = src_b[2 * i] as i64;
-        let bi = src_b[2 * i + 1] as i64;
+        let ar = src_a[2 * i].to_bits() as i64;
+        let ai = src_a[2 * i + 1].to_bits() as i64;
+        let br = src_b[2 * i].to_bits() as i64;
+        let bi = src_b[2 * i + 1].to_bits() as i64;
 
         real_sum += (ar * br - ai * bi) >> 14;
         imag_sum += (ar * bi + ai * br) >> 14;
@@ -258,13 +260,13 @@ pub fn cmplx_dot_prod_q15(src_a: &[q15], src_b: &[q15]) -> Complex<q63> {
     let mut real_sum: q63 = 0;
     let mut imag_sum: q63 = 0;
     for i in 0..num_samples {
-        let ar = src_a[2 * i] as i32;
-        let ai = src_a[2 * i + 1] as i32;
-        let br = src_b[2 * i] as i32;
-        let bi = src_b[2 * i + 1] as i32;
+        let ar = src_a[2 * i].to_bits() as i32;
+        let ai = src_a[2 * i + 1].to_bits() as i32;
+        let br = src_b[2 * i].to_bits() as i32;
+        let bi = src_b[2 * i + 1].to_bits() as i32;
 
-        real_sum += (ar * br - ai * bi) as q63;
-        imag_sum += (ar * bi + ai * br) as q63;
+        real_sum += (ar * br - ai * bi) as i64;
+        imag_sum += (ar * bi + ai * br) as i64;
     }
     Complex::new(real_sum, imag_sum)
 }

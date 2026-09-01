@@ -706,7 +706,7 @@ pub fn fir_quantize_q15(taps_f32: &[f32], out_q15: &mut [q15]) -> Result<(), Sta
         return Err(Status::LengthError);
     }
     for i in 0..taps_f32.len() {
-        out_q15[i] = (taps_f32[i] * 32768.0).clamp(-32768.0, 32767.0) as q15;
+        out_q15[i] = q15::saturating_from_num(taps_f32[i]);
     }
     Ok(())
 }

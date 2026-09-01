@@ -40,25 +40,35 @@ fn test_basic_math_float() {
 
 #[test]
 fn test_fixed_point_basic_math_saturating() {
-    let a = [1000i16, 2000, 3000, 30000];
-    let b = [5000i16, 6000, 7000, 10000];
-    let mut out = [0i16; 4];
+    let a = [
+        q15::from_bits(1000),
+        q15::from_bits(2000),
+        q15::from_bits(3000),
+        q15::from_bits(30000),
+    ];
+    let b = [
+        q15::from_bits(5000),
+        q15::from_bits(6000),
+        q15::from_bits(7000),
+        q15::from_bits(10000),
+    ];
+    let mut out = [q15::ZERO; 4];
 
     add_q15(&a, &b, &mut out);
-    assert_eq!(out[0], 6000);
-    assert_eq!(out[3], 32767); // Saturating max i16
+    assert_eq!(out[0].to_bits(), 6000);
+    assert_eq!(out[3].to_bits(), 32767); // Saturating max i16
 
-    let a_neg = [-30000i16];
-    let b_neg = [-10000i16];
-    let mut out_neg = [0i16; 1];
+    let a_neg = [q15::from_bits(-30000)];
+    let b_neg = [q15::from_bits(-10000)];
+    let mut out_neg = [q15::ZERO; 1];
     add_q15(&a_neg, &b_neg, &mut out_neg);
-    assert_eq!(out_neg[0], -32768); // Saturating min i16
+    assert_eq!(out_neg[0].to_bits(), -32768); // Saturating min i16
 
-    let a_q31 = [2000000000i32];
-    let b_q31 = [1000000000i32];
-    let mut out_q31 = [0i32; 1];
+    let a_q31 = [q31::from_bits(2000000000)];
+    let b_q31 = [q31::from_bits(1000000000)];
+    let mut out_q31 = [q31::ZERO; 1];
     add_q31(&a_q31, &b_q31, &mut out_q31);
-    assert_eq!(out_q31[0], 2147483647); // Saturating max i32
+    assert_eq!(out_q31[0].to_bits(), 2147483647); // Saturating max i32
 }
 
 #[test]
@@ -154,9 +164,12 @@ fn test_fast_trig_and_roots() {
     assert_eq!(atan2_f32(1.0, 1.0, &mut atan_res), Status::Success);
     assert!((atan_res - (pi / 4.0)).abs() < 1e-4);
 
-    let mut out_q31 = 0i32;
-    assert_eq!(sqrt_q31(1073741824, &mut out_q31), Status::Success);
-    assert!((out_q31 - 1518500249).abs() < 1000);
+    let mut out_q31 = q31::ZERO;
+    assert_eq!(
+        sqrt_q31(q31::from_bits(1073741824), &mut out_q31),
+        Status::Success
+    );
+    assert!((out_q31.to_bits() - 1518500249).abs() < 1000);
 }
 
 // =========================================================================================
@@ -218,23 +231,36 @@ fn test_lms_adaptive_filter() {
     let last_err = nerr[63].abs();
     assert!(last_err < 0.15, "nlms err {last_err}");
 
-    let mut qcoeffs = [0i16; 4];
-    let mut qstate = [0i16; 4];
-    let mut qlms = LmsInstanceQ15::init(4, &mut qcoeffs, &mut qstate, 1024);
-    let mut qsrc = [0i16; 64];
-    let mut qref = [0i16; 64];
+    let mut qcoeffs = [q15::ZERO; 4];
+    let mut qstate = [q15::ZERO; 4];
+    let mut qlms = LmsInstanceQ15::init(4, &mut qcoeffs, &mut qstate, q15::from_bits(1024));
+    let mut qsrc = [q15::ZERO; 64];
+    let mut qref = [q15::ZERO; 64];
     for i in 0..64 {
-        qsrc[i] = (nsrc[i] * 16000.0) as i16;
-        qref[i] = (nref[i] * 16000.0) as i16;
+        qsrc[i] = q15::from_bits((nsrc[i] * 16000.0) as i16);
+        qref[i] = q15::from_bits((nref[i] * 16000.0) as i16);
     }
-    let mut qout = [0i16; 64];
-    let mut qerr = [0i16; 64];
+    let mut qout = [q15::ZERO; 64];
+    let mut qerr = [q15::ZERO; 64];
     lms_q15(&mut qlms, &qsrc, &qref, &mut qout, &mut qerr);
-    lms_leaky_q15(&mut qlms, &qsrc, &qref, &mut qout, &mut qerr, 32);
+    lms_leaky_q15(
+        &mut qlms,
+        &qsrc,
+        &qref,
+        &mut qout,
+        &mut qerr,
+        q15::from_bits(32),
+    );
 
-    let mut nqcoeffs = [0i16; 4];
-    let mut nqstate = [0i16; 4];
-    let mut qnlms = NlmsInstanceQ15::init(4, &mut nqcoeffs, &mut nqstate, 16384, 8);
+    let mut nqcoeffs = [q15::ZERO; 4];
+    let mut nqstate = [q15::ZERO; 4];
+    let mut qnlms = NlmsInstanceQ15::init(
+        4,
+        &mut nqcoeffs,
+        &mut nqstate,
+        q15::from_bits(16384),
+        q15::from_bits(8),
+    );
     nlms_q15(&mut qnlms, &qsrc, &qref, &mut qout, &mut qerr);
 }
 
@@ -351,42 +377,57 @@ fn test_pid_and_clarke_park() {
     assert_eq!(d, 1.0);
     assert_eq!(q, 0.0);
 
-    let ia = 16384i16;
-    let ib = -8192i16;
-    let mut a_q = 0i16;
-    let mut b_q = 0i16;
+    let ia = q15::from_bits(16384);
+    let ib = q15::from_bits(-8192);
+    let mut a_q = q15::ZERO;
+    let mut b_q = q15::ZERO;
     clarke_q15(ia, ib, &mut a_q, &mut b_q);
     assert_eq!(a_q, ia);
-    let mut ia2 = 0i16;
-    let mut ib2 = 0i16;
+    let mut ia2 = q15::ZERO;
+    let mut ib2 = q15::ZERO;
     inv_clarke_q15(a_q, b_q, &mut ia2, &mut ib2);
-    assert!((ia2 as i32 - ia as i32).abs() < 8);
-    assert!((ib2 as i32 - ib as i32).abs() < 16);
+    assert!((ia2.to_bits() as i32 - ia.to_bits() as i32).abs() < 8);
+    assert!((ib2.to_bits() as i32 - ib.to_bits() as i32).abs() < 16);
 
-    let mut d_q = 0i16;
-    let mut q_q = 0i16;
-    park_q15(a_q, b_q, 0, 32767, &mut d_q, &mut q_q);
-    assert!((d_q as i32 - a_q as i32).abs() < 4);
-    assert!(q_q.abs() < 4);
-    let mut ar = 0i16;
-    let mut br = 0i16;
-    inv_park_q15(d_q, q_q, 0, 32767, &mut ar, &mut br);
-    assert!((ar as i32 - a_q as i32).abs() < 8);
+    let mut d_q = q15::ZERO;
+    let mut q_q = q15::ZERO;
+    park_q15(
+        a_q,
+        b_q,
+        q15::ZERO,
+        q15::from_bits(32767),
+        &mut d_q,
+        &mut q_q,
+    );
+    assert!((d_q.to_bits() as i32 - a_q.to_bits() as i32).abs() < 4);
+    assert!(q_q.to_bits().abs() < 4);
+    let mut ar = q15::ZERO;
+    let mut br = q15::ZERO;
+    inv_park_q15(d_q, q_q, q15::ZERO, q15::from_bits(32767), &mut ar, &mut br);
+    assert!((ar.to_bits() as i32 - a_q.to_bits() as i32).abs() < 8);
 }
 
 #[test]
 fn test_pid_q31_and_q15_process() {
-    let mut pid31 = PidInstanceQ31::new(i32::MAX / 4, i32::MAX / 20, i32::MAX / 100);
-    let out31 = pid31.process(i32::MAX / 4);
+    let mut pid31 = PidInstanceQ31::new(
+        q31::from_bits(i32::MAX / 4),
+        q31::from_bits(i32::MAX / 20),
+        q31::from_bits(i32::MAX / 100),
+    );
+    let out31 = pid31.process(q31::from_bits(i32::MAX / 4));
     assert!(
-        out31 > 0,
+        out31.to_bits() > 0,
         "positive input with positive gains must give positive output"
     );
 
-    let mut pid15 = PidInstanceQ15::new(i16::MAX / 4, i16::MAX / 20, i16::MAX / 100);
-    let out15 = pid15.process(i16::MAX / 4);
+    let mut pid15 = PidInstanceQ15::new(
+        q15::from_bits(i16::MAX / 4),
+        q15::from_bits(i16::MAX / 20),
+        q15::from_bits(i16::MAX / 100),
+    );
+    let out15 = pid15.process(q15::from_bits(i16::MAX / 4));
     assert!(
-        out15 > 0,
+        out15.to_bits() > 0,
         "positive input with positive gains must give positive output"
     );
 
@@ -394,29 +435,37 @@ fn test_pid_q31_and_q15_process() {
     // MAC term wraps to MIN instead of saturating to +2^31, since only the
     // final sum saturates, not each term (see PidInstanceQ31::process docs).
     let mut pid31_edge = PidInstanceQ31 {
-        a0: i32::MIN,
-        a1: 0,
-        a2: 0,
-        state: [0; 3],
-        kp: 0,
-        ki: 0,
-        kd: 0,
+        a0: q31::from_bits(i32::MIN),
+        a1: q31::ZERO,
+        a2: q31::ZERO,
+        state: [q31::ZERO; 3],
+        kp: q31::ZERO,
+        ki: q31::ZERO,
+        kd: q31::ZERO,
     };
-    let out_edge = pid31_edge.process(i32::MIN);
-    assert_eq!(out_edge, i32::MIN, "MIN*MIN term must wrap, not saturate");
+    let out_edge = pid31_edge.process(q31::from_bits(i32::MIN));
+    assert_eq!(
+        out_edge.to_bits(),
+        i32::MIN,
+        "MIN*MIN term must wrap, not saturate"
+    );
 
     // Same edge case at Q15 width (see PidInstanceQ15::process docs).
     let mut pid15_edge = PidInstanceQ15 {
-        a0: i16::MIN,
-        a1: 0,
-        a2: 0,
-        state: [0; 3],
-        kp: 0,
-        ki: 0,
-        kd: 0,
+        a0: q15::from_bits(i16::MIN),
+        a1: q15::ZERO,
+        a2: q15::ZERO,
+        state: [q15::ZERO; 3],
+        kp: q15::ZERO,
+        ki: q15::ZERO,
+        kd: q15::ZERO,
     };
-    let out15_edge = pid15_edge.process(i16::MIN);
-    assert_eq!(out15_edge, i16::MIN, "MIN*MIN term must wrap, not saturate");
+    let out15_edge = pid15_edge.process(q15::from_bits(i16::MIN));
+    assert_eq!(
+        out15_edge.to_bits(),
+        i16::MIN,
+        "MIN*MIN term must wrap, not saturate"
+    );
 }
 
 // =========================================================================================
@@ -475,16 +524,16 @@ fn test_statistics_comprehensive() {
 
 #[test]
 fn test_conversions_and_sorting() {
-    let src_q15 = [16384i16, -16384];
+    let src_q15 = [q15::from_bits(16384), q15::from_bits(-16384)];
     let mut dst_f32 = [0.0f32; 2];
     q15_to_f32(&src_q15, &mut dst_f32);
     assert!((dst_f32[0] - 0.5).abs() < 1e-4);
     assert!((dst_f32[1] - (-0.5)).abs() < 1e-4);
 
-    let mut dst_q15 = [0i16; 2];
+    let mut dst_q15 = [q15::ZERO; 2];
     f32_to_q15(&dst_f32, &mut dst_q15);
-    assert_eq!(dst_q15[0], 16384);
-    assert_eq!(dst_q15[1], -16384);
+    assert_eq!(dst_q15[0].to_bits(), 16384);
+    assert_eq!(dst_q15[1].to_bits(), -16384);
 
     let src = [5.0f32, 1.0, 4.0, 2.0, 3.0];
     let mut dst = [0.0f32; 5];
@@ -547,14 +596,14 @@ fn test_windows() {
     apply_window_f32(&mut sig, &w);
     assert!((sig[2] - 2.0).abs() < 1e-4);
 
-    let mut wq = [0i16; 5];
+    let mut wq = [q15::ZERO; 5];
     hanning_q15(&mut wq);
-    assert_eq!(wq[0], 0);
-    assert!((wq[2] - 32767).abs() < 2);
-    assert_eq!(wq[4], 0);
-    let mut sigq = [32767i16; 5];
+    assert_eq!(wq[0].to_bits(), 0);
+    assert!((wq[2].to_bits() - 32767).abs() < 2);
+    assert_eq!(wq[4].to_bits(), 0);
+    let mut sigq = [q15::from_bits(32767); 5];
     apply_window_q15(&mut sigq, &wq);
-    assert!((sigq[2] - 32766).abs() < 4);
+    assert!((sigq[2].to_bits() - 32766).abs() < 4);
 }
 
 // =========================================================================================
@@ -869,16 +918,40 @@ fn test_const_generics_wrappers() {
     let m_mul: Matrix<2, 2, 4> = m1.mul_mat(&m2);
     assert_eq!(m_mul.data, [19.0, 22.0, 43.0, 50.0]);
 
-    let mut fir_q = FirFilterQ15::<3>::new([8192, 16384, 8192]);
-    let mut dst_q = [0i16; 4];
-    fir_q.process(&[32767, 0, 0, 0], &mut dst_q);
-    assert!((dst_q[0] as i32 - 8191).abs() < 4);
-    assert!((dst_q[1] as i32 - 16383).abs() < 4);
+    let mut fir_q = FirFilterQ15::<3>::new([
+        q15::from_bits(8192),
+        q15::from_bits(16384),
+        q15::from_bits(8192),
+    ]);
+    let mut dst_q = [q15::ZERO; 4];
+    fir_q.process(
+        &[q15::from_bits(32767), q15::ZERO, q15::ZERO, q15::ZERO],
+        &mut dst_q,
+    );
+    assert!((dst_q[0].to_bits() as i32 - 8191).abs() < 4);
+    assert!((dst_q[1].to_bits() as i32 - 16383).abs() < 4);
 
-    let mut bq = BiquadCascadeQ15::<5, 4>::new([32767, 0, 0, 0, 0], 0);
-    bq.process(&[1000, 2000, 3000, 4000], &mut dst_q);
-    assert!((dst_q[0] as i32 - 1000).abs() < 3);
-    assert!((dst_q[3] as i32 - 4000).abs() < 3);
+    let mut bq = BiquadCascadeQ15::<5, 4>::new(
+        [
+            q15::from_bits(32767),
+            q15::ZERO,
+            q15::ZERO,
+            q15::ZERO,
+            q15::ZERO,
+        ],
+        0,
+    );
+    bq.process(
+        &[
+            q15::from_bits(1000),
+            q15::from_bits(2000),
+            q15::from_bits(3000),
+            q15::from_bits(4000),
+        ],
+        &mut dst_q,
+    );
+    assert!((dst_q[0].to_bits() as i32 - 1000).abs() < 3);
+    assert!((dst_q[3].to_bits() as i32 - 4000).abs() < 3);
 }
 
 // =========================================================================================
@@ -904,20 +977,34 @@ fn test_median_filter_1d_conditional() {
     assert_eq!(dst_cond[0], src[0]); // Small noise preserved
 
     // Q15 conditional median
-    let src_q15 = [1000i16, 1100, 1050, 30000, 1150, 1100, 1000];
-    let mut dst_q15 = [0i16; 7];
-    let status_q15 = median_filter_1d_q15(&src_q15, &mut dst_q15, 3, 5000);
+    let src_q15 = [
+        q15::from_bits(1000),
+        q15::from_bits(1100),
+        q15::from_bits(1050),
+        q15::from_bits(30000),
+        q15::from_bits(1150),
+        q15::from_bits(1100),
+        q15::from_bits(1000),
+    ];
+    let mut dst_q15 = [q15::ZERO; 7];
+    let status_q15 = median_filter_1d_q15(&src_q15, &mut dst_q15, 3, q15::from_bits(5000));
     assert_eq!(status_q15, Status::Success);
-    assert!(dst_q15[3] < 2000);
+    assert!(dst_q15[3].to_bits() < 2000);
 
     // Q31 conditional median
     let src_q31 = [
-        100000i32, 110000, 105000, 2000000000, 115000, 110000, 100000,
+        q31::from_bits(100000),
+        q31::from_bits(110000),
+        q31::from_bits(105000),
+        q31::from_bits(2000000000),
+        q31::from_bits(115000),
+        q31::from_bits(110000),
+        q31::from_bits(100000),
     ];
-    let mut dst_q31 = [0i32; 7];
-    let status_q31 = median_filter_1d_q31(&src_q31, &mut dst_q31, 3, 1000000);
+    let mut dst_q31 = [q31::ZERO; 7];
+    let status_q31 = median_filter_1d_q31(&src_q31, &mut dst_q31, 3, q31::from_bits(1000000));
     assert_eq!(status_q31, Status::Success);
-    assert!(dst_q31[3] < 200000);
+    assert!(dst_q31[3].to_bits() < 200000);
 }
 
 // =========================================================================================
@@ -1228,12 +1315,12 @@ fn test_windowed_sinc_q15_stopband_matches_float() {
     let mut taps = [0.0f32; M];
     assert_eq!(fir_windowed_sinc_lowpass(0.1, &mut taps), Status::Success);
 
-    let mut q_taps = [0i16; M];
+    let mut q_taps = [q15::ZERO; M];
     assert_eq!(fir_taps_f32_to_q15(&taps, &mut q_taps), Status::Success);
 
     let mut q_as_f = [0.0f32; M];
     for i in 0..M {
-        q_as_f[i] = q_taps[i] as f32 / 32768.0;
+        q_as_f[i] = q_taps[i].to_bits() as f32 / 32768.0;
     }
 
     let h_dc_f = response_magnitude(fir_frequency_response(&taps, 0.0));
@@ -1467,17 +1554,20 @@ fn test_single_pole_filters() {
 
     let mut lp_q = SinglePoleFilterQ15::lowpass_from_f32(decay);
     let mut hp_q = SinglePoleFilterQ15::highpass_from_f32(decay);
-    let mut yq = 0i16;
-    let mut yq_hp = 0i16;
+    let mut yq = q15::ZERO;
+    let mut yq_hp = q15::ZERO;
     for _ in 0..500 {
-        yq = lp_q.process(32767);
-        yq_hp = hp_q.process(32767);
+        yq = lp_q.process(q15::from_bits(32767));
+        yq_hp = hp_q.process(q15::from_bits(32767));
     }
     assert!(
-        (yq as i32 - 32767).abs() < 400,
+        (yq.to_bits() as i32 - 32767).abs() < 400,
         "q15 LP step settled at {yq}"
     );
-    assert!(yq_hp.abs() < 400, "q15 HP step settled at {yq_hp}");
+    assert!(
+        yq_hp.to_bits().abs() < 400,
+        "q15 HP step settled at {yq_hp}"
+    );
 }
 
 #[test]
@@ -1499,19 +1589,33 @@ fn test_recursive_moving_average_matches_naive_average() {
     }
 
     let mut rma_q = RecursiveMovingAverageQ15::<4>::new();
-    let input_q = [1000i16, 2000, 3000, 4000, 5000, 6000];
-    let expected_q = [1000i16, 1500, 2000, 2500, 3500, 4500];
+    let input_q = [
+        q15::from_bits(1000),
+        q15::from_bits(2000),
+        q15::from_bits(3000),
+        q15::from_bits(4000),
+        q15::from_bits(5000),
+        q15::from_bits(6000),
+    ];
+    let expected_q = [
+        q15::from_bits(1000),
+        q15::from_bits(1500),
+        q15::from_bits(2000),
+        q15::from_bits(2500),
+        q15::from_bits(3500),
+        q15::from_bits(4500),
+    ];
     for (i, &x) in input_q.iter().enumerate() {
         assert_eq!(rma_q.process(x), expected_q[i]);
     }
 
     let decay = single_pole_decay_from_cutoff(0.05);
     let mut dc = DcBlockerQ15::from_f32_decay(decay);
-    let mut y_dc = 0i16;
+    let mut y_dc = q15::ZERO;
     for _ in 0..500 {
-        y_dc = dc.process(32767);
+        y_dc = dc.process(q15::from_bits(32767));
     }
-    assert!(y_dc.abs() < 400, "dc blocker settled at {y_dc}");
+    assert!(y_dc.to_bits().abs() < 400, "dc blocker settled at {y_dc}");
 }
 
 // =========================================================================================
@@ -1752,12 +1856,12 @@ fn test_goertzel_detects_target_frequency_and_rejects_others() {
     let mut off_q = GoertzelDetectorQ15::new(2500.0, fs);
     for i in 0..n {
         let x = amplitude * (2.0 * core::f32::consts::PI * target * i as f32 / fs).sin();
-        let xq = (x * 32767.0) as i16;
+        let xq = q15::from_bits((x * 32767.0) as i16);
         on_q.process_sample(xq);
         off_q.process_sample(xq);
     }
-    let on_mag = on_q.magnitude() as f32 / 32767.0;
-    let off_mag = off_q.magnitude() as f32 / 32767.0;
+    let on_mag = on_q.magnitude().to_bits() as f32 / 32767.0;
+    let off_mag = off_q.magnitude().to_bits() as f32 / 32767.0;
     assert!(
         (on_mag - amplitude).abs() < 0.08,
         "q15 on-target mag {on_mag}"
@@ -1787,15 +1891,15 @@ fn test_peak_and_rms_envelope_followers_converge_to_constant_input() {
 
     let mut peak_q = PeakEnvelopeFollowerQ15::new(5.0, 50.0);
     let mut rms_q = RmsEnvelopeFollowerQ15::new(20.0);
-    let xq = (0.5 * 32767.0) as i16;
-    let mut peak_env_q = 0i16;
-    let mut rms_env_q = 0i16;
+    let xq = q15::from_bits((0.5 * 32767.0) as i16);
+    let mut peak_env_q = q15::ZERO;
+    let mut rms_env_q = q15::ZERO;
     for _ in 0..2000 {
         peak_env_q = peak_q.process(xq);
         rms_env_q = rms_q.process(xq);
     }
-    assert!((peak_env_q as i32 - xq as i32).abs() < 400);
-    assert!((rms_env_q as i32 - xq as i32).abs() < 800);
+    assert!((peak_env_q.to_bits() as i32 - xq.to_bits() as i32).abs() < 400);
+    assert!((rms_env_q.to_bits() as i32 - xq.to_bits() as i32).abs() < 800);
 }
 
 #[test]
@@ -1912,12 +2016,12 @@ fn test_q16_and_lut_trig() {
 #[test]
 fn test_integer_cfft_q15_tone_and_roundtrip_scale() {
     const N: usize = 32;
-    let mut q = [0i16; 64];
+    let mut q = [q15::ZERO; 64];
     let mut f = [0.0f32; 64];
     for i in 0..N {
         let x = (2.0 * core::f32::consts::PI * 4.0 * i as f32 / N as f32).sin();
         f[2 * i] = x;
-        q[2 * i] = (x * 32767.0) as i16;
+        q[2 * i] = q15::from_bits((x * 32767.0) as i16);
     }
     let orig = q;
     cfft_f32(&mut f, N, 0, 1);
@@ -1933,7 +2037,7 @@ fn test_integer_cfft_q15_tone_and_roundtrip_scale() {
             mag_f = mf;
             peak_f = k;
         }
-        let mq = (q[2 * k] as i32).pow(2) + (q[2 * k + 1] as i32).pow(2);
+        let mq = (q[2 * k].to_bits() as i32).pow(2) + (q[2 * k + 1].to_bits() as i32).pow(2);
         if mq > mag_q {
             mag_q = mq;
             peak_q = k;
@@ -1945,49 +2049,61 @@ fn test_integer_cfft_q15_tone_and_roundtrip_scale() {
     cfft_q15(&mut q, N, 1, 1);
     let mut err = 0i32;
     for i in 0..N {
-        let got = (q[2 * i] as i32) * (N as i32);
-        err += (got - orig[2 * i] as i32).abs();
+        let got = (q[2 * i].to_bits() as i32) * (N as i32);
+        err += (got - orig[2 * i].to_bits() as i32).abs();
     }
     let mean = err / (N as i32);
     assert!(
         mean < 4000,
         "round-trip abs err sum/N = {mean}; first got*N={} orig={}",
-        (q[0] as i32) * N as i32,
+        (q[0].to_bits() as i32) * N as i32,
         orig[0]
     );
 }
 
 #[test]
 fn test_sqrt_q15_and_atan2_q15_quadrants() {
-    let mut s = 0i16;
-    assert_eq!(sqrt_q15(16384, &mut s), Status::Success);
+    let mut s = q15::ZERO;
+    assert_eq!(sqrt_q15(q15::from_bits(16384), &mut s), Status::Success);
     // 0.5 in Q15 → sqrt ≈ 0.707 → ~23170
-    assert!((s as i32 - 23170).abs() < 200);
+    assert!((s.to_bits() as i32 - 23170).abs() < 200);
 
-    let mut a = 0i16;
-    assert_eq!(atan2_q15(32767, 32767, &mut a), Status::Success);
+    let mut a = q15::ZERO;
+    assert_eq!(
+        atan2_q15(q15::from_bits(32767), q15::from_bits(32767), &mut a),
+        Status::Success
+    );
     assert!(
-        a > 7000 && a < 10000,
+        a.to_bits() > 7000 && a.to_bits() < 10000,
         "π/4 as Q15/π expected ~8192, got {a}"
     );
-    assert_eq!(atan2_q15(32767, 0, &mut a), Status::Success);
-    assert!(a > 14000, "π/2 expected ~16384, got {a}");
-    assert_eq!(atan2_q15(0, -32767, &mut a), Status::Success);
-    assert!(a > 14000 || a < -14000, "±π expected, got {a}");
+    assert_eq!(
+        atan2_q15(q15::from_bits(32767), q15::ZERO, &mut a),
+        Status::Success
+    );
+    assert!(a.to_bits() > 14000, "π/2 expected ~16384, got {a}");
+    assert_eq!(
+        atan2_q15(q15::ZERO, q15::from_bits(-32767), &mut a),
+        Status::Success
+    );
+    assert!(
+        a.to_bits() > 14000 || a.to_bits() < -14000,
+        "±π expected, got {a}"
+    );
 }
 
 #[test]
 fn test_biquad_q15_matches_f32_lowpass() {
     let coeffs = biquad_lowpass_coeffs(800.0, 8000.0, core::f32::consts::FRAC_1_SQRT_2);
     let post_shift = 1u8;
-    let mut qcoeffs = [0i16; 5];
+    let mut qcoeffs = [q15::ZERO; 5];
     assert_eq!(
         biquad_coeffs_f32_to_q15(&coeffs, &mut qcoeffs, post_shift),
         Status::Success
     );
 
     let mut state_f = [0.0f32; 4];
-    let mut state_q = [0i16; 4];
+    let mut state_q = [q15::ZERO; 4];
     let mut bq_f = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state_f);
     let mut bq_q = BiquadCascadeInstanceQ15::init(1, &qcoeffs, &mut state_q, post_shift);
 
@@ -1995,12 +2111,12 @@ fn test_biquad_q15_matches_f32_lowpass() {
     for n in 0..128 {
         let x = (2.0 * core::f32::consts::PI * 200.0 * n as f32 / 8000.0).sin() * 0.5;
         let mut yf = [0.0f32; 1];
-        let mut yq = [0i16; 1];
-        let xq = [(x * 32767.0) as i16];
+        let mut yq = [q15::ZERO; 1];
+        let xq = [q15::from_bits((x * 32767.0) as i16)];
         biquad_cascade_df1_f32(&mut bq_f, &[x], &mut yf);
         biquad_cascade_df1_q15(&mut bq_q, &xq, &mut yq);
         let expected_q = (yf[0] * 32767.0) as i32;
-        let err = (yq[0] as i32 - expected_q).abs();
+        let err = (yq[0].to_bits() as i32 - expected_q).abs();
         if err > max_abs_err {
             max_abs_err = err;
         }
@@ -2015,26 +2131,26 @@ fn test_biquad_q15_matches_f32_lowpass() {
 fn test_biquad_df2t_q15_matches_df1() {
     let coeffs = biquad_lowpass_coeffs(800.0, 8000.0, core::f32::consts::FRAC_1_SQRT_2);
     let post_shift = 1u8;
-    let mut qcoeffs = [0i16; 5];
+    let mut qcoeffs = [q15::ZERO; 5];
     assert_eq!(
         biquad_coeffs_f32_to_q15(&coeffs, &mut qcoeffs, post_shift),
         Status::Success
     );
 
-    let mut state_df1 = [0i16; 4];
+    let mut state_df1 = [q15::ZERO; 4];
     let mut df1 = BiquadCascadeInstanceQ15::init(1, &qcoeffs, &mut state_df1, post_shift);
-    let mut state_df2t = [0i16; 2];
+    let mut state_df2t = [q15::ZERO; 2];
     let mut df2t = BiquadCascadeDf2tInstanceQ15::init(1, &qcoeffs, &mut state_df2t, post_shift);
 
     let mut max_err = 0i32;
     for n in 0..64 {
         let x = (2.0 * core::f32::consts::PI * 200.0 * n as f32 / 8000.0).sin() * 0.5;
-        let xq = [(x * 32767.0) as i16];
-        let mut y1 = [0i16; 1];
-        let mut y2 = [0i16; 1];
+        let xq = [q15::from_bits((x * 32767.0) as i16)];
+        let mut y1 = [q15::ZERO; 1];
+        let mut y2 = [q15::ZERO; 1];
         biquad_cascade_df1_q15(&mut df1, &xq, &mut y1);
         biquad_cascade_df2t_q15(&mut df2t, &xq, &mut y2);
-        max_err = max_err.max((y1[0] as i32 - y2[0] as i32).abs());
+        max_err = max_err.max((y1[0].to_bits() as i32 - y2[0].to_bits() as i32).abs());
     }
     assert!(max_err < 2500, "DF1 vs DF2T max abs {max_err}");
 
@@ -2059,14 +2175,14 @@ fn test_biquad_df2t_q15_matches_df1() {
 fn test_packed_rfft_q15_tone_bin() {
     const N: usize = 32;
     let mut src_f = [0.0f32; N];
-    let mut src_q = [0i16; N];
+    let mut src_q = [q15::ZERO; N];
     for i in 0..N {
         let x = (2.0 * core::f32::consts::PI * 4.0 * i as f32 / N as f32).sin();
         src_f[i] = x;
-        src_q[i] = (x * 32767.0) as i16;
+        src_q[i] = q15::from_bits((x * 32767.0) as i16);
     }
     let mut dst_f = [0.0f32; 2 * N];
-    let mut dst_q = [0i16; 2 * N];
+    let mut dst_q = [q15::ZERO; 2 * N];
     rfft_f32(&src_f, &mut dst_f, N, 0);
     rfft_q15(&src_q, &mut dst_q, N, 0);
 
@@ -2080,7 +2196,8 @@ fn test_packed_rfft_q15_tone_bin() {
             mag_f = mf;
             peak_f = k;
         }
-        let mq = (dst_q[2 * k] as i32).pow(2) + (dst_q[2 * k + 1] as i32).pow(2);
+        let mq =
+            (dst_q[2 * k].to_bits() as i32).pow(2) + (dst_q[2 * k + 1].to_bits() as i32).pow(2);
         if mq > mag_q {
             mag_q = mq;
             peak_q = k;
@@ -2089,8 +2206,10 @@ fn test_packed_rfft_q15_tone_bin() {
     assert_eq!(peak_f, 4);
     assert_eq!(peak_q, peak_f);
 
-    let q_peak =
-        ((dst_q[2 * peak_q] as f32).hypot(dst_q[2 * peak_q + 1] as f32) / 32767.0) * N as f32;
+    let q_peak = ((dst_q[2 * peak_q].to_bits() as f32)
+        .hypot(dst_q[2 * peak_q + 1].to_bits() as f32)
+        / 32767.0)
+        * N as f32;
     let f_peak = dst_f[2 * peak_f].hypot(dst_f[2 * peak_f + 1]);
     assert!(
         (q_peak - f_peak).abs() / f_peak.max(1e-6) < 0.25,
@@ -2098,18 +2217,18 @@ fn test_packed_rfft_q15_tone_bin() {
     );
 
     let orig = src_q;
-    let mut time = [0i16; N];
+    let mut time = [q15::ZERO; N];
     irfft_q15(&dst_q, &mut time, N);
     let mut err = 0i32;
     for i in 0..N {
-        let got = (time[i] as i32) * (N as i32);
-        err += (got - orig[i] as i32).abs();
+        let got = (time[i].to_bits() as i32) * (N as i32);
+        err += (got - orig[i].to_bits() as i32).abs();
     }
     let mean = err / N as i32;
     assert!(
         mean < 5000,
         "irfft round-trip mean abs {mean}; got*N={} orig={}",
-        time[4] as i32 * N as i32,
+        time[4].to_bits() as i32 * N as i32,
         orig[4]
     );
 }
@@ -2142,20 +2261,22 @@ fn test_dsp_sample_and_complex_ops() {
 
 #[test]
 fn test_simd_dsp_intrinsics() {
-    let a = [1000i16, 2000, -3000, 4000, 500, -600, 700, 800];
-    let b = [2000i16, -1000, 4000, 3000, 200, 300, -400, 100];
+    let a_raw = [1000i16, 2000, -3000, 4000, 500, -600, 700, 800];
+    let b_raw = [2000i16, -1000, 4000, 3000, 200, 300, -400, 100];
+    let a = a_raw.map(q15::from_bits);
+    let b = b_raw.map(q15::from_bits);
 
     // Dot product
     let simd_dot = simd_dot_prod_q15(&a, &b);
     let mut expected_dot: q63 = 0;
     for i in 0..a.len() {
-        expected_dot += (a[i] as i32 * b[i] as i32) as q63;
+        expected_dot += (a_raw[i] as i32 * b_raw[i] as i32) as q63;
     }
     assert_eq!(simd_dot, expected_dot);
 
     // Add and Sub
-    let mut dst_add = [0i16; 8];
-    let mut dst_sub = [0i16; 8];
+    let mut dst_add = [q15::ZERO; 8];
+    let mut dst_sub = [q15::ZERO; 8];
     simd_add_q15(&a, &b, &mut dst_add);
     simd_sub_q15(&a, &b, &mut dst_sub);
 
@@ -2165,7 +2286,7 @@ fn test_simd_dsp_intrinsics() {
     }
 
     // Mult
-    let mut dst_mult = [0i16; 8];
+    let mut dst_mult = [q15::ZERO; 8];
     simd_mult_q15(&a, &b, &mut dst_mult);
     for i in 0..8 {
         assert_eq!(dst_mult[i], q15_mult(a[i], b[i]));
@@ -2180,31 +2301,46 @@ fn test_simd_dsp_intrinsics() {
 
 #[test]
 fn test_fixed_point_distance_metrics() {
-    let a = [10000i16, 20000, -15000, 5000];
-    let b = [10000i16, 20000, -15000, 5000];
-    assert_eq!(euclidean_distance_q15(&a, &b), 0);
-    assert_eq!(chebyshev_distance_q15(&a, &b), 0);
-    assert_eq!(manhattan_distance_q15(&a, &b), 0);
+    let a = [
+        q15::from_bits(10000),
+        q15::from_bits(20000),
+        q15::from_bits(-15000),
+        q15::from_bits(5000),
+    ];
+    let b = [
+        q15::from_bits(10000),
+        q15::from_bits(20000),
+        q15::from_bits(-15000),
+        q15::from_bits(5000),
+    ];
+    assert_eq!(euclidean_distance_q15(&a, &b).to_bits(), 0);
+    assert_eq!(chebyshev_distance_q15(&a, &b).to_bits(), 0);
+    assert_eq!(manhattan_distance_q15(&a, &b).to_bits(), 0);
     assert_eq!(hamming_distance_q15(&a, &b), 0);
 
-    let c = [12000i16, 18000, -10000, 4000];
+    let c = [
+        q15::from_bits(12000),
+        q15::from_bits(18000),
+        q15::from_bits(-10000),
+        q15::from_bits(4000),
+    ];
     let euc = euclidean_distance_q15(&a, &c);
-    assert!(euc > 0);
+    assert!(euc.to_bits() > 0);
 
     let cheb = chebyshev_distance_q15(&a, &c);
-    assert_eq!(cheb, 5000); // |-15000 - (-10000)| = 5000
+    assert_eq!(cheb.to_bits(), 5000); // |-15000 - (-10000)| = 5000
 
     let manh = manhattan_distance_q15(&a, &c);
-    assert_eq!(manh, 2000 + 2000 + 5000 + 1000);
+    assert_eq!(manh.to_bits(), 2000 + 2000 + 5000 + 1000);
 
     let ham = hamming_distance_q15(&a, &c);
     assert_eq!(ham, 4);
 
     let canb = canberra_distance_q15(&a, &c);
-    assert!(canb > 0);
+    assert!(canb.to_bits() > 0);
 
     let bc = bray_curtis_distance_q15(&a, &c);
-    assert!(bc > 0);
+    assert!(bc.to_bits() > 0);
 }
 
 #[test]
@@ -2223,19 +2359,28 @@ fn test_cic_gain_and_polyphase_q15() {
     assert!(decimated_scaled.is_some());
 
     // Polyphase FIR decimation
-    let src = [1000i16, 2000, 3000, 4000, 5000, 6000, 7000, 8000];
-    let coeffs = [16384i16, 16384]; // 2-tap moving average / lowpass in Q15
-    let mut dst_dec = [0i16; 4];
+    let src = [
+        q15::from_bits(1000),
+        q15::from_bits(2000),
+        q15::from_bits(3000),
+        q15::from_bits(4000),
+        q15::from_bits(5000),
+        q15::from_bits(6000),
+        q15::from_bits(7000),
+        q15::from_bits(8000),
+    ];
+    let coeffs = [q15::from_bits(16384), q15::from_bits(16384)]; // 2-tap moving average / lowpass in Q15
+    let mut dst_dec = [q15::ZERO; 4];
     let written = polyphase_decimate_q15(&src, &coeffs, 2, &mut dst_dec);
     assert!(written > 0);
 
     // Polyphase FIR interpolation
-    let mut dst_interp = [0i16; 8];
+    let mut dst_interp = [q15::ZERO; 8];
     let written_interp = polyphase_interpolate_q15(&src[..4], &coeffs, 2, &mut dst_interp);
     assert_eq!(written_interp, 8);
 
     // Linear fractional resampling in Q15
-    let mut dst_resampled = [0i16; 8];
+    let mut dst_resampled = [q15::ZERO; 8];
     resample_linear_q15(&src, &mut dst_resampled, 65536); // 1.0 ratio
     assert_eq!(dst_resampled[0], src[0]);
 }
@@ -2247,21 +2392,21 @@ fn test_filter_quantization_and_sqnr_analysis() {
     assert!(peak > 0.0);
     assert!(headroom <= 2);
 
-    let mut q15_coeffs = [0i16; 5];
+    let mut q15_coeffs = [q15::ZERO; 5];
     let post_shift =
         biquad_quantize_and_scale_q15(&lp, &mut q15_coeffs, ScalingStrategy::LInfNorm).unwrap();
 
     let sqnr = biquad_quantization_snr_db(&lp, &q15_coeffs, post_shift, 64);
     assert!(sqnr > 40.0, "Expected SQNR > 40 dB, got {sqnr} dB");
 
-    let mut q31_coeffs = [0i32; 5];
+    let mut q31_coeffs = [q31::ZERO; 5];
     let post_shift_q31 =
         biquad_quantize_and_scale_q31(&lp, &mut q31_coeffs, ScalingStrategy::Direct).unwrap();
     assert!(post_shift_q31 <= 2);
 
     let mut fir_f32 = [0.0f32; 15];
     fir_windowed_sinc_lowpass(0.2, &mut fir_f32);
-    let mut fir_q15 = [0i16; 15];
+    let mut fir_q15 = [q15::ZERO; 15];
     fir_quantize_q15(&fir_f32, &mut fir_q15).unwrap();
 
     let fir_sqnr = fir_quantization_snr_db(&fir_f32, &fir_q15, 64);
@@ -2274,10 +2419,10 @@ fn test_filter_quantization_and_sqnr_analysis() {
 #[test]
 fn test_bfp_fft_and_real_cepstrum() {
     const N: usize = 32;
-    let mut data_q15 = [0i16; 2 * N];
+    let mut data_q15 = [q15::ZERO; 2 * N];
     for i in 0..N {
         let x = (2.0 * core::f32::consts::PI * 4.0 * i as f32 / N as f32).sin();
-        data_q15[2 * i] = (x * 30000.0) as i16;
+        data_q15[2 * i] = q15::from_bits((x * 30000.0) as i16);
     }
 
     let scale_count = cfft_bfp_q15(&mut data_q15, N, 0, 1);
@@ -2287,8 +2432,8 @@ fn test_bfp_fft_and_real_cepstrum() {
     let mut max_mag = 0i64;
     let mut max_bin = 0;
     for k in 0..N {
-        let re = data_q15[2 * k] as i64;
-        let im = data_q15[2 * k + 1] as i64;
+        let re = data_q15[2 * k].to_bits() as i64;
+        let im = data_q15[2 * k + 1].to_bits() as i64;
         let mag = re * re + im * im;
         if mag > max_mag {
             max_mag = mag;
@@ -2298,9 +2443,9 @@ fn test_bfp_fft_and_real_cepstrum() {
     assert_eq!(max_bin, 4);
 
     // Q31 BFP FFT
-    let mut data_q31 = [0i32; 2 * N];
+    let mut data_q31 = [q31::ZERO; 2 * N];
     for i in 0..N {
-        data_q31[2 * i] = (data_q15[2 * i] as i32) << 16;
+        data_q31[2 * i] = q31::from_bits((data_q15[2 * i].to_bits() as i32) << 16);
     }
     let scale_q31 = cfft_bfp_q31(&mut data_q31, N, 0, 1);
     assert!(scale_q31 <= 5);
@@ -2319,28 +2464,28 @@ fn test_bfp_fft_and_real_cepstrum() {
 #[test]
 fn test_cordic_engine() {
     // Rotation: 0 rad -> sin ≈ 0 (within 2 LSB), cos ≈ 1
-    let (s0, c0) = cordic_sin_cos_q15(0);
-    assert!(s0.abs() <= 2);
-    assert!((c0 as i32 - 32767).abs() < 100);
+    let (s0, c0) = cordic_sin_cos_q15(q15::ZERO);
+    assert!(s0.to_bits().abs() <= 2);
+    assert!((c0.to_bits() as i32 - 32767).abs() < 100);
 
     // Rotation: pi/4 rad (25736 in Q15) -> sin ≈ 0.7071, cos ≈ 0.7071
-    let (s_pi4, c_pi4) = cordic_sin_cos_q15(25736);
+    let (s_pi4, c_pi4) = cordic_sin_cos_q15(q15::from_bits(25736));
     let expected = (core::f32::consts::FRAC_1_SQRT_2 * 32768.0) as i32;
-    assert!((s_pi4 as i32 - expected).abs() < 150);
-    assert!((c_pi4 as i32 - expected).abs() < 150);
+    assert!((s_pi4.to_bits() as i32 - expected).abs() < 150);
+    assert!((c_pi4.to_bits() as i32 - expected).abs() < 150);
 
     // Vectoring: (1.0, 1.0) in Q15 -> mag ≈ 1.414 (scaled), angle ≈ pi/4
-    let (mag, angle) = cordic_cartesian_to_polar_q15(10000, 10000);
-    assert!((angle as i32 - 25736).abs() < 150);
-    assert!((mag as i32 - 14142).abs() < 200);
+    let (mag, angle) = cordic_cartesian_to_polar_q15(q15::from_bits(10000), q15::from_bits(10000));
+    assert!((angle.to_bits() as i32 - 25736).abs() < 150);
+    assert!((mag.to_bits() as i32 - 14142).abs() < 200);
 
     // Atan2
-    let atan_val = cordic_atan2_q15(10000, 10000);
-    assert!((atan_val as i32 - 25736).abs() < 150);
+    let atan_val = cordic_atan2_q15(q15::from_bits(10000), q15::from_bits(10000));
+    assert!((atan_val.to_bits() as i32 - 25736).abs() < 150);
 
     // Sqrt
-    let root = cordic_sqrt_q15(16384); // sqrt(0.5) in Q15
-    assert!((root as i32 - expected).abs() < 250);
+    let root = cordic_sqrt_q15(q15::from_bits(16384)); // sqrt(0.5) in Q15
+    assert!((root.to_bits() as i32 - expected).abs() < 250);
 }
 
 #[test]
@@ -2361,13 +2506,13 @@ fn test_dsp_pipeline_and_streaming() {
     }
 
     // Q15 DC blocker in pipeline
-    let dc = DcBlockerQ15::new(32000);
-    let q_gain = Gain::new(16384i16);
+    let dc = DcBlockerQ15::new(q15::from_bits(32000));
+    let q_gain = Gain::new(q15::from_bits(16384));
     let mut q_chain = dc.then(q_gain);
 
-    let mut q_buf = [10000i16; 8];
+    let mut q_buf = [q15::from_bits(10000); 8];
     q_chain.process_in_place(&mut q_buf);
-    assert!(q_buf[7].abs() < q_buf[0].abs());
+    assert!(q_buf[7].to_bits().abs() < q_buf[0].to_bits().abs());
 }
 
 #[test]
@@ -2386,16 +2531,23 @@ fn test_generalized_filterbank_and_vad() {
     }
 
     // Fast log2
-    let l2 = fast_log2_q15(16384); // 0.5 -> log2 is -1.0
-    assert!(l2 < 0);
+    let l2 = fast_log2_q15(q15::from_num(0.5)); // 0.5 -> log2 is -1.0
+    assert!(l2 < Q8F7::ZERO);
 
     // VAD detector
     let vad = VadDetectorQ15::new(10, 2);
-    let silence = [0i16; 32];
+    let silence = [q15::ZERO; 32];
     assert!(!vad.is_active(&silence));
 
     let speech = [
-        10000i16, -10000, 20000, -20000, 15000, -15000, 10000, -10000,
+        q15::from_bits(10000),
+        q15::from_bits(-10000),
+        q15::from_bits(20000),
+        q15::from_bits(-20000),
+        q15::from_bits(15000),
+        q15::from_bits(-15000),
+        q15::from_bits(10000),
+        q15::from_bits(-10000),
     ];
     assert!(vad.is_active(&speech));
 }

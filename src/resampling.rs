@@ -172,9 +172,9 @@ pub fn polyphase_decimate_q15(
         let src_offset = i * decimation_factor;
         let mut acc: i64 = 0;
         for k in 0..num_taps {
-            acc += (src[src_offset + k] as i64 * coeffs[k] as i64) >> 15;
+            acc += (src[src_offset + k].to_bits() as i64 * coeffs[k].to_bits() as i64) >> 15;
         }
-        dst[i] = acc.clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+        dst[i] = q15::from_bits(acc.clamp(i16::MIN as i64, i16::MAX as i64) as i16);
     }
 
     out_len
@@ -207,11 +207,12 @@ pub fn polyphase_interpolate_q15(
             }
             let mut acc: i64 = 0;
             for k in 0..taps_per_phase {
-                let coeff = coeffs[k * l + phase] as i64;
-                let sample = src[in_idx + k] as i64;
+                let coeff = coeffs[k * l + phase].to_bits() as i64;
+                let sample = src[in_idx + k].to_bits() as i64;
                 acc += (sample * coeff) >> 15;
             }
-            dst[out_idx] = (acc * l as i64).clamp(i16::MIN as i64, i16::MAX as i64) as q15;
+            dst[out_idx] =
+                q15::from_bits((acc * l as i64).clamp(i16::MIN as i64, i16::MAX as i64) as i16);
         }
     }
 
@@ -233,11 +234,15 @@ pub fn resample_linear_q15(src: &[q15], dst: &mut [q15], ratio_q16: i32) {
         if idx0 >= src.len() {
             dst[i] = src[src.len() - 1];
         } else {
-            let s0 = src[idx0] as i32;
-            let s1 = if idx0 + 1 < src.len() { src[idx0 + 1] as i32 } else { s0 };
+            let s0 = src[idx0].to_bits() as i32;
+            let s1 = if idx0 + 1 < src.len() {
+                src[idx0 + 1].to_bits() as i32
+            } else {
+                s0
+            };
             let diff = s1 - s0;
             let interp = s0 + ((diff * frac) >> 16);
-            dst[i] = interp.clamp(i16::MIN as i32, i16::MAX as i32) as q15;
+            dst[i] = q15::from_bits(interp.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
         }
 
         phase_acc += ratio_q16 as i64;

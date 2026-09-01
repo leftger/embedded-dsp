@@ -45,77 +45,77 @@ pub fn fill_q7(value: q7, dst: &mut [q7]) {
 pub fn q7_to_q15(src: &[q7], dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] as i16) << 8;
+        dst[i] = q15::from_num(src[i]);
     }
 }
 
 pub fn q7_to_q31(src: &[q7], dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] as i32) << 24;
+        dst[i] = q31::from_num(src[i]);
     }
 }
 
 pub fn q7_to_f32(src: &[q7], dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] as f32) / 128.0;
+        dst[i] = src[i].to_num();
     }
 }
 
 pub fn q15_to_q7(src: &[q15], dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] >> 8) as q7;
+        dst[i] = q7::from_num(src[i]);
     }
 }
 
 pub fn q15_to_q31(src: &[q15], dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] as i32) << 16;
+        dst[i] = q31::from_num(src[i]);
     }
 }
 
 pub fn q15_to_f32(src: &[q15], dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] as f32) / 32768.0;
+        dst[i] = src[i].to_num();
     }
 }
 
 pub fn q31_to_q7(src: &[q31], dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] >> 24) as q7;
+        dst[i] = q7::from_num(src[i]);
     }
 }
 
 pub fn q31_to_q15(src: &[q31], dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] >> 16) as q15;
+        dst[i] = q15::from_num(src[i]);
     }
 }
 
 pub fn q31_to_f32(src: &[q31], dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] as f32) / 2147483648.0;
+        dst[i] = src[i].to_num();
     }
 }
 
 pub fn f32_to_q7(src: &[f32], dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] * 128.0).clamp(-128.0, 127.0) as q7;
+        dst[i] = q7::saturating_from_num(src[i]);
     }
 }
 
 pub fn f32_to_q15(src: &[f32], dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] * 32768.0).clamp(-32768.0, 32767.0) as q15;
+        dst[i] = q15::saturating_from_num(src[i]);
     }
 }
 
@@ -128,13 +128,7 @@ pub fn fir_taps_f32_to_q15(src: &[f32], dst: &mut [q15]) -> Status {
         return Status::LengthError;
     }
     for i in 0..src.len() {
-        let scaled = src[i] * 32768.0;
-        let rounded = if scaled >= 0.0 {
-            scaled + 0.5
-        } else {
-            scaled - 0.5
-        };
-        dst[i] = rounded.clamp(-32768.0, 32767.0) as q15;
+        dst[i] = q15::saturating_from_num(src[i]);
     }
     Status::Success
 }
@@ -142,7 +136,7 @@ pub fn fir_taps_f32_to_q15(src: &[f32], dst: &mut [q15]) -> Status {
 pub fn f32_to_q31(src: &[f32], dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = (src[i] * 2147483648.0).clamp(-2147483648.0, 2147483647.0) as q31;
+        dst[i] = q31::saturating_from_num(src[i]);
     }
 }
 
@@ -284,9 +278,9 @@ pub fn biquad_coeffs_f32_to_q15(src: &[f32], dst: &mut [q15], post_shift: u8) ->
     if src.len() != dst.len() || src.is_empty() || src.len() % 5 != 0 {
         return Status::LengthError;
     }
-    let scale = 32768.0 / ((1u32 << post_shift.min(14)) as f32);
+    let post_scale = (1u32 << post_shift.min(14)) as f32;
     for i in 0..src.len() {
-        dst[i] = (src[i] * scale).clamp(-32768.0, 32767.0) as q15;
+        dst[i] = q15::saturating_from_num(src[i] / post_scale);
     }
     Status::Success
 }
@@ -296,9 +290,9 @@ pub fn biquad_coeffs_f32_to_q31(src: &[f32], dst: &mut [q31], post_shift: u8) ->
     if src.len() != dst.len() || src.is_empty() || src.len() % 5 != 0 {
         return Status::LengthError;
     }
-    let scale = 2147483648.0 / ((1u32 << post_shift.min(14)) as f32);
+    let post_scale = (1u32 << post_shift.min(14)) as f32;
     for i in 0..src.len() {
-        dst[i] = (src[i] * scale).clamp(-2147483648.0, 2147483647.0) as q31;
+        dst[i] = q31::saturating_from_num(src[i] / post_scale);
     }
     Status::Success
 }

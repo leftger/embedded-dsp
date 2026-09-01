@@ -16,9 +16,9 @@ fn main() {
     println!("Vector Dot Product: {}", dot);
 
     // 2. Q15 Fixed-Point Saturating Math
-    let q15_a = [20000i16, 25000];
-    let q15_b = [15000i16, 10000];
-    let mut q15_out = [0i16; 2];
+    let q15_a = [q15::from_bits(20000), q15::from_bits(25000)];
+    let q15_b = [q15::from_bits(15000), q15::from_bits(10000)];
+    let mut q15_out = [q15::ZERO; 2];
     add_q15(&q15_a, &q15_b, &mut q15_out);
     println!("Q15 Saturating Add (clamped at 32767): {:?}", q15_out);
 

@@ -72,13 +72,13 @@ fn main() {
 
     // Q15 fixed-point DC blocker verification
     let mut dc_blocker_q15 = DcBlockerQ15::from_f32_decay(0.995);
-    let mut q15_raw = [0i16; NUM_SAMPLES];
+    let mut q15_raw = [q15::ZERO; NUM_SAMPLES];
     f32_to_q15(&raw_audio, &mut q15_raw);
-    let mut q15_blocked = [0i16; NUM_SAMPLES];
+    let mut q15_blocked = [q15::ZERO; NUM_SAMPLES];
     for (i, &s) in q15_raw.iter().enumerate() {
         q15_blocked[i] = dc_blocker_q15.process(s);
     }
-    let mut mean_q15_out = 0i16;
+    let mut mean_q15_out = q15::ZERO;
     mean_q15(&q15_blocked[512..], &mut mean_q15_out);
     println!(
         "  Q15 Filter: Settled Mean in Q15 = {} (expected ~ 0)",
@@ -146,9 +146,9 @@ fn main() {
 
     // Fixed-Point Q15 Followers
     let mut peak_follower_q15 = PeakEnvelopeFollowerQ15::new(80.0, 800.0);
-    let mut q15_eq = [0i16; NUM_SAMPLES];
+    let mut q15_eq = [q15::ZERO; NUM_SAMPLES];
     f32_to_q15(&equalized_audio, &mut q15_eq);
-    let mut last_q15_peak = 0i16;
+    let mut last_q15_peak = q15::ZERO;
     for &sample in &q15_eq {
         last_q15_peak = peak_follower_q15.process(sample);
     }

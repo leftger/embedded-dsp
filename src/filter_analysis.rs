@@ -221,12 +221,12 @@ pub fn biquad_q15_frequency_response(
     post_shift: u8,
     freq_norm: f32,
 ) -> Complex<f32> {
-    let scale = ((1u32 << post_shift.min(14)) as f32) / 32768.0;
-    let b0 = coeffs_q15[0] as f32 * scale;
-    let b1 = coeffs_q15[1] as f32 * scale;
-    let b2 = coeffs_q15[2] as f32 * scale;
-    let a1 = coeffs_q15[3] as f32 * scale;
-    let a2 = coeffs_q15[4] as f32 * scale;
+    let scale = (1u32 << post_shift.min(14)) as f32;
+    let b0 = coeffs_q15[0].to_num::<f32>() * scale;
+    let b1 = coeffs_q15[1].to_num::<f32>() * scale;
+    let b2 = coeffs_q15[2].to_num::<f32>() * scale;
+    let a1 = coeffs_q15[3].to_num::<f32>() * scale;
+    let a2 = coeffs_q15[4].to_num::<f32>() * scale;
 
     let float_coeffs = [b0, b1, b2, a1, a2];
     biquad_frequency_response(&float_coeffs, freq_norm)
@@ -314,7 +314,7 @@ pub fn fir_quantization_snr_db(taps_f32: &[f32], taps_q15: &[q15], num_points: u
         let mut q_re = 0.0f32;
         let mut q_im = 0.0f32;
         for (k, &tap) in taps_q15.iter().enumerate() {
-            let tap_f = tap as f32 / 32768.0;
+            let tap_f = tap.to_num::<f32>();
             let angle = omega * k as f32;
             q_re += tap_f * angle.cos();
             q_im -= tap_f * angle.sin();
