@@ -1,7 +1,10 @@
 ignore:
   - "benches/**"
+  - "**/benches/**"
   - "examples/**"
+  - "**/examples/**"
   - "embedded-dsp-docs.zip"
+  - "**/embedded-dsp-docs.zip"
 
 coverage:
   status:
