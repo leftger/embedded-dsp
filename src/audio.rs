@@ -8,7 +8,7 @@ use crate::filter_design::single_pole_decay_from_time_constant;
 use crate::math::FloatMath;
 use crate::math::isqrt_u64;
 use crate::transform::cfft_f32;
-use crate::types::{q15, Q8F7, Status};
+use crate::types::{q15, Q2F14, Q8F7, Status};
 
 // --- Goertzel Single-Frequency Detector ---
 
@@ -63,10 +63,6 @@ impl GoertzelDetector {
         self.count = 0;
     }
 }
-
-/// Q2.14 fixed-point type for coefficients that can range up to `±2.0`
-/// (e.g. `2 cos(ω)`), which does not fit `q15`'s `[-1.0, 1.0)` range.
-type Q2F14 = fixed::FixedI16<fixed::types::extra::U14>;
 
 /// Q15 Goertzel detector: same two-pole recurrence as [`GoertzelDetector`], with
 /// Q2.14 `2 cos(ω)` and i32 delays so a typical block (`N ≲ 256`) does not wrap.

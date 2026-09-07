@@ -17,7 +17,7 @@ A high-performance **`#![no_std]` Rust Digital Signal Processing library** desig
 ## Highlights
 
 - **`#![no_std]` First**: Pure `core` compatibility with zero heap allocations.
-- **Fixed & Float Parity**: CMSIS-style `f32`, `f64`, and `q7`/`q15`/`q31` — real [`fixed`](https://crates.io/crates/fixed) crate types (`I1F7`/`I1F15`/`I1F31`), interoperable with the rest of the Rust fixed-point ecosystem — plus the polymorphic `DspSample` trait.
+- **Fixed & Float Parity**: CMSIS-style `f32`, `f64`, and `q7`/`q15`/`q31` — interoperable with the [`fixed`](https://crates.io/crates/fixed) crate (optional `fixed` feature, enabled by default) with zero-dependency fallback newtypes — plus the polymorphic `DspSample` trait.
 - **Hardware Acceleration**: ARM Cortex-M assembly intrinsics (`smlad`, `smlald`, `ssat`, `qadd16`) via `cortex-m-dsp`, with portable SWAR vector fallbacks.
 - **Pure-Integer CORDIC Engine**: Shift-and-add `sin`, `cos`, `atan2`, polar conversion, and `sqrt` requiring no hardware multipliers.
 - **Streaming Pipelines**: Zero-allocation [`DspNode`](src/pipeline.rs) composable processing chains (`Chain`, `Gain`, `Limiter`).

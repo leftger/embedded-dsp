@@ -1,12 +1,393 @@
 //! Data types, status codes, complex structures, and fixed-point helper types.
 
-pub use fixed::types::{I1F7 as q7, I1F15 as q15, I1F31 as q31};
+#[cfg(feature = "fixed")]
+pub use fixed::types::{I1F7 as q7, I1F15 as q15, I1F31 as q31, I16F16};
 
+#[cfg(feature = "fixed")]
 /// Q8.7 fixed-point type (8 integer bits, 7 fractional bits, `i16`-backed).
-///
-/// Used by results that don't fit `q15`'s `[-1.0, 1.0)` range, such as
-/// [`crate::audio::fast_log2_q15`]'s base-2 logarithm output.
 pub type Q8F7 = fixed::FixedI16<fixed::types::extra::U7>;
+
+#[cfg(feature = "fixed")]
+/// Q2.14 fixed-point type (2 integer bits, 14 fractional bits, `i16`-backed).
+pub type Q2F14 = fixed::FixedI16<fixed::types::extra::U14>;
+
+#[cfg(not(feature = "fixed"))]
+pub use fallback::*;
+
+#[cfg(not(feature = "fixed"))]
+mod fallback {
+    pub trait FixedNum: Copy {
+        fn to_raw_fixed(self, frac: u32, min_val: i64, max_val: i64, saturate: bool) -> i64;
+        fn from_raw_fixed(raw: i64, frac: u32) -> Self;
+    }
+
+    impl FixedNum for f32 {
+        #[inline(always)]
+        fn to_raw_fixed(self, frac: u32, min_val: i64, max_val: i64, saturate: bool) -> i64 {
+            (self as f64).to_raw_fixed(frac, min_val, max_val, saturate)
+        }
+        #[inline(always)]
+        fn from_raw_fixed(raw: i64, frac: u32) -> Self {
+            f64::from_raw_fixed(raw, frac) as f32
+        }
+    }
+
+    impl FixedNum for f64 {
+        #[inline(always)]
+        fn to_raw_fixed(self, frac: u32, min_val: i64, max_val: i64, saturate: bool) -> i64 {
+            if self.is_nan() {
+                return 0;
+            }
+            let scale = (1u64 << frac) as f64;
+            let scaled = self * scale;
+            if saturate {
+                if scaled >= max_val as f64 {
+                    return max_val;
+                }
+                if scaled <= min_val as f64 {
+                    return min_val;
+                }
+            }
+            let sign = if scaled < 0.0 { -1i64 } else { 1i64 };
+            let abs_val = if scaled < 0.0 { -scaled } else { scaled };
+            let abs_int = abs_val as i64;
+            let frac_part = abs_val - (abs_int as f64);
+            let rounded_abs = if frac_part > 0.5 {
+                abs_int + 1
+            } else if frac_part < 0.5 {
+                abs_int
+            } else {
+                if (abs_int & 1) != 0 {
+                    abs_int + 1
+                } else {
+                    abs_int
+                }
+            };
+            let res = sign.wrapping_mul(rounded_abs);
+            if saturate {
+                res.clamp(min_val, max_val)
+            } else {
+                res
+            }
+        }
+
+        #[inline(always)]
+        fn from_raw_fixed(raw: i64, frac: u32) -> Self {
+            (raw as f64) / ((1u64 << frac) as f64)
+        }
+    }
+
+    macro_rules! impl_fixed_num_int {
+        ($($t:ty),*) => {
+            $(
+                impl FixedNum for $t {
+                    #[inline(always)]
+                    fn to_raw_fixed(self, frac: u32, min_val: i64, max_val: i64, saturate: bool) -> i64 {
+                        let shifted = (self as i64).wrapping_shl(frac);
+                        if saturate {
+                            shifted.clamp(min_val, max_val)
+                        } else {
+                            shifted
+                        }
+                    }
+                    #[inline(always)]
+                    fn from_raw_fixed(raw: i64, frac: u32) -> Self {
+                        (raw >> frac) as $t
+                    }
+                }
+            )*
+        };
+    }
+    impl_fixed_num_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
+
+    macro_rules! define_fallback_type {
+        ($name:ident, $raw:ident, $wide:ident, $frac:expr) => {
+            #[allow(non_camel_case_types)]
+            #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+            #[repr(transparent)]
+            #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+            #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+            #[cfg_attr(feature = "serde", serde(transparent))]
+            pub struct $name(pub $raw);
+
+            impl $name {
+                pub const ZERO: Self = Self(0);
+                pub const MAX: Self = Self($raw::MAX);
+                pub const MIN: Self = Self($raw::MIN);
+
+                #[inline(always)]
+                pub const fn from_bits(bits: $raw) -> Self {
+                    Self(bits)
+                }
+
+                #[inline(always)]
+                pub const fn to_bits(self) -> $raw {
+                    self.0
+                }
+
+                #[inline(always)]
+                pub fn from_num<T: FixedNum>(v: T) -> Self {
+                    Self(
+                        T::to_raw_fixed(v, $frac, $raw::MIN as i64, $raw::MAX as i64, false)
+                            as $raw,
+                    )
+                }
+
+                #[inline(always)]
+                pub fn saturating_from_num<T: FixedNum>(v: T) -> Self {
+                    Self(
+                        T::to_raw_fixed(v, $frac, $raw::MIN as i64, $raw::MAX as i64, true) as $raw,
+                    )
+                }
+
+                #[inline(always)]
+                pub fn to_num<T: FixedNum>(self) -> T {
+                    T::from_raw_fixed(self.0 as i64, $frac)
+                }
+
+                #[inline(always)]
+                pub const fn saturating_add(self, rhs: Self) -> Self {
+                    Self(self.0.saturating_add(rhs.0))
+                }
+
+                #[inline(always)]
+                pub const fn saturating_sub(self, rhs: Self) -> Self {
+                    Self(self.0.saturating_sub(rhs.0))
+                }
+
+                #[inline(always)]
+                pub fn saturating_mul(self, rhs: Self) -> Self {
+                    let prod = ((self.0 as $wide) * (rhs.0 as $wide)) >> $frac;
+                    Self(prod.clamp($raw::MIN as $wide, $raw::MAX as $wide) as $raw)
+                }
+
+                #[inline(always)]
+                pub const fn saturating_neg(self) -> Self {
+                    Self(self.0.saturating_neg())
+                }
+
+                #[inline(always)]
+                pub const fn saturating_abs(self) -> Self {
+                    Self(self.0.saturating_abs())
+                }
+
+                #[inline(always)]
+                pub const fn abs(self) -> Self {
+                    Self(self.0.wrapping_abs())
+                }
+
+                #[inline(always)]
+                pub const fn wrapping_add(self, rhs: Self) -> Self {
+                    Self(self.0.wrapping_add(rhs.0))
+                }
+
+                #[inline(always)]
+                pub const fn wrapping_sub(self, rhs: Self) -> Self {
+                    Self(self.0.wrapping_sub(rhs.0))
+                }
+
+                #[inline(always)]
+                pub const fn wrapping_neg(self) -> Self {
+                    Self(self.0.wrapping_neg())
+                }
+
+                #[inline(always)]
+                pub fn wrapping_mul(self, rhs: Self) -> Self {
+                    let prod = (self.0 as $wide).wrapping_mul(rhs.0 as $wide);
+                    Self((prod >> $frac) as $raw)
+                }
+
+                #[inline(always)]
+                pub const fn wrapping_mul_int(self, n: i32) -> Self {
+                    Self(self.0.wrapping_mul(n as $raw))
+                }
+
+                #[inline(always)]
+                pub fn wrapping_div(self, rhs: Self) -> Self {
+                    if rhs.0 == 0 {
+                        return Self(0);
+                    }
+                    let a = (self.0 as $wide) << $frac;
+                    let b = rhs.0 as $wide;
+                    Self((a / b) as $raw)
+                }
+
+                #[inline(always)]
+                pub fn wrapping_div_int(self, n: i32) -> Self {
+                    if n == 0 {
+                        return Self(0);
+                    }
+                    Self(self.0.wrapping_div(n as $raw))
+                }
+
+                #[inline(always)]
+                pub fn recip(self) -> Self {
+                    if self.0 == 0 {
+                        return Self::MAX;
+                    }
+                    let one_shifted = 1i64 << (2 * $frac);
+                    Self((one_shifted / (self.0 as i64)) as $raw)
+                }
+
+                #[inline(always)]
+                pub fn checked_div(self, rhs: Self) -> Option<Self> {
+                    if rhs.0 == 0 {
+                        return None;
+                    }
+                    let a = (self.0 as $wide) << $frac;
+                    let b = rhs.0 as $wide;
+                    let res = a / b;
+                    if res > $raw::MAX as $wide || res < $raw::MIN as $wide {
+                        None
+                    } else {
+                        Some(Self(res as $raw))
+                    }
+                }
+            }
+
+            impl FixedNum for $name {
+                #[inline(always)]
+                fn to_raw_fixed(
+                    self,
+                    frac: u32,
+                    min_val: i64,
+                    max_val: i64,
+                    saturate: bool,
+                ) -> i64 {
+                    let shifted = if frac >= $frac {
+                        (self.0 as i64) << (frac - $frac)
+                    } else {
+                        (self.0 as i64) >> ($frac - frac)
+                    };
+                    if saturate {
+                        shifted.clamp(min_val, max_val)
+                    } else {
+                        shifted
+                    }
+                }
+
+                #[inline(always)]
+                fn from_raw_fixed(raw: i64, frac: u32) -> Self {
+                    let bits = if $frac >= frac {
+                        (raw << ($frac - frac)) as $raw
+                    } else {
+                        (raw >> (frac - $frac)) as $raw
+                    };
+                    Self(bits)
+                }
+            }
+
+            impl core::ops::Add for $name {
+                type Output = Self;
+                #[inline(always)]
+                fn add(self, rhs: Self) -> Self {
+                    Self(self.0.wrapping_add(rhs.0))
+                }
+            }
+
+            impl core::ops::AddAssign for $name {
+                #[inline(always)]
+                fn add_assign(&mut self, rhs: Self) {
+                    self.0 = self.0.wrapping_add(rhs.0);
+                }
+            }
+
+            impl core::ops::Sub for $name {
+                type Output = Self;
+                #[inline(always)]
+                fn sub(self, rhs: Self) -> Self {
+                    Self(self.0.wrapping_sub(rhs.0))
+                }
+            }
+
+            impl core::ops::SubAssign for $name {
+                #[inline(always)]
+                fn sub_assign(&mut self, rhs: Self) {
+                    self.0 = self.0.wrapping_sub(rhs.0);
+                }
+            }
+
+            impl core::ops::Mul for $name {
+                type Output = Self;
+                #[inline(always)]
+                fn mul(self, rhs: Self) -> Self {
+                    let prod = (self.0 as $wide) * (rhs.0 as $wide);
+                    Self((prod >> $frac) as $raw)
+                }
+            }
+
+            impl core::ops::MulAssign for $name {
+                #[inline(always)]
+                fn mul_assign(&mut self, rhs: Self) {
+                    *self = *self * rhs;
+                }
+            }
+
+            impl core::ops::Neg for $name {
+                type Output = Self;
+                #[inline(always)]
+                fn neg(self) -> Self {
+                    Self(self.0.wrapping_neg())
+                }
+            }
+
+            impl core::fmt::Display for $name {
+                fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                    write!(f, "{}", self.0)
+                }
+            }
+
+            macro_rules! impl_cmp_int {
+                ($int:ident) => {
+                    impl PartialEq<$int> for $name {
+                        #[inline(always)]
+                        fn eq(&self, other: &$int) -> bool {
+                            let other_fixed = (*other as i64) << $frac;
+                            (self.0 as i64) == other_fixed
+                        }
+                    }
+                    impl PartialOrd<$int> for $name {
+                        #[inline(always)]
+                        fn partial_cmp(&self, other: &$int) -> Option<core::cmp::Ordering> {
+                            let other_fixed = (*other as i64) << $frac;
+                            (self.0 as i64).partial_cmp(&other_fixed)
+                        }
+                    }
+                    impl PartialEq<$name> for $int {
+                        #[inline(always)]
+                        fn eq(&self, other: &$name) -> bool {
+                            other.eq(self)
+                        }
+                    }
+                    impl PartialOrd<$name> for $int {
+                        #[inline(always)]
+                        fn partial_cmp(&self, other: &$name) -> Option<core::cmp::Ordering> {
+                            let self_fixed = (*self as i64) << $frac;
+                            self_fixed.partial_cmp(&(other.0 as i64))
+                        }
+                    }
+                };
+            }
+            impl_cmp_int!(i8);
+            impl_cmp_int!(i16);
+            impl_cmp_int!(i32);
+            impl_cmp_int!(i64);
+            impl_cmp_int!(isize);
+            impl_cmp_int!(u8);
+            impl_cmp_int!(u16);
+            impl_cmp_int!(u32);
+            impl_cmp_int!(u64);
+            impl_cmp_int!(usize);
+        };
+    }
+
+    define_fallback_type!(q7, i8, i32, 7);
+    define_fallback_type!(q15, i16, i32, 15);
+    define_fallback_type!(q31, i32, i64, 31);
+    define_fallback_type!(Q8F7, i16, i32, 7);
+    define_fallback_type!(Q2F14, i16, i32, 14);
+    define_fallback_type!(I16F16, i32, i64, 16);
+}
 
 /// Wide accumulator type used for dot products, sums-of-squares, and other
 /// reductions that need headroom beyond `i32`. This is a plain integer, not
@@ -75,27 +456,39 @@ pub fn q7_mult(a: q7, b: q7) -> q7 {
     a.saturating_mul(b)
 }
 
-/// Saturating division: returns `MAX`/`MIN` (matching the sign of `a`) on
-/// division by zero, rather than panicking.
+/// Helper function for saturating division in Q15 format.
 #[inline(always)]
-fn saturating_div_q<F>(a: F, b: F) -> F
-where
-    F: fixed::traits::Fixed + PartialOrd,
-{
-    match a.checked_div(b) {
-        Some(v) => v,
-        None if b == F::ZERO => {
-            if a >= F::ZERO {
-                F::MAX
-            } else {
-                F::MIN
+fn saturating_div_q15(a: q15, b: q15) -> q15 {
+    if b == q15::ZERO {
+        if a >= q15::ZERO { q15::MAX } else { q15::MIN }
+    } else {
+        match a.checked_div(b) {
+            Some(v) => v,
+            None => {
+                if (a >= q15::ZERO) == (b >= q15::ZERO) {
+                    q15::MAX
+                } else {
+                    q15::MIN
+                }
             }
         }
-        None => {
-            if (a >= F::ZERO) == (b >= F::ZERO) {
-                F::MAX
-            } else {
-                F::MIN
+    }
+}
+
+/// Helper function for saturating division in Q31 format.
+#[inline(always)]
+fn saturating_div_q31(a: q31, b: q31) -> q31 {
+    if b == q31::ZERO {
+        if a >= q31::ZERO { q31::MAX } else { q31::MIN }
+    } else {
+        match a.checked_div(b) {
+            Some(v) => v,
+            None => {
+                if (a >= q31::ZERO) == (b >= q31::ZERO) {
+                    q31::MAX
+                } else {
+                    q31::MIN
+                }
             }
         }
     }
@@ -241,7 +634,7 @@ impl DspSample for q15 {
 
     #[inline(always)]
     fn sat_div(self, rhs: Self) -> Self {
-        saturating_div_q(self, rhs)
+        saturating_div_q15(self, rhs)
     }
 
     #[inline(always)]
@@ -281,7 +674,7 @@ impl DspSample for q31 {
 
     #[inline(always)]
     fn sat_div(self, rhs: Self) -> Self {
-        saturating_div_q(self, rhs)
+        saturating_div_q31(self, rhs)
     }
 
     #[inline(always)]

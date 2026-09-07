@@ -15,7 +15,7 @@
 //! - Trig (with the `lut` feature): [`crate::lut::sin_q16`], [`crate::lut::cos_q16`]
 //! - [`ScanlineInterp`] — accelerated per-scanline z + (u, v) interpolation
 
-use fixed::types::I16F16;
+use crate::types::I16F16;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants

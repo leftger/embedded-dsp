@@ -1,6 +1,6 @@
 [package]
 name = "embedded-dsp"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 rust-version = "1.93"
 authors = ["Gerzain Mata <leftger@gmail.com>"]
@@ -15,11 +15,12 @@ categories = ["embedded", "no-std", "science"]
 # Default matches a "give me the whole crate" install. Opt out with
 # `default-features = false` and pick `libm`/`std` plus the modules you want
 # (or `full` for every algorithm module).
-default = ["std", "libm", "full"]
+default = ["std", "libm", "full", "fixed"]
 std = []
 libm = ["dep:libm"]
-defmt = ["dep:defmt", "fixed/defmt"]
-serde = ["dep:serde", "fixed/serde"]
+fixed = ["dep:fixed"]
+defmt = ["dep:defmt", "fixed?/defmt"]
+serde = ["dep:serde", "fixed?/serde"]
 # Conversions between the `[f32; 4]` quaternion representation used by
 # `quaternion` and `nalgebra`'s `Quaternion`/`UnitQuaternion`.
 nalgebra = ["quaternion", "dep:nalgebra"]
@@ -95,7 +96,7 @@ transform = []
 window = []
 
 [dependencies]
-fixed = { version = "1.31.0", default-features = false }
+fixed = { version = "1.31.0", default-features = false, optional = true }
 libm = { version = "0.2.11", optional = true }
 defmt = { version = "1.1", optional = true, default-features = false }
 serde = { version = "1.0", optional = true, default-features = false, features = ["derive"] }
@@ -111,6 +112,7 @@ path = "examples/basic_usage.rs"
 [[example]]
 name = "perf_comparison"
 path = "examples/perf_comparison.rs"
+required-features = ["libm"]
 
 [[example]]
 name = "audio_speech_pipeline"
