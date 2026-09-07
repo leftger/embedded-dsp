@@ -1,7 +1,7 @@
 //! Dynamics Range Control: Compressor, Limiter, Expander, and Noise Gate.
 //!
 //! Provides real-time dynamics processing with soft-knee curves, decoupled attack/release
-//! ballistics, and integration with the [`DspNode`](crate::pipeline::DspNode) streaming framework.
+//! ballistics, and integration with the [`DspNode`] streaming framework.
 
 #[allow(unused_imports)]
 use crate::math::FloatMath;

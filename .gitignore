@@ -1,3 +1,4 @@
 /target
 /docs/
 *.zip
+lcov.info

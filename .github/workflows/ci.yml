@@ -2,35 +2,48 @@ name: CI
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [master, main]
   pull_request:
-    branches: [ master, main ]
+    branches: [master, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
+  MSRV: "1.93"
 
 jobs:
-  test:
-    name: Test (x86_64)
+  fmt:
+    name: Formatting
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
-      - name: Check formatting
-        run: cargo fmt --check
-      - name: Run clippy
-        run: cargo clippy --all-targets --all-features
-      - name: Run unit & integration tests (default features)
-        run: cargo test --all-targets --all-features
-      - name: Run tests (no-default-features + libm + full)
-        run: cargo test --no-default-features --features full,libm
+          components: rustfmt
+      - run: cargo fmt --all --check
 
-  no-std-targets:
-    name: Build no_std Targets
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-targets --all-features
+
+  check-no-std:
+    name: Check (no_std - ${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         target:
           - thumbv6m-none-eabi       # Cortex-M0/M0+ (pure integer, no FPU)
@@ -43,8 +56,108 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
       - name: Check build for ${{ matrix.target }} (libm, full)
         run: cargo check --target ${{ matrix.target }} --no-default-features --features full,libm
       - name: Check build for ${{ matrix.target }} with cortex-m-dsp (if ARM)
         if: startsWith(matrix.target, 'thumbv7em')
         run: cargo check --target ${{ matrix.target }} --no-default-features --features full,libm,cortex-m-dsp
+
+  msrv:
+    name: MSRV check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --no-default-features --features full,libm
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --all-features -- -W clippy::all
+      - run: cargo clippy --no-default-features --features full,libm --target thumbv7em-none-eabihf -- -W clippy::all
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run unit & integration tests (default features)
+        run: cargo test --all-targets --all-features
+      - name: Run tests (no-default-features + libm + full)
+        run: cargo test --no-default-features --features full,libm
+
+  docs:
+    name: Docs & GitHub Pages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: bash .github/scripts/ci_docs.sh
+      - name: Deploy Docs to GitHub Pages
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: target/doc
+          branch: gh-pages
+
+  publish-dry-run:
+    name: Publish dry-run
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish --dry-run
+
+  audit:
+    name: Security & License Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - name: Measure code coverage
+        run: |
+          echo "### 📊 Code Coverage Report" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov --all-features --summary-only | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov --all-features --lcov --output-path lcov.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: leftger/embedded-dsp

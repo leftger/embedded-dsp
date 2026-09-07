@@ -6,7 +6,8 @@
 
 [![crates.io](https://img.shields.io/crates/v/embedded-dsp.svg)](https://crates.io/crates/embedded-dsp)
 [![docs.rs](https://img.shields.io/docsrs/embedded-dsp)](https://docs.rs/embedded-dsp)
-[![CI](https://github.com/leftger/embedded-dsp/actions/workflows/ci.yml/badge.svg)](https://github.com/leftger/embedded-dsp/actions/workflows/ci.yml)
+[![CI](https://github.com/leftger/embedded-dsp/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/leftger/embedded-dsp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/leftger/embedded-dsp/branch/master/graph/badge.svg)](https://codecov.io/gh/leftger/embedded-dsp)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
 A high-performance **`#![no_std]` Rust Digital Signal Processing library** designed for microcontrollers (Cortex-M, RISC-V, AVR, Xtensa), bare-metal DSP, and real-time audio/sensor pipelines.
