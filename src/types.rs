@@ -753,3 +753,290 @@ impl<T: Copy + core::ops::Mul<Output = T>> core::ops::Mul<T> for Complex<T> {
         }
     }
 }
+
+// --- Brain Floating Point (BFloat16) ---
+
+/// 16-bit Brain Floating Point (`bfloat16`) format.
+///
+/// Composed of 1 sign bit, 8 exponent bits, and 7 fraction bits (matching the upper 16 bits of IEEE-754 `f32`).
+/// Provides the full dynamic range of single-precision `f32` with a 50% SRAM footprint, ideal for
+/// microcontroller circular delay lines, reverb buffers, and Edge AI inference feature stores.
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct BFloat16(pub u16);
+
+impl core::fmt::Debug for BFloat16 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "BFloat16({:?})", self.to_f32())
+    }
+}
+
+impl core::fmt::Display for BFloat16 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.to_f32())
+    }
+}
+
+impl BFloat16 {
+    pub const ZERO: Self = Self(0);
+    pub const NEG_ZERO: Self = Self(0x8000);
+    pub const ONE: Self = Self(0x3F80);
+    pub const NEG_ONE: Self = Self(0xBF80);
+    pub const NAN: Self = Self(0x7FC0);
+    pub const INFINITY: Self = Self(0x7F80);
+    pub const NEG_INFINITY: Self = Self(0xFF80);
+    pub const MAX: Self = Self(0x7F7F);
+    pub const MIN: Self = Self(0xFF7F);
+    pub const MIN_POSITIVE: Self = Self(0x0080);
+
+    #[inline]
+    pub const fn from_bits(bits: u16) -> Self {
+        Self(bits)
+    }
+
+    #[inline]
+    pub const fn to_bits(self) -> u16 {
+        self.0
+    }
+
+    /// Converts an `f32` into `bfloat16` using Round-to-Nearest-Even (RNE) with magic rounding bias.
+    /// Preserves quiet NaNs and handles subnormals correctly.
+    #[inline]
+    pub fn from_f32(f: f32) -> Self {
+        let bits = f.to_bits();
+        // NaN check: exp = 0xFF and mantissa != 0
+        if (bits & 0x7FFF_FFFF) > 0x7F80_0000 {
+            // Force a quiet NaN bit (bit 6) in the upper 16 bits
+            return Self(((bits >> 16) | 0x0040) as u16);
+        }
+        // Round-to-nearest, ties to even (RNE):
+        let lsb = (bits >> 16) & 1;
+        let rounded = bits.wrapping_add(0x7FFF + lsb);
+        Self((rounded >> 16) as u16)
+    }
+
+    /// Unpacks `bfloat16` into standard IEEE-754 `f32` in a single shift.
+    #[inline]
+    pub fn to_f32(self) -> f32 {
+        f32::from_bits((self.0 as u32) << 16)
+    }
+
+    #[inline]
+    pub fn is_nan(self) -> bool {
+        (self.0 & 0x7F80) == 0x7F80 && (self.0 & 0x007F) != 0
+    }
+
+    #[inline]
+    pub fn is_infinite(self) -> bool {
+        (self.0 & 0x7FFF) == 0x7F80
+    }
+
+    #[inline]
+    pub fn is_finite(self) -> bool {
+        (self.0 & 0x7F80) != 0x7F80
+    }
+
+    #[inline]
+    pub fn is_zero(self) -> bool {
+        (self.0 & 0x7FFF) == 0
+    }
+
+    #[inline]
+    pub fn is_sign_positive(self) -> bool {
+        (self.0 & 0x8000) == 0
+    }
+
+    #[inline]
+    pub fn is_sign_negative(self) -> bool {
+        (self.0 & 0x8000) != 0
+    }
+
+    #[inline]
+    pub fn abs(self) -> Self {
+        Self(self.0 & 0x7FFF)
+    }
+}
+
+impl From<f32> for BFloat16 {
+    #[inline]
+    fn from(v: f32) -> Self {
+        Self::from_f32(v)
+    }
+}
+
+impl From<BFloat16> for f32 {
+    #[inline]
+    fn from(v: BFloat16) -> Self {
+        v.to_f32()
+    }
+}
+
+// --- Double-Single (FloatFloat) Extended Precision ---
+
+/// Double-Single extended precision number represented as an unevaluated sum `hi + lo`.
+///
+/// Implements Bailey's QD / Universal's `dd` algorithms scaled to single precision.
+/// Delivers ~48 bits of effective precision (approaching IEEE-754 `f64`'s 53 bits)
+/// while executing purely on hardware single-precision `f32` FPUs without software `f64` emulation.
+/// Ideal for high-Q resonant IIR biquads, Kalman filters, and integrator loops prone to numerical instability.
+#[derive(Clone, Copy, Default, PartialEq)]
+pub struct FloatFloat {
+    pub hi: f32,
+    pub lo: f32,
+}
+
+impl core::fmt::Debug for FloatFloat {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "FloatFloat({:?} + {:?})", self.hi, self.lo)
+    }
+}
+
+impl core::fmt::Display for FloatFloat {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.to_f64())
+    }
+}
+
+impl FloatFloat {
+    pub const ZERO: Self = Self { hi: 0.0, lo: 0.0 };
+    pub const ONE: Self = Self { hi: 1.0, lo: 0.0 };
+
+    #[inline]
+    pub const fn new(hi: f32, lo: f32) -> Self {
+        Self { hi, lo }
+    }
+
+    #[inline]
+    pub fn from_f32(val: f32) -> Self {
+        Self { hi: val, lo: 0.0 }
+    }
+
+    #[inline]
+    pub fn to_f32(self) -> f32 {
+        self.hi + self.lo
+    }
+
+    #[inline]
+    pub fn to_f64(self) -> f64 {
+        (self.hi as f64) + (self.lo as f64)
+    }
+
+    #[inline]
+    pub fn abs(self) -> Self {
+        if self.hi < 0.0 {
+            Self {
+                hi: -self.hi,
+                lo: -self.lo,
+            }
+        } else {
+            self
+        }
+    }
+
+    /// Addition of two FloatFloat values using TwoSum error-free transformations.
+    #[inline]
+    #[allow(clippy::should_implement_trait)]
+    pub fn add(self, rhs: Self) -> Self {
+        let s = self.hi + rhs.hi;
+        let v = s - self.hi;
+        let e = (self.hi - (s - v)) + (rhs.hi - v);
+
+        let e2 = e + self.lo + rhs.lo;
+        let sum_hi = s + e2;
+        let sum_lo = e2 - (sum_hi - s);
+        Self {
+            hi: sum_hi,
+            lo: sum_lo,
+        }
+    }
+
+    /// Subtraction of two FloatFloat values.
+    #[inline]
+    #[allow(clippy::should_implement_trait)]
+    pub fn sub(self, rhs: Self) -> Self {
+        self.add(Self {
+            hi: -rhs.hi,
+            lo: -rhs.lo,
+        })
+    }
+
+    /// Multiplication of two FloatFloat values using TwoProd and TwoSum.
+    #[inline]
+    #[allow(clippy::should_implement_trait)]
+    pub fn mul(self, rhs: Self) -> Self {
+        let p = self.hi * rhs.hi;
+        let c = 4097.0f32 * self.hi;
+        let a_hi = c - (c - self.hi);
+        let a_lo = self.hi - a_hi;
+        let c = 4097.0f32 * rhs.hi;
+        let b_hi = c - (c - rhs.hi);
+        let b_lo = rhs.hi - b_hi;
+        let err = ((a_hi * b_hi - p) + a_hi * b_lo + a_lo * b_hi) + a_lo * b_lo;
+
+        let err2 = err + (self.hi * rhs.lo + self.lo * rhs.hi);
+        let prod_hi = p + err2;
+        let prod_lo = err2 - (prod_hi - p);
+        Self {
+            hi: prod_hi,
+            lo: prod_lo,
+        }
+    }
+
+    /// Division of two FloatFloat values.
+    #[inline]
+    #[allow(clippy::should_implement_trait)]
+    pub fn div(self, rhs: Self) -> Self {
+        let q1 = self.hi / rhs.hi;
+        let r = self.sub(rhs.mul(Self::from_f32(q1)));
+        let q2 = r.hi / rhs.hi;
+        let div_hi = q1 + q2;
+        let div_lo = q2 - (div_hi - q1);
+        Self {
+            hi: div_hi,
+            lo: div_lo,
+        }
+    }
+}
+
+impl core::ops::Add for FloatFloat {
+    type Output = Self;
+    #[inline]
+    fn add(self, rhs: Self) -> Self {
+        self.add(rhs)
+    }
+}
+
+impl core::ops::Sub for FloatFloat {
+    type Output = Self;
+    #[inline]
+    fn sub(self, rhs: Self) -> Self {
+        self.sub(rhs)
+    }
+}
+
+impl core::ops::Neg for FloatFloat {
+    type Output = Self;
+    #[inline]
+    fn neg(self) -> Self {
+        Self {
+            hi: -self.hi,
+            lo: -self.lo,
+        }
+    }
+}
+
+impl core::ops::Mul for FloatFloat {
+    type Output = Self;
+    #[inline]
+    fn mul(self, rhs: Self) -> Self {
+        self.mul(rhs)
+    }
+}
+
+impl core::ops::Div for FloatFloat {
+    type Output = Self;
+    #[inline]
+    fn div(self, rhs: Self) -> Self {
+        self.div(rhs)
+    }
+}

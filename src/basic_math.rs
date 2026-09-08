@@ -423,6 +423,108 @@ pub fn dot_prod_q7(src_a: &[q7], src_b: &[q7]) -> q31 {
     sum
 }
 
+// --- Strided Dot Products (Interleaved DMA Buffers) ---
+
+/// Strided `f32` dot product allowing direct execution on interleaved audio (stereo) or sensor (3-axis IMU) DMA buffers.
+pub fn dot_prod_f32_strided(
+    src_a: &[f32],
+    stride_a: usize,
+    src_b: &[f32],
+    stride_b: usize,
+    count: usize,
+) -> f32 {
+    if stride_a == 0 || stride_b == 0 || count == 0 {
+        return 0.0;
+    }
+    let mut sum = 0.0f32;
+    let mut idx_a = 0;
+    let mut idx_b = 0;
+    for _ in 0..count {
+        if idx_a >= src_a.len() || idx_b >= src_b.len() {
+            break;
+        }
+        sum += src_a[idx_a] * src_b[idx_b];
+        idx_a += stride_a;
+        idx_b += stride_b;
+    }
+    sum
+}
+
+/// Strided `f64` dot product.
+pub fn dot_prod_f64_strided(
+    src_a: &[f64],
+    stride_a: usize,
+    src_b: &[f64],
+    stride_b: usize,
+    count: usize,
+) -> f64 {
+    if stride_a == 0 || stride_b == 0 || count == 0 {
+        return 0.0;
+    }
+    let mut sum = 0.0f64;
+    let mut idx_a = 0;
+    let mut idx_b = 0;
+    for _ in 0..count {
+        if idx_a >= src_a.len() || idx_b >= src_b.len() {
+            break;
+        }
+        sum += src_a[idx_a] * src_b[idx_b];
+        idx_a += stride_a;
+        idx_b += stride_b;
+    }
+    sum
+}
+
+/// Strided `q31` dot product.
+pub fn dot_prod_q31_strided(
+    src_a: &[q31],
+    stride_a: usize,
+    src_b: &[q31],
+    stride_b: usize,
+    count: usize,
+) -> q63 {
+    if stride_a == 0 || stride_b == 0 || count == 0 {
+        return 0;
+    }
+    let mut sum: q63 = 0;
+    let mut idx_a = 0;
+    let mut idx_b = 0;
+    for _ in 0..count {
+        if idx_a >= src_a.len() || idx_b >= src_b.len() {
+            break;
+        }
+        sum += (src_a[idx_a].to_bits() as i64 * src_b[idx_b].to_bits() as i64) >> 14;
+        idx_a += stride_a;
+        idx_b += stride_b;
+    }
+    sum
+}
+
+/// Strided `q15` dot product.
+pub fn dot_prod_q15_strided(
+    src_a: &[q15],
+    stride_a: usize,
+    src_b: &[q15],
+    stride_b: usize,
+    count: usize,
+) -> q63 {
+    if stride_a == 0 || stride_b == 0 || count == 0 {
+        return 0;
+    }
+    let mut sum: q63 = 0;
+    let mut idx_a = 0;
+    let mut idx_b = 0;
+    for _ in 0..count {
+        if idx_a >= src_a.len() || idx_b >= src_b.len() {
+            break;
+        }
+        sum += src_a[idx_a].to_bits() as i64 * src_b[idx_b].to_bits() as i64;
+        idx_a += stride_a;
+        idx_b += stride_b;
+    }
+    sum
+}
+
 // --- Error-Free Transformations (EFT) & Compensated Arithmetic ---
 
 /// Knuth's TwoSum algorithm for f32: computes `s = fl(a + b)` and exact roundoff `r`
@@ -475,6 +577,46 @@ pub fn two_diff_f32(a: f32, b: f32) -> (f32, f32) {
     (d, r)
 }
 
+/// TwoProd algorithm for f32 using Dekker splitting: computes `p = fl(a * b)` and exact error `r`
+/// such that `a * b = p + r` holds in real arithmetic without overflow.
+#[inline]
+pub fn two_prod_f32(a: f32, b: f32) -> (f32, f32) {
+    let p = a * b;
+    let c = 4097.0f32 * a;
+    let a_hi = c - (c - a);
+    let a_lo = a - a_hi;
+    let c = 4097.0f32 * b;
+    let b_hi = c - (c - b);
+    let b_lo = b - b_hi;
+    let r = ((a_hi * b_hi - p) + a_hi * b_lo + a_lo * b_hi) + a_lo * b_lo;
+    (p, r)
+}
+
+/// TwoProd algorithm for f64 using Dekker splitting: computes `p = fl(a * b)` and exact error `r`
+/// such that `a * b = p + r` holds in real arithmetic without overflow.
+#[inline]
+pub fn two_prod_f64(a: f64, b: f64) -> (f64, f64) {
+    let p = a * b;
+    let c = 134217729.0f64 * a;
+    let a_hi = c - (c - a);
+    let a_lo = a - a_hi;
+    let c = 134217729.0f64 * b;
+    let b_hi = c - (c - b);
+    let b_lo = b - b_hi;
+    let r = ((a_hi * b_hi - p) + a_hi * b_lo + a_lo * b_hi) + a_lo * b_lo;
+    (p, r)
+}
+
+/// TwoDiv algorithm for f32: computes `q = fl(a / b)` and residual error `r`
+/// such that `a / b = q + r`.
+#[inline]
+pub fn two_div_f32(a: f32, b: f32) -> (f32, f32) {
+    let q = a / b;
+    let (p, r_prod) = two_prod_f32(q, b);
+    let err = (a - p) - r_prod;
+    (q, err / b)
+}
+
 /// Compensated summation using Neumaier's algorithm.
 ///
 /// Tracks round-off errors at every step, providing near-double precision accuracy
@@ -495,6 +637,107 @@ pub fn sum_f32_compensated(src: &[f32]) -> f32 {
         sum = t;
     }
     sum + c
+}
+
+// --- Polynomial Evaluation & Root Finding ---
+
+/// Evaluates an n-th degree polynomial `P(x) = coeffs[0] + coeffs[1]*x + ... + coeffs[n]*x^n`
+/// using Horner's method.
+pub fn poly_eval_f32(coeffs: &[f32], x: f32) -> f32 {
+    if coeffs.is_empty() {
+        return 0.0;
+    }
+    let n = coeffs.len() - 1;
+    let mut r = coeffs[n];
+    for &c in coeffs[..n].iter().rev() {
+        r = r * x + c;
+    }
+    r
+}
+
+/// Evaluates an n-th degree polynomial using Horner's method in f64.
+pub fn poly_eval_f64(coeffs: &[f64], x: f64) -> f64 {
+    if coeffs.is_empty() {
+        return 0.0;
+    }
+    let n = coeffs.len() - 1;
+    let mut r = coeffs[n];
+    for &c in coeffs[..n].iter().rev() {
+        r = r * x + c;
+    }
+    r
+}
+
+/// Evaluates a polynomial with Q15 coefficients and argument using saturating fixed-point arithmetic.
+pub fn poly_eval_q15(coeffs: &[q15], x: q15) -> q15 {
+    if coeffs.is_empty() {
+        return q15::ZERO;
+    }
+    let n = coeffs.len() - 1;
+    let mut r = coeffs[n];
+    for &c in coeffs[..n].iter().rev() {
+        r = r.saturating_mul(x).saturating_add(c);
+    }
+    r
+}
+
+/// Evaluates a polynomial with Q31 coefficients and argument using saturating fixed-point arithmetic.
+pub fn poly_eval_q31(coeffs: &[q31], x: q31) -> q31 {
+    if coeffs.is_empty() {
+        return q31::ZERO;
+    }
+    let n = coeffs.len() - 1;
+    let mut r = coeffs[n];
+    for &c in coeffs[..n].iter().rev() {
+        r = r.saturating_mul(x).saturating_add(c);
+    }
+    r
+}
+
+/// Simultaneously evaluates polynomial `P(x)` and its derivative `P'(x)`
+/// using Shaw-Traub Horner recurrence in O(N) operations with zero heap allocation.
+pub fn poly_eval_with_deriv_f32(coeffs: &[f32], x: f32) -> (f32, f32) {
+    if coeffs.is_empty() {
+        return (0.0, 0.0);
+    }
+    let n = coeffs.len() - 1;
+    let mut p = coeffs[n];
+    let mut d = 0.0f32;
+    for &c in coeffs[..n].iter().rev() {
+        d = d * x + p;
+        p = p * x + c;
+    }
+    (p, d)
+}
+
+/// Finds a root of polynomial `P(x)` near initial guess `x0` using Newton-Raphson iteration
+/// with analytical derivative evaluation. Zero dynamic allocations.
+pub fn poly_root_f32(coeffs: &[f32], x0: f32, max_iter: usize, tol: f32) -> Result<f32, Status> {
+    if coeffs.len() < 2 {
+        return Err(Status::LengthError);
+    }
+    let mut x = x0;
+    let tol_pos = if tol > 0.0 { tol } else { 1e-6 };
+    for _ in 0..max_iter {
+        let (p, d) = poly_eval_with_deriv_f32(coeffs, x);
+        if p.abs() < tol_pos {
+            return Ok(x);
+        }
+        if d.abs() < 1e-20 {
+            return Err(Status::Singular);
+        }
+        let step = p / d;
+        x -= step;
+        if step.abs() < tol_pos {
+            return Ok(x);
+        }
+    }
+    let (p, _) = poly_eval_with_deriv_f32(coeffs, x);
+    if p.abs() < tol_pos * 10.0 {
+        Ok(x)
+    } else {
+        Err(Status::TestFailure)
+    }
 }
 
 // --- Clip ---

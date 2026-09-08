@@ -285,3 +285,349 @@ fn test_microcontroller_edge_cases() {
     let b_f32 = [3.0f32];
     assert_eq!(dot_prod_f32_compensated(&a_f32, &b_f32), 3.0);
 }
+
+#[test]
+fn test_bfloat16_operations_and_edge_cases() {
+    use std::collections::HashSet;
+
+    // Constants
+    assert_eq!(BFloat16::ZERO.to_f32(), 0.0);
+    assert_eq!(BFloat16::NEG_ZERO.to_f32(), -0.0);
+    assert_eq!(BFloat16::ONE.to_f32(), 1.0);
+    assert_eq!(BFloat16::NEG_ONE.to_f32(), -1.0);
+    assert!(BFloat16::NAN.is_nan());
+    assert!(BFloat16::INFINITY.is_infinite());
+    assert!(BFloat16::NEG_INFINITY.is_infinite());
+    assert!(BFloat16::MAX.to_f32() > 3.3e38);
+    assert!(BFloat16::MIN.to_f32() < -3.3e38);
+    assert!(BFloat16::MIN_POSITIVE.to_f32() > 0.0);
+
+    // Queries
+    assert!(BFloat16::ZERO.is_zero());
+    assert!(BFloat16::NEG_ZERO.is_zero());
+    assert!(!BFloat16::ONE.is_zero());
+
+    assert!(BFloat16::ONE.is_sign_positive());
+    assert!(!BFloat16::NEG_ONE.is_sign_positive());
+    assert!(BFloat16::NEG_ONE.is_sign_negative());
+    assert!(!BFloat16::ONE.is_sign_negative());
+
+    assert!(BFloat16::ONE.is_finite());
+    assert!(!BFloat16::INFINITY.is_finite());
+    assert!(!BFloat16::NAN.is_finite());
+
+    // abs
+    assert_eq!(BFloat16::NEG_ONE.abs(), BFloat16::ONE);
+    assert_eq!(BFloat16::ONE.abs(), BFloat16::ONE);
+
+    // from_bits and to_bits
+    let bf = BFloat16::from_bits(0x3F80);
+    assert_eq!(bf.to_bits(), 0x3F80);
+    assert_eq!(bf, BFloat16::ONE);
+
+    // from_f32 and to_f32
+    let bf_pi = BFloat16::from_f32(core::f32::consts::PI);
+    let f_pi = bf_pi.to_f32();
+    assert!((f_pi - core::f32::consts::PI).abs() < 0.02);
+
+    // NaN handling preserves NaN and sets quiet bit
+    let nan_f32 = f32::from_bits(0x7F80_0001); // signaling NaN in f32
+    let bf_nan = BFloat16::from_f32(nan_f32);
+    assert!(bf_nan.is_nan());
+
+    // Conversions via From / Into traits
+    let bf_conv: BFloat16 = 2.5f32.into();
+    let f_conv: f32 = bf_conv.into();
+    assert_eq!(f_conv, 2.5f32);
+
+    // Display and Debug
+    let disp = format!("{}", BFloat16::ONE);
+    assert_eq!(disp, "1");
+    let dbg = format!("{:?}", BFloat16::ONE);
+    assert!(dbg.contains("BFloat16(1.0)"));
+
+    // Derive traits (Default, Ord, Hash)
+    assert_eq!(BFloat16::default(), BFloat16::ZERO);
+    assert!(BFloat16::ONE > BFloat16::ZERO);
+    let mut set = HashSet::new();
+    set.insert(BFloat16::ONE);
+    assert!(set.contains(&BFloat16::ONE));
+
+    // Support slice conversions
+    let raw_floats = [0.0f32, 1.0, -1.0, core::f32::consts::PI, 100.0];
+    let mut bf_buf = [BFloat16::ZERO; 5];
+    let mut f_buf = [0.0f32; 5];
+
+    f32_to_bfloat16(&raw_floats, &mut bf_buf);
+    bfloat16_to_f32(&bf_buf, &mut f_buf);
+
+    for i in 0..5 {
+        assert!((raw_floats[i] - f_buf[i]).abs() < (raw_floats[i].abs() * 0.01).max(1e-5));
+    }
+
+    // Mismatched length slice conversions
+    let mut short_bf = [BFloat16::ZERO; 2];
+    f32_to_bfloat16(&raw_floats, &mut short_bf);
+    assert_eq!(short_bf[1], BFloat16::ONE);
+
+    let mut short_f = [0.0f32; 2];
+    bfloat16_to_f32(&bf_buf, &mut short_f);
+    assert_eq!(short_f[1], 1.0);
+}
+
+#[test]
+fn test_floatfloat_extended_precision() {
+    // Constants and constructors
+    assert_eq!(FloatFloat::ZERO.to_f32(), 0.0);
+    assert_eq!(FloatFloat::ONE.to_f32(), 1.0);
+
+    let ff = FloatFloat::new(1.0, 1e-7);
+    assert_eq!(ff.hi, 1.0);
+    assert_eq!(ff.lo, 1e-7);
+    assert_eq!(FloatFloat::from_f32(3.5).to_f32(), 3.5);
+
+    // to_f64
+    let val_f64 = ff.to_f64();
+    assert!((val_f64 - 1.0000001).abs() < 1e-12);
+
+    // abs
+    let neg_ff = -ff;
+    assert_eq!(neg_ff.abs(), ff);
+    assert_eq!(ff.abs(), ff);
+
+    // Addition and Subtraction
+    let a = FloatFloat::from_f32(1.0);
+    let b = FloatFloat::new(1e-8, 0.0);
+    let sum = a + b;
+    let diff = sum - b;
+    assert!((diff.to_f64() - 1.0).abs() < 1e-14);
+
+    // Multiplication with extended precision that standard f32 loses
+    let x = FloatFloat::new(1.0, 1e-8);
+    let y = FloatFloat::from_f32(2.0);
+    let prod = x * y;
+    let expected = (1.0f64 + 1e-8f64) * 2.0f64;
+    assert!((prod.to_f64() - expected).abs() < 1e-14);
+
+    // Standard f32 completely loses the 1e-8 component
+    assert_eq!((1.0f32 + 1e-8f32) * 2.0f32, 2.0f32);
+    // While FloatFloat preserved it!
+    assert!(prod.to_f64() > 2.0);
+
+    // Division
+    let dividend = FloatFloat::from_f32(1.0);
+    let divisor = FloatFloat::from_f32(3.0);
+    let quotient = dividend / divisor;
+    let expected = 1.0 / 3.0;
+    assert!((quotient.to_f64() - expected).abs() < 1e-12);
+
+    // Display, Debug, Default, Clone, Copy
+    let dbg = format!("{:?}", ff);
+    assert!(dbg.contains("FloatFloat"));
+    let disp = format!("{}", ff);
+    assert!(disp.contains("1.0000001"));
+    assert_eq!(FloatFloat::default(), FloatFloat::ZERO);
+}
+
+#[test]
+fn test_strided_dot_products() {
+    // 1. f32 strided dot product
+    // Interleaved stereo buffer: [L0, R0, L1, R1, L2, R2]
+    let interleaved_stereo_a = [1.0f32, 10.0, 2.0, 20.0, 3.0, 30.0];
+    let interleaved_stereo_b = [4.0f32, 40.0, 5.0, 50.0, 6.0, 60.0];
+
+    // Left channel dot product: L0*L0 + L1*L1 + L2*L2 = 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
+    let dot_l = dot_prod_f32_strided(&interleaved_stereo_a, 2, &interleaved_stereo_b, 2, 3);
+    assert_eq!(dot_l, 32.0);
+
+    // Right channel dot product: 10*40 + 20*50 + 30*60 = 400 + 1000 + 1800 = 3200
+    let dot_r = dot_prod_f32_strided(
+        &interleaved_stereo_a[1..],
+        2,
+        &interleaved_stereo_b[1..],
+        2,
+        3,
+    );
+    assert_eq!(dot_r, 3200.0);
+
+    // Edge cases for f32: count 0, stride 0, truncation past slice length
+    assert_eq!(
+        dot_prod_f32_strided(&interleaved_stereo_a, 0, &interleaved_stereo_b, 2, 3),
+        0.0
+    );
+    assert_eq!(
+        dot_prod_f32_strided(&interleaved_stereo_a, 2, &interleaved_stereo_b, 0, 3),
+        0.0
+    );
+    assert_eq!(
+        dot_prod_f32_strided(&interleaved_stereo_a, 2, &interleaved_stereo_b, 2, 0),
+        0.0
+    );
+    // Requesting count 10 when only 3 elements available
+    assert_eq!(
+        dot_prod_f32_strided(&interleaved_stereo_a, 2, &interleaved_stereo_b, 2, 10),
+        32.0
+    );
+
+    // 2. f64 strided dot product
+    let a64 = [1.0f64, 10.0, 2.0, 20.0, 3.0, 30.0];
+    let b64 = [4.0f64, 40.0, 5.0, 50.0, 6.0, 60.0];
+    let dot_l64 = dot_prod_f64_strided(&a64, 2, &b64, 2, 3);
+    assert_eq!(dot_l64, 32.0);
+    assert_eq!(dot_prod_f64_strided(&a64, 0, &b64, 2, 3), 0.0);
+    assert_eq!(dot_prod_f64_strided(&a64, 2, &b64, 0, 3), 0.0);
+    assert_eq!(dot_prod_f64_strided(&a64, 2, &b64, 2, 0), 0.0);
+    assert_eq!(dot_prod_f64_strided(&a64, 2, &b64, 2, 10), 32.0);
+
+    // 3. q31 strided dot product
+    let a_q31 = [
+        q31::from_num(0.25),
+        q31::from_num(0.0),
+        q31::from_num(0.5),
+        q31::from_num(0.0),
+    ];
+    let b_q31 = [
+        q31::from_num(0.25),
+        q31::from_num(0.0),
+        q31::from_num(0.5),
+        q31::from_num(0.0),
+    ];
+    let dot_q31 = dot_prod_q31_strided(&a_q31, 2, &b_q31, 2, 2);
+    assert!(dot_q31 > 0);
+    assert_eq!(dot_prod_q31_strided(&a_q31, 0, &b_q31, 2, 2), 0);
+    assert_eq!(dot_prod_q31_strided(&a_q31, 2, &b_q31, 0, 2), 0);
+    assert_eq!(dot_prod_q31_strided(&a_q31, 2, &b_q31, 2, 0), 0);
+    assert_eq!(dot_prod_q31_strided(&a_q31, 2, &b_q31, 2, 10), dot_q31);
+
+    // 4. q15 strided dot product
+    let a_q15 = [
+        q15::from_num(0.25),
+        q15::from_num(0.0),
+        q15::from_num(0.5),
+        q15::from_num(0.0),
+    ];
+    let b_q15 = [
+        q15::from_num(0.25),
+        q15::from_num(0.0),
+        q15::from_num(0.5),
+        q15::from_num(0.0),
+    ];
+    let dot_q15 = dot_prod_q15_strided(&a_q15, 2, &b_q15, 2, 2);
+    assert!(dot_q15 > 0);
+    assert_eq!(dot_prod_q15_strided(&a_q15, 0, &b_q15, 2, 2), 0);
+    assert_eq!(dot_prod_q15_strided(&a_q15, 2, &b_q15, 0, 2), 0);
+    assert_eq!(dot_prod_q15_strided(&a_q15, 2, &b_q15, 2, 0), 0);
+    assert_eq!(dot_prod_q15_strided(&a_q15, 2, &b_q15, 2, 10), dot_q15);
+}
+
+#[test]
+fn test_eft_two_prod_and_two_div() {
+    // 1. two_prod_f32
+    let a = 1.0000001f32;
+    let b = 1.0000002f32;
+    let (p, r) = two_prod_f32(a, b);
+    assert_eq!(p, a * b);
+    let exact_prod = (a as f64) * (b as f64);
+    let eft_prod = (p as f64) + (r as f64);
+    assert!((exact_prod - eft_prod).abs() < 1e-15);
+
+    // 2. two_prod_f64
+    let a64 = 1.0000000000000002f64;
+    let b64 = 1.0000000000000004f64;
+    let (p64, r64) = two_prod_f64(a64, b64);
+    assert_eq!(p64, a64 * b64);
+    assert!(r64 != 0.0);
+
+    // 3. two_div_f32
+    let div_a = 1.0f32;
+    let div_b = 3.0f32;
+    let (q, r_div) = two_div_f32(div_a, div_b);
+    assert_eq!(q, div_a / div_b);
+    let exact_quot = (div_a as f64) / (div_b as f64);
+    let eft_quot = (q as f64) + (r_div as f64);
+    assert!((exact_quot - eft_quot).abs() < 1e-14);
+}
+
+#[test]
+fn test_polynomial_eval_and_root_finding() {
+    // 1. poly_eval_f32: P(x) = 1 + 2x + 3x^2
+    let coeffs_f32 = [1.0f32, 2.0, 3.0];
+    assert_eq!(poly_eval_f32(&[], 2.0), 0.0);
+    assert_eq!(poly_eval_f32(&[5.0], 2.0), 5.0);
+    // P(2) = 1 + 2*2 + 3*4 = 17
+    assert_eq!(poly_eval_f32(&coeffs_f32, 2.0), 17.0);
+
+    // 2. poly_eval_f64
+    let coeffs_f64 = [1.0f64, 2.0, 3.0];
+    assert_eq!(poly_eval_f64(&[], 2.0), 0.0);
+    assert_eq!(poly_eval_f64(&[5.0], 2.0), 5.0);
+    assert_eq!(poly_eval_f64(&coeffs_f64, 2.0), 17.0);
+
+    // 3. poly_eval_q15: P(x) = 0.125 + 0.25x
+    let coeffs_q15 = [q15::from_num(0.125), q15::from_num(0.25)];
+    assert_eq!(poly_eval_q15(&[], q15::from_num(0.5)), q15::ZERO);
+    assert_eq!(
+        poly_eval_q15(&[q15::from_num(0.5)], q15::from_num(0.5)),
+        q15::from_num(0.5)
+    );
+    let r_q15 = poly_eval_q15(&coeffs_q15, q15::from_num(0.5));
+    // 0.125 + 0.25 * 0.5 = 0.25
+    assert_eq!(r_q15, q15::from_num(0.25));
+
+    // 4. poly_eval_q31: P(x) = 0.125 + 0.25x
+    let coeffs_q31 = [q31::from_num(0.125), q31::from_num(0.25)];
+    assert_eq!(poly_eval_q31(&[], q31::from_num(0.5)), q31::ZERO);
+    assert_eq!(
+        poly_eval_q31(&[q31::from_num(0.5)], q31::from_num(0.5)),
+        q31::from_num(0.5)
+    );
+    let r_q31 = poly_eval_q31(&coeffs_q31, q31::from_num(0.5));
+    assert_eq!(r_q31, q31::from_num(0.25));
+
+    // 5. poly_eval_with_deriv_f32: P(x) = 1 + 2x + 3x^2, P'(x) = 2 + 6x
+    assert_eq!(poly_eval_with_deriv_f32(&[], 2.0), (0.0, 0.0));
+    let (p, d) = poly_eval_with_deriv_f32(&coeffs_f32, 2.0);
+    assert_eq!(p, 17.0);
+    assert_eq!(d, 14.0);
+
+    // 6. poly_root_f32
+    // Length error
+    assert_eq!(poly_root_f32(&[], 1.0, 20, 1e-5), Err(Status::LengthError));
+    assert_eq!(
+        poly_root_f32(&[1.0], 1.0, 20, 1e-5),
+        Err(Status::LengthError)
+    );
+
+    // Linear root: P(x) = -6 + 2x => root at x = 3.0
+    let linear_coeffs = [-6.0f32, 2.0];
+    let root_lin = poly_root_f32(&linear_coeffs, 0.0, 20, 1e-6).unwrap();
+    assert!((root_lin - 3.0).abs() < 1e-5);
+
+    // Quadratic root: P(x) = -4 + x^2 => roots at +-2.0
+    let quad_coeffs = [-4.0f32, 0.0, 1.0];
+    let root_pos = poly_root_f32(&quad_coeffs, 1.0, 20, 1e-6).unwrap();
+    assert!((root_pos - 2.0).abs() < 1e-5);
+    let root_neg = poly_root_f32(&quad_coeffs, -1.0, 20, 1e-6).unwrap();
+    assert!((root_neg - (-2.0)).abs() < 1e-5);
+
+    // Initial guess is already an exact root
+    let root_exact = poly_root_f32(&quad_coeffs, 2.0, 20, 1e-6).unwrap();
+    assert_eq!(root_exact, 2.0);
+
+    // Flat derivative MathError: P(x) = 1 + x^2 at x = 0 has derivative 0
+    let flat_coeffs = [1.0f32, 0.0, 1.0];
+    assert_eq!(
+        poly_root_f32(&flat_coeffs, 0.0, 20, 1e-6),
+        Err(Status::Singular)
+    );
+
+    // Non-converging TestFailure: max_iter exhausted before reaching tolerance
+    assert_eq!(
+        poly_root_f32(&quad_coeffs, 10.0, 1, 1e-6),
+        Err(Status::TestFailure)
+    );
+
+    // Default tolerance when tol <= 0.0
+    let root_def_tol = poly_root_f32(&linear_coeffs, 0.0, 20, -1.0).unwrap();
+    assert!((root_def_tol - 3.0).abs() < 1e-5);
+}

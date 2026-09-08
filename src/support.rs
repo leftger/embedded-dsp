@@ -390,3 +390,22 @@ impl AdcNormalizer {
     }
 }
 
+// --- BFloat16 Conversions ---
+
+/// Converts a slice of `f32` samples to compact `BFloat16` format.
+pub fn f32_to_bfloat16(src: &[f32], dst: &mut [BFloat16]) {
+    let len = src.len().min(dst.len());
+    for i in 0..len {
+        dst[i] = BFloat16::from_f32(src[i]);
+    }
+}
+
+/// Converts a slice of `BFloat16` samples back to `f32`.
+pub fn bfloat16_to_f32(src: &[BFloat16], dst: &mut [f32]) {
+    let len = src.len().min(dst.len());
+    for i in 0..len {
+        dst[i] = src[i].to_f32();
+    }
+}
+
+
