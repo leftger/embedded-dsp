@@ -18,6 +18,29 @@ pub fn mean_f32(src: &[f32], result: &mut f32) -> Status {
     Status::Success
 }
 
+/// Computes the mean of an `f32` slice using Neumaier compensated summation.
+///
+/// Mitigates precision loss when calculating the average of long sample buffers
+/// or signals with high dynamic range.
+pub fn mean_f32_compensated(src: &[f32], result: &mut f32) -> Status {
+    if src.is_empty() {
+        return Status::LengthError;
+    }
+    let mut sum = src[0];
+    let mut c = 0.0f32;
+    for &x in &src[1..] {
+        let t = sum + x;
+        if sum.abs() >= x.abs() {
+            c += (sum - t) + x;
+        } else {
+            c += (x - t) + sum;
+        }
+        sum = t;
+    }
+    *result = (sum + c) / (src.len() as f32);
+    Status::Success
+}
+
 pub fn mean_f64(src: &[f64], result: &mut f64) -> Status {
     if src.is_empty() {
         return Status::LengthError;

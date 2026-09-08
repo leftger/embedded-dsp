@@ -296,3 +296,97 @@ pub fn biquad_coeffs_f32_to_q31(src: &[f32], dst: &mut [q31], post_shift: u8) ->
     }
     Status::Success
 }
+
+// --- Hardware ADC Normalization ---
+
+/// Hardware ADC converter mapping raw unipolar integer counts (e.g. 10-bit, 12-bit, 14-bit, 16-bit)
+/// to normalized signed DSP sample formats (`q15`, `q31`, `f32`).
+///
+/// Typical microcontroller applications (STM32 SAR ADC, ESP32 ADC, AVR 10-bit) sample
+/// AC signals (audio, vibration) DC-biased at `V_ref / 2` or bipolar sensors with calibration offset.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AdcNormalizer {
+    /// Digital zero-point count (e.g. `2048` for a 12-bit ADC centered at `V_ref / 2`).
+    pub zero_offset: u16,
+    /// Bit-shift applied to align the centered ADC word into Q15.
+    pub shift_q15: u8,
+    /// Bit-shift applied to align the centered ADC word into Q31.
+    pub shift_q31: u8,
+    /// Precomputed float normalization divisor (`1.0 / span`).
+    pub scale_f32: f32,
+}
+
+impl AdcNormalizer {
+    /// Creates a new ADC normalizer for a given bit resolution (e.g. 8, 10, 12, 14, 16)
+    /// and DC zero-point offset count.
+    ///
+    /// # Arguments
+    /// * `resolution_bits` - Number of ADC bits (clamped to 1..=16).
+    /// * `zero_offset` - Raw integer count corresponding to zero signal level.
+    pub fn new(resolution_bits: u8, zero_offset: u16) -> Self {
+        let bits = resolution_bits.clamp(1, 16);
+        let shift_q15 = 16u8 - bits;
+        let shift_q31 = 32u8 - bits;
+        let span = if bits == 16 {
+            32768.0f32
+        } else {
+            (1u32 << (bits - 1)) as f32
+        };
+        let scale_f32 = 1.0f32 / span;
+
+        Self {
+            zero_offset,
+            shift_q15,
+            shift_q31,
+            scale_f32,
+        }
+    }
+
+    /// Converts a single raw ADC sample to `q15`.
+    #[inline]
+    pub fn to_q15_sample(&self, raw: u16) -> q15 {
+        let centered = (raw as i32) - (self.zero_offset as i32);
+        let val = centered << (self.shift_q15 as u32);
+        q15::from_bits(val.clamp(i16::MIN as i32, i16::MAX as i32) as i16)
+    }
+
+    /// Converts a single raw ADC sample to `q31`.
+    #[inline]
+    pub fn to_q31_sample(&self, raw: u16) -> q31 {
+        let centered = (raw as i64) - (self.zero_offset as i64);
+        let val = centered << (self.shift_q31 as u32);
+        q31::from_bits(val.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+    }
+
+    /// Converts a single raw ADC sample to normalized `f32` in approximately `[-1.0, 1.0]`.
+    #[inline]
+    pub fn to_f32_sample(&self, raw: u16) -> f32 {
+        let centered = (raw as f32) - (self.zero_offset as f32);
+        (centered * self.scale_f32).clamp(-1.0, 1.0)
+    }
+
+    /// Normalizes a slice of raw ADC samples to `q15` in-place or into a destination buffer.
+    pub fn normalize_to_q15(&self, raw: &[u16], dst: &mut [q15]) {
+        let len = raw.len().min(dst.len());
+        for i in 0..len {
+            dst[i] = self.to_q15_sample(raw[i]);
+        }
+    }
+
+    /// Normalizes a slice of raw ADC samples to `q31` in-place or into a destination buffer.
+    pub fn normalize_to_q31(&self, raw: &[u16], dst: &mut [q31]) {
+        let len = raw.len().min(dst.len());
+        for i in 0..len {
+            dst[i] = self.to_q31_sample(raw[i]);
+        }
+    }
+
+    /// Normalizes a slice of raw ADC samples to `f32` in-place or into a destination buffer.
+    pub fn normalize_to_f32(&self, raw: &[u16], dst: &mut [f32]) {
+        let len = raw.len().min(dst.len());
+        for i in 0..len {
+            dst[i] = self.to_f32_sample(raw[i]);
+        }
+    }
+}
+

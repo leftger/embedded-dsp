@@ -21,7 +21,7 @@ A high-performance **`#![no_std]` Rust Digital Signal Processing library** desig
 - **Hardware Acceleration**: ARM Cortex-M assembly intrinsics (`smlad`, `smlald`, `ssat`, `qadd16`) via `cortex-m-dsp`, with portable SWAR vector fallbacks.
 - **Pure-Integer CORDIC Engine**: Shift-and-add `sin`, `cos`, `atan2`, polar conversion, and `sqrt` requiring no hardware multipliers.
 - **Streaming Pipelines**: Zero-allocation [`DspNode`](src/pipeline.rs) composable processing chains (`Chain`, `Gain`, `Limiter`).
-- **Production Tested**: Continuous integration across 6 bare-metal architectures (`thumbv6m`, `thumbv7em`, `thumbv7em-hf`, `riscv32imc`, `wasm32`, `x86_64`).
+- **Production Tested**: Continuous integration across 7 bare-metal architectures (`thumbv6m`, `thumbv7em`, `thumbv7em-hf`, `thumbv8m-main-hf`, `riscv32imc`, `wasm32`, `x86_64`).
 
 ---
 
