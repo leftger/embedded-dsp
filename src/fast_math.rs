@@ -302,13 +302,13 @@ pub fn fast_log2_f32(x: f32) -> f32 {
 /// Fast bit-manipulation natural logarithm `ln(x)`.
 #[inline]
 pub fn fast_ln_f32(x: f32) -> f32 {
-    0.69314718 * fast_log2_f32(x)
+    core::f32::consts::LN_2 * fast_log2_f32(x)
 }
 
 /// Fast bit-manipulation common logarithm `log10(x)`.
 #[inline]
 pub fn fast_log10_f32(x: f32) -> f32 {
-    0.30102999566 * fast_log2_f32(x)
+    core::f32::consts::LOG10_2 * fast_log2_f32(x)
 }
 
 /// Fast bit-manipulation base-2 exponential `2^p` with underflow/overflow saturation.
@@ -326,17 +326,13 @@ pub fn fast_pow2_f32(p: f32) -> f32 {
     let z = clipp - (w as f32) + offset;
     let scaled = (1u32 << 23) as f32
         * (clipp + 121.2740575 + 27.7280233 / (4.84252568 - z) - 1.49012907 * z);
-    if scaled <= 0.0 {
-        0.0
-    } else {
-        f32::from_bits(scaled as u32)
-    }
+    f32::from_bits(scaled as u32)
 }
 
 /// Fast bit-manipulation base-10 exponential `10^p`.
 #[inline]
 pub fn fast_pow10_f32(p: f32) -> f32 {
-    fast_pow2_f32(3.321928095 * p)
+    fast_pow2_f32(core::f32::consts::LOG2_10 * p)
 }
 
 /// Fast linear gain to decibels conversion: `20 * log10(gain)`.

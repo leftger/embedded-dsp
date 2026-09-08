@@ -832,3 +832,70 @@ fn test_hilbert_transform_and_analytic_signal() {
     analytic_phase_f32(&test_cmx, &mut short_phase);
     assert!((short_phase[0] - 4.0f32.atan2(3.0)).abs() < 1e-6);
 }
+
+#[test]
+fn test_additional_coverage_branches() {
+    // 1. fast_pow2_f32 underflow saturation and overflow
+    assert_eq!(fast_pow2_f32(-130.0), 0.0);
+    assert_eq!(fast_pow2_f32(130.0), f32::INFINITY);
+
+    // 2. poly_root_f32 step.abs() < tol_pos branch (large derivative, small step)
+    // P(x) = 1000 * x - 1000, root at 1.0. Start at 1.0001 with tol = 1e-3.
+    // p = 0.1 >= 1e-3, d = 1000, step = 0.0001 < 1e-3 => step < tol triggers!
+    let steep_poly = [-1000.0f32, 1000.0];
+    let root_step = poly_root_f32(&steep_poly, 1.0001, 10, 1e-3).unwrap();
+    assert!((root_step - 1.0).abs() < 1e-3);
+
+    // 3. poly_root_f32 loop exhausted but p.abs() < tol * 10.0 branch
+    // P(x) = x^2 - 2, root at sqrt(2) ~ 1.41421356. Start at 1.0 with max_iter = 2 and tol = 1e-4.
+    // Iter 0: x = 1.0, p = -1, d = 2, step = -0.5, x = 1.5.
+    // Iter 1: x = 1.5, p = 0.25, d = 3, step = 0.0833, x = 1.41666.
+    // Iter 2: p(1.41666) = 0.00694. If tol = 1e-3: p < tol * 10 (0.01) triggers Ok after loop!
+    let quad = [-2.0f32, 0.0, 1.0];
+    let root_near = poly_root_f32(&quad, 1.0, 2, 1e-3).unwrap();
+    assert!((root_near - 1.4142).abs() < 0.01);
+
+    // 4. Wavelet length limits (m > 1024)
+    let h_daub = [0.4829629f32, 0.8365163, 0.22414386, -0.12940952];
+    let mut large_wavelet = [0.0f32; 2048];
+    assert_eq!(
+        wavelet_step_f32(&mut large_wavelet, 2048, &h_daub),
+        Status::LengthError
+    );
+    assert_eq!(
+        inverse_wavelet_step_f32(&mut large_wavelet, 2048, &h_daub),
+        Status::LengthError
+    );
+
+    // 5. Window boundary cases (0 and 1 length)
+    let mut empty_kaiser = [0.0f32; 0];
+    kaiser_f32(&mut empty_kaiser, 5.0);
+    let mut single_kaiser = [0.0f32; 1];
+    kaiser_f32(&mut single_kaiser, 5.0);
+    assert_eq!(single_kaiser[0], 1.0);
+
+    let mut empty_q15 = [q15::ZERO; 0];
+    hanning_q15(&mut empty_q15);
+    let mut single_q15 = [q15::ZERO; 1];
+    hanning_q15(&mut single_q15);
+    assert_eq!(single_q15[0], q15::MAX);
+
+    // 6. Fast division edge cases (denominator = 0)
+    let mut q_res = q31::ZERO;
+    let mut q_shift = 0i16;
+    assert_eq!(
+        divide_q31(q31::from_num(0.5), q31::ZERO, &mut q_res, &mut q_shift),
+        Status::ArgumentError
+    );
+    let mut q15_res = q15::ZERO;
+    let mut q15_shift = 0i16;
+    assert_eq!(
+        divide_q15(q15::from_num(0.5), q15::ZERO, &mut q15_res, &mut q15_shift),
+        Status::ArgumentError
+    );
+
+    // 7. Distance empty inputs
+    assert_eq!(euclidean_distance_f32(&[], &[]), 0.0);
+    assert_eq!(chebyshev_distance_f32(&[], &[]), 0.0);
+    assert_eq!(cosine_distance_f32(&[], &[]), 1.0);
+}
