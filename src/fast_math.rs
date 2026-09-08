@@ -282,3 +282,72 @@ pub fn fast_exp_f32(x: f32) -> f32 {
     }
 }
 
+// --- Fast Bit-Manipulation Logarithms & Exponentials (Mineiro fastapprox) ---
+
+/// Fast bit-manipulation base-2 logarithm `log2(x)` using IEEE-754 mantissa extraction
+/// and low-order rational approximation (Paul Mineiro fastapprox).
+///
+/// Runs in single-digit cycles on ARM Cortex-M/RISC-V hardware `f32` FPUs without software `libm` emulation.
+#[inline]
+pub fn fast_log2_f32(x: f32) -> f32 {
+    if x <= 0.0 {
+        return f32::NEG_INFINITY;
+    }
+    let vx = x.to_bits();
+    let mx = f32::from_bits((vx & 0x007F_FFFF) | 0x3F00_0000);
+    let y = (vx as f32) * 1.1920928955078125e-7;
+    y - 124.22551499 - 1.498030302 * mx - 1.72587999 / (0.3520887068 + mx)
+}
+
+/// Fast bit-manipulation natural logarithm `ln(x)`.
+#[inline]
+pub fn fast_ln_f32(x: f32) -> f32 {
+    0.69314718 * fast_log2_f32(x)
+}
+
+/// Fast bit-manipulation common logarithm `log10(x)`.
+#[inline]
+pub fn fast_log10_f32(x: f32) -> f32 {
+    0.30102999566 * fast_log2_f32(x)
+}
+
+/// Fast bit-manipulation base-2 exponential `2^p` with underflow/overflow saturation.
+#[inline]
+pub fn fast_pow2_f32(p: f32) -> f32 {
+    if p < -126.0 {
+        return 0.0;
+    }
+    if p > 127.0 {
+        return f32::INFINITY;
+    }
+    let offset = if p < 0.0 { 1.0f32 } else { 0.0f32 };
+    let clipp = p;
+    let w = clipp as i32;
+    let z = clipp - (w as f32) + offset;
+    let scaled = (1u32 << 23) as f32
+        * (clipp + 121.2740575 + 27.7280233 / (4.84252568 - z) - 1.49012907 * z);
+    if scaled <= 0.0 {
+        0.0
+    } else {
+        f32::from_bits(scaled as u32)
+    }
+}
+
+/// Fast bit-manipulation base-10 exponential `10^p`.
+#[inline]
+pub fn fast_pow10_f32(p: f32) -> f32 {
+    fast_pow2_f32(3.321928095 * p)
+}
+
+/// Fast linear gain to decibels conversion: `20 * log10(gain)`.
+#[inline]
+pub fn fast_gain_to_db_f32(gain: f32) -> f32 {
+    20.0 * fast_log10_f32(gain)
+}
+
+/// Fast decibels to linear gain conversion: `10^(db / 20)`.
+#[inline]
+pub fn fast_db_to_gain_f32(db: f32) -> f32 {
+    fast_pow10_f32(db * 0.05)
+}
+

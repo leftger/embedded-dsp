@@ -1103,3 +1103,279 @@ pub fn inverse_wavelet_transform_f32(data: &mut [f32], h: &[f32]) -> Status {
 
     Status::Success
 }
+
+// --- Hilbert Transform FIR & Analytic Signal Generation (cdsp) ---
+
+/// 35-point Hilbert transform FIR filter coefficients from Embree & Kimble (cdsp).
+///
+/// Symmetric bandpass from 0.02*fs to 0.48*fs with ±0.5 dB passband ripple and exact 90-degree phase shift.
+/// Group delay is exactly 17 samples ((35 - 1) / 2).
+pub const HILBERT_COEFFS_35: [f32; 35] = [
+    0.038135, 0.0, 0.024179, 0.0, 0.032403, 0.0, 0.043301, 0.0, 0.058420, 0.0, 0.081119, 0.0,
+    0.120167, 0.0, 0.207859, 0.0, 0.635163, 0.0, -0.635163, 0.0, -0.207859, 0.0, -0.120167, 0.0,
+    -0.081119, 0.0, -0.058420, 0.0, -0.043301, 0.0, -0.032403, 0.0, -0.024179, 0.0, -0.038135,
+];
+
+/// 35-point Hilbert transform FIR filter coefficients quantized to Q15 fixed-point.
+pub const HILBERT_COEFFS_35_Q15: [q15; 35] = [
+    q15::from_bits(1250),
+    q15::ZERO,
+    q15::from_bits(792),
+    q15::ZERO,
+    q15::from_bits(1062),
+    q15::ZERO,
+    q15::from_bits(1419),
+    q15::ZERO,
+    q15::from_bits(1914),
+    q15::ZERO,
+    q15::from_bits(2658),
+    q15::ZERO,
+    q15::from_bits(3938),
+    q15::ZERO,
+    q15::from_bits(6811),
+    q15::ZERO,
+    q15::from_bits(20813),
+    q15::ZERO,
+    q15::from_bits(-20813),
+    q15::ZERO,
+    q15::from_bits(-6811),
+    q15::ZERO,
+    q15::from_bits(-3938),
+    q15::ZERO,
+    q15::from_bits(-2658),
+    q15::ZERO,
+    q15::from_bits(-1914),
+    q15::ZERO,
+    q15::from_bits(-1419),
+    q15::ZERO,
+    q15::from_bits(-1062),
+    q15::ZERO,
+    q15::from_bits(-792),
+    q15::ZERO,
+    q15::from_bits(-1250),
+];
+
+/// Designs windowed ideal Hilbert transform FIR filter coefficients.
+///
+/// `dst_coeffs.len()` must be odd and at least 3.
+/// Computes `h[n] = (2 / (π * k)) * w[n]` for odd `k = n - M` and `0` for even `k`.
+pub fn hilbert_fir_design_f32(dst_coeffs: &mut [f32]) -> Status {
+    let n = dst_coeffs.len();
+    if n < 3 || (n & 1) == 0 {
+        return Status::ArgumentError;
+    }
+    let m = (n - 1) / 2;
+    let pi = core::f32::consts::PI;
+    let two_over_pi = 2.0f32 / pi;
+    let n_minus_1 = (n - 1) as f32;
+
+    for (i, coeff) in dst_coeffs.iter_mut().enumerate().take(n) {
+        let k = i as isize - m as isize;
+        if (k & 1) != 0 {
+            // Hamming window tap
+            let w = 0.54 - 0.46 * ((2.0 * pi * i as f32) / n_minus_1).cos();
+            *coeff = (two_over_pi / (k as f32)) * w;
+        } else {
+            *coeff = 0.0;
+        }
+    }
+    Status::Success
+}
+
+/// Stateful FIR Hilbert Transformer for floating-point 32-bit (`f32`).
+///
+/// Produces the 90-degree phase-shifted (quadrature) output and time-aligned
+/// in-phase signal `I[n] = x[n - M]` to generate the true analytic signal
+/// `z[n] = I[n] + j Q[n]` with zero heap allocations.
+pub struct HilbertTransformF32<'a> {
+    pub num_taps: usize,
+    pub coeffs: &'a [f32],
+    pub state: &'a mut [f32],
+}
+
+impl<'a> HilbertTransformF32<'a> {
+    /// Creates a new Hilbert transformer instance.
+    ///
+    /// # Errors
+    /// Returns `Status::ArgumentError` if `coeffs.len() < 3`, `coeffs.len() % 2 == 0`,
+    /// or `coeffs.len() != state.len()`.
+    pub fn new(coeffs: &'a [f32], state: &'a mut [f32]) -> Result<Self, Status> {
+        let n = coeffs.len();
+        if n < 3 || (n & 1) == 0 || n != state.len() {
+            return Err(Status::ArgumentError);
+        }
+        state.fill(0.0);
+        Ok(Self {
+            num_taps: n,
+            coeffs,
+            state,
+        })
+    }
+
+    /// Resets internal filter delay state to zero.
+    #[inline]
+    pub fn reset(&mut self) {
+        self.state.fill(0.0);
+    }
+
+    /// Returns the group delay in samples: `(num_taps - 1) / 2`.
+    #[inline]
+    pub fn group_delay(&self) -> usize {
+        (self.num_taps - 1) / 2
+    }
+
+    /// Processes a single input sample `x`, returning `(in_phase, quadrature)`.
+    ///
+    /// The in-phase sample is delayed by `group_delay()` samples to align exactly
+    /// with the quadrature Hilbert FIR output.
+    #[inline]
+    pub fn process_sample(&mut self, x: f32) -> (f32, f32) {
+        let n = self.num_taps;
+        for k in (1..n).rev() {
+            self.state[k] = self.state[k - 1];
+        }
+        self.state[0] = x;
+
+        let delay = self.group_delay();
+        let in_phase = self.state[delay];
+
+        let mut quad = 0.0f32;
+        for k in 0..n {
+            quad += self.state[k] * self.coeffs[k];
+        }
+        (in_phase, quad)
+    }
+
+    /// Processes a single input sample `x`, returning the complex analytic sample `I + j Q`.
+    #[inline]
+    pub fn process_analytic_sample(&mut self, x: f32) -> Complex<f32> {
+        let (i, q) = self.process_sample(x);
+        Complex { real: i, imag: q }
+    }
+
+    /// Processes a block of input samples, writing the 90-degree phase-shifted quadrature signal to `dst_quad`.
+    pub fn process_block(&mut self, src: &[f32], dst_quad: &mut [f32]) -> Status {
+        let len = src.len().min(dst_quad.len());
+        for i in 0..len {
+            let (_, q) = self.process_sample(src[i]);
+            dst_quad[i] = q;
+        }
+        Status::Success
+    }
+
+    /// Processes a block of input samples, generating the analytic signal `I[n] + j Q[n]` in `dst_analytic`.
+    pub fn process_analytic_block(
+        &mut self,
+        src: &[f32],
+        dst_analytic: &mut [Complex<f32>],
+    ) -> Status {
+        let len = src.len().min(dst_analytic.len());
+        for i in 0..len {
+            dst_analytic[i] = self.process_analytic_sample(src[i]);
+        }
+        Status::Success
+    }
+}
+
+/// Stateful FIR Hilbert Transformer for Q15 fixed-point arithmetic.
+pub struct HilbertTransformQ15<'a> {
+    pub num_taps: usize,
+    pub coeffs: &'a [q15],
+    pub state: &'a mut [q15],
+}
+
+impl<'a> HilbertTransformQ15<'a> {
+    /// Creates a new Q15 Hilbert transformer instance.
+    pub fn new(coeffs: &'a [q15], state: &'a mut [q15]) -> Result<Self, Status> {
+        let n = coeffs.len();
+        if n < 3 || (n & 1) == 0 || n != state.len() {
+            return Err(Status::ArgumentError);
+        }
+        state.fill(q15::ZERO);
+        Ok(Self {
+            num_taps: n,
+            coeffs,
+            state,
+        })
+    }
+
+    /// Resets internal delay line to zero.
+    #[inline]
+    pub fn reset(&mut self) {
+        self.state.fill(q15::ZERO);
+    }
+
+    /// Returns group delay in samples.
+    #[inline]
+    pub fn group_delay(&self) -> usize {
+        (self.num_taps - 1) / 2
+    }
+
+    /// Processes a single Q15 sample, returning `(in_phase, quadrature)` with saturating accumulation.
+    #[inline]
+    pub fn process_sample(&mut self, x: q15) -> (q15, q15) {
+        let n = self.num_taps;
+        for k in (1..n).rev() {
+            self.state[k] = self.state[k - 1];
+        }
+        self.state[0] = x;
+
+        let delay = self.group_delay();
+        let in_phase = self.state[delay];
+
+        let mut acc: i32 = 0;
+        for k in 0..n {
+            acc += (self.state[k].to_bits() as i32) * (self.coeffs[k].to_bits() as i32);
+        }
+        let quad = q15::from_bits((acc >> 15).clamp(i16::MIN as i32, i16::MAX as i32) as i16);
+        (in_phase, quad)
+    }
+
+    /// Processes a single Q15 sample, returning complex analytic sample.
+    #[inline]
+    pub fn process_analytic_sample(&mut self, x: q15) -> Complex<q15> {
+        let (i, q) = self.process_sample(x);
+        Complex { real: i, imag: q }
+    }
+
+    /// Processes block of Q15 samples to quadrature output.
+    pub fn process_block(&mut self, src: &[q15], dst_quad: &mut [q15]) -> Status {
+        let len = src.len().min(dst_quad.len());
+        for i in 0..len {
+            let (_, q) = self.process_sample(src[i]);
+            dst_quad[i] = q;
+        }
+        Status::Success
+    }
+
+    /// Processes block of Q15 samples to analytic signal.
+    pub fn process_analytic_block(
+        &mut self,
+        src: &[q15],
+        dst_analytic: &mut [Complex<q15>],
+    ) -> Status {
+        let len = src.len().min(dst_analytic.len());
+        for i in 0..len {
+            dst_analytic[i] = self.process_analytic_sample(src[i]);
+        }
+        Status::Success
+    }
+}
+
+/// Computes the instantaneous envelope (magnitude) of an analytic signal: `sqrt(I^2 + Q^2)`.
+pub fn analytic_envelope_f32(analytic: &[Complex<f32>], dst_env: &mut [f32]) {
+    let len = analytic.len().min(dst_env.len());
+    for i in 0..len {
+        let re = analytic[i].real;
+        let im = analytic[i].imag;
+        dst_env[i] = (re * re + im * im).sqrt();
+    }
+}
+
+/// Computes the instantaneous phase of an analytic signal: `atan2(Q, I)`.
+pub fn analytic_phase_f32(analytic: &[Complex<f32>], dst_phase: &mut [f32]) {
+    let len = analytic.len().min(dst_phase.len());
+    for i in 0..len {
+        dst_phase[i] = analytic[i].imag.atan2(analytic[i].real);
+    }
+}

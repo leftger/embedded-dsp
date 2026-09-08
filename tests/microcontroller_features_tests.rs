@@ -631,3 +631,204 @@ fn test_polynomial_eval_and_root_finding() {
     let root_def_tol = poly_root_f32(&linear_coeffs, 0.0, 20, -1.0).unwrap();
     assert!((root_def_tol - 3.0).abs() < 1e-5);
 }
+
+#[test]
+fn test_fast_bit_manipulation_log_and_pow() {
+    // 1. Non-positive inputs for logarithms
+    assert_eq!(fast_log2_f32(0.0), f32::NEG_INFINITY);
+    assert_eq!(fast_log2_f32(-5.0), f32::NEG_INFINITY);
+    assert_eq!(fast_ln_f32(0.0), f32::NEG_INFINITY);
+    assert_eq!(fast_log10_f32(0.0), f32::NEG_INFINITY);
+    assert_eq!(fast_gain_to_db_f32(0.0), f32::NEG_INFINITY);
+
+    // 2. Base-2 logarithm accuracy
+    assert!((fast_log2_f32(1.0) - 0.0).abs() < 0.01);
+    assert!((fast_log2_f32(2.0) - 1.0).abs() < 0.01);
+    assert!((fast_log2_f32(4.0) - 2.0).abs() < 0.01);
+    assert!((fast_log2_f32(8.0) - 3.0).abs() < 0.01);
+    assert!((fast_log2_f32(0.5) - (-1.0)).abs() < 0.01);
+    assert!((fast_log2_f32(0.25) - (-2.0)).abs() < 0.01);
+
+    // 3. Natural logarithm accuracy
+    assert!((fast_ln_f32(core::f32::consts::E) - 1.0).abs() < 0.01);
+    assert!((fast_ln_f32(1.0) - 0.0).abs() < 0.01);
+
+    // 4. Base-10 logarithm accuracy
+    assert!((fast_log10_f32(1.0) - 0.0).abs() < 0.01);
+    assert!((fast_log10_f32(10.0) - 1.0).abs() < 0.01);
+    assert!((fast_log10_f32(100.0) - 2.0).abs() < 0.02);
+
+    // 5. Base-2 exponential accuracy and limits
+    assert_eq!(fast_pow2_f32(-130.0), 0.0);
+    assert_eq!(fast_pow2_f32(130.0), f32::INFINITY);
+    assert!((fast_pow2_f32(0.0) - 1.0).abs() < 0.01);
+    assert!((fast_pow2_f32(1.0) - 2.0).abs() < 0.02);
+    assert!((fast_pow2_f32(3.0) - 8.0).abs() < 0.05);
+    assert!((fast_pow2_f32(-1.0) - 0.5).abs() < 0.01);
+
+    // 6. Base-10 exponential
+    assert!((fast_pow10_f32(0.0) - 1.0).abs() < 0.01);
+    assert!((fast_pow10_f32(1.0) - 10.0).abs() < 0.1);
+    assert!((fast_pow10_f32(2.0) - 100.0).abs() < 1.0);
+
+    // 7. Decibel conversions
+    // 0 dB is unity gain
+    assert!((fast_gain_to_db_f32(1.0) - 0.0).abs() < 0.1);
+    assert!((fast_db_to_gain_f32(0.0) - 1.0).abs() < 0.01);
+
+    // +6.02 dB is ~2x gain
+    assert!((fast_gain_to_db_f32(2.0) - 6.02).abs() < 0.2);
+    assert!((fast_db_to_gain_f32(6.02) - 2.0).abs() < 0.05);
+
+    // -20 dB is 0.1x gain
+    assert!((fast_gain_to_db_f32(0.1) - (-20.0)).abs() < 0.2);
+    assert!((fast_db_to_gain_f32(-20.0) - 0.1).abs() < 0.01);
+}
+
+#[test]
+fn test_hilbert_transform_and_analytic_signal() {
+    // 1. Constants verification
+    assert_eq!(HILBERT_COEFFS_35.len(), 35);
+    assert_eq!(HILBERT_COEFFS_35[17], 0.0); // Center tap is 0
+    assert_eq!(HILBERT_COEFFS_35_Q15.len(), 35);
+    assert_eq!(HILBERT_COEFFS_35_Q15[17], q15::ZERO);
+
+    // 2. hilbert_fir_design_f32
+    let mut bad_coeffs_even = [0.0f32; 4];
+    assert_eq!(
+        hilbert_fir_design_f32(&mut bad_coeffs_even),
+        Status::ArgumentError
+    );
+    let mut bad_coeffs_short = [0.0f32; 1];
+    assert_eq!(
+        hilbert_fir_design_f32(&mut bad_coeffs_short),
+        Status::ArgumentError
+    );
+
+    let mut designed_15 = [0.0f32; 15];
+    assert_eq!(hilbert_fir_design_f32(&mut designed_15), Status::Success);
+    assert_eq!(designed_15[7], 0.0); // Center tap M=7 is 0
+    // Odd taps should be anti-symmetric: h[7+k] == -h[7-k]
+    for k in 1..=7 {
+        assert!((designed_15[7 + k] + designed_15[7 - k]).abs() < 1e-6);
+    }
+    // Even k should be 0
+    assert_eq!(designed_15[7 + 2], 0.0);
+    assert_eq!(designed_15[7 - 2], 0.0);
+
+    // 3. HilbertTransformF32 construction & errors
+    let mut state_35 = [0.0f32; 35];
+    let mut short_state = [0.0f32; 30];
+    assert!(HilbertTransformF32::new(&HILBERT_COEFFS_35, &mut short_state).is_err());
+    assert!(HilbertTransformF32::new(&bad_coeffs_even, &mut state_35[..4]).is_err());
+
+    let mut hilbert = HilbertTransformF32::new(&HILBERT_COEFFS_35, &mut state_35).unwrap();
+    assert_eq!(hilbert.group_delay(), 17);
+
+    // 4. Cosine wave analytic signal:
+    // x[n] = cos(omega * n).
+    // For n > group_delay, I[n] = cos(omega * (n - 17)), Q[n] = sin(omega * (n - 17)).
+    // Envelope sqrt(I^2 + Q^2) should settle to 1.0!
+    let freq = 0.1f32;
+    let pi2 = 2.0 * core::f32::consts::PI;
+    let mut cos_signal = [0.0f32; 80];
+    for (i, val) in cos_signal.iter_mut().enumerate() {
+        *val = (pi2 * freq * i as f32).cos();
+    }
+
+    let mut analytic_out = [Complex::<f32>::default(); 80];
+    assert_eq!(
+        hilbert.process_analytic_block(&cos_signal, &mut analytic_out),
+        Status::Success
+    );
+
+    // After 25 samples (well past 17-sample delay settling), check envelope and 90 deg phase
+    for sample in analytic_out.iter().take(75).skip(25) {
+        let i_sample = sample.real;
+        let q_sample = sample.imag;
+        let env = (i_sample * i_sample + q_sample * q_sample).sqrt();
+        assert!((env - 1.0).abs() < 0.08); // FIR bandpass ripple is within ±0.5 dB (~6%)
+    }
+
+    // Single sample processing and reset
+    hilbert.reset();
+    let (i_val, q_val) = hilbert.process_sample(1.0);
+    assert_eq!(i_val, 0.0); // Filter delay is 17, so delayed sample is 0
+    assert_eq!(q_val, HILBERT_COEFFS_35[0]); // State[0] * coeffs[0]
+
+    let mut quad_buf = [0.0f32; 10];
+    assert_eq!(
+        hilbert.process_block(&cos_signal[..10], &mut quad_buf),
+        Status::Success
+    );
+
+    // 5. HilbertTransformQ15
+    let mut state_q15 = [q15::ZERO; 35];
+    let mut short_state_q15 = [q15::ZERO; 10];
+    assert!(HilbertTransformQ15::new(&HILBERT_COEFFS_35_Q15, &mut short_state_q15).is_err());
+
+    let mut hilbert_q15 = HilbertTransformQ15::new(&HILBERT_COEFFS_35_Q15, &mut state_q15).unwrap();
+    assert_eq!(hilbert_q15.group_delay(), 17);
+    hilbert_q15.reset();
+
+    let mut cos_q15 = [q15::ZERO; 80];
+    for (i, val) in cos_q15.iter_mut().enumerate() {
+        *val = q15::from_num(cos_signal[i] * 0.9); // scale to avoid saturation
+    }
+    let mut q15_analytic = [Complex::<q15>::default(); 80];
+    assert_eq!(
+        hilbert_q15.process_analytic_block(&cos_q15, &mut q15_analytic),
+        Status::Success
+    );
+
+    let mut q15_quad = [q15::ZERO; 10];
+    assert_eq!(
+        hilbert_q15.process_block(&cos_q15[..10], &mut q15_quad),
+        Status::Success
+    );
+
+    hilbert_q15.reset();
+    let (q15_i, q15_q) = hilbert_q15.process_sample(q15::from_num(0.5));
+    hilbert_q15.reset();
+    let cmx_sample = hilbert_q15.process_analytic_sample(q15::from_num(0.5));
+    assert_eq!(cmx_sample.real, q15_i);
+    assert_eq!(cmx_sample.imag, q15_q);
+
+    // 6. analytic_envelope_f32 and analytic_phase_f32
+    let test_cmx = [
+        Complex {
+            real: 3.0f32,
+            imag: 4.0,
+        },
+        Complex {
+            real: 0.0f32,
+            imag: 1.0,
+        },
+        Complex {
+            real: -1.0f32,
+            imag: 0.0,
+        },
+    ];
+    let mut env_buf = [0.0f32; 3];
+    let mut phase_buf = [0.0f32; 3];
+
+    analytic_envelope_f32(&test_cmx, &mut env_buf);
+    analytic_phase_f32(&test_cmx, &mut phase_buf);
+
+    assert_eq!(env_buf[0], 5.0);
+    assert_eq!(env_buf[1], 1.0);
+    assert_eq!(env_buf[2], 1.0);
+
+    assert!((phase_buf[0] - 4.0f32.atan2(3.0)).abs() < 1e-6);
+    assert!((phase_buf[1] - core::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    assert!((phase_buf[2] - core::f32::consts::PI).abs() < 1e-6);
+
+    // Mismatched lengths
+    let mut short_env = [0.0f32; 1];
+    analytic_envelope_f32(&test_cmx, &mut short_env);
+    assert_eq!(short_env[0], 5.0);
+
+    let mut short_phase = [0.0f32; 1];
+    analytic_phase_f32(&test_cmx, &mut short_phase);
+    assert!((short_phase[0] - 4.0f32.atan2(3.0)).abs() < 1e-6);
+}
