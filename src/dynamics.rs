@@ -167,3 +167,64 @@ impl DspNode<f32> for NoiseGate {
         self.process(input)
     }
 }
+
+/// Zero-latency Safety Peak Limiter node to prevent output digital clipping or speaker damage.
+#[derive(Debug, Clone, Copy)]
+pub struct SafetyLimiter {
+    ceiling: f32,
+    release_coeff: f32,
+    current_gain: f32,
+}
+
+impl SafetyLimiter {
+    /// Creates a new safety peak limiter.
+    ///
+    /// - `ceiling`: Maximum absolute amplitude limit (e.g. `0.95`).
+    /// - `release_s`: Release recovery time in seconds (e.g. `0.05` s).
+    /// - `sample_rate_hz`: Audio sample rate in Hz.
+    pub fn new(ceiling: f32, release_s: f32, sample_rate_hz: f32) -> Self {
+        let release_coeff = (-1.0 / (release_s.max(1e-5) * sample_rate_hz)).exp();
+        Self {
+            ceiling: ceiling.abs().clamp(0.01, 100.0),
+            release_coeff,
+            current_gain: 1.0,
+        }
+    }
+
+    /// Process a sample through the peak limiter.
+    pub fn process(&mut self, input: f32) -> f32 {
+        let abs_in = input.abs();
+        if abs_in > 1e-6 {
+            let required_gain = (self.ceiling / abs_in).min(1.0);
+            if required_gain < self.current_gain {
+                // Instantaneous peak attack
+                self.current_gain = required_gain;
+            } else {
+                // Smooth exponential release recovery
+                self.current_gain = self.release_coeff * self.current_gain + (1.0 - self.release_coeff) * 1.0;
+            }
+        } else {
+            self.current_gain = self.release_coeff * self.current_gain + (1.0 - self.release_coeff) * 1.0;
+        }
+
+        (input * self.current_gain).clamp(-self.ceiling, self.ceiling)
+    }
+
+    /// Returns the current gain attenuation factor (0.0 to 1.0).
+    pub fn current_gain(&self) -> f32 {
+        self.current_gain
+    }
+
+    /// Resets the limiter gain state back to unity.
+    pub fn reset(&mut self) {
+        self.current_gain = 1.0;
+    }
+}
+
+impl DspNode<f32> for SafetyLimiter {
+    #[inline(always)]
+    fn process_sample(&mut self, input: f32) -> f32 {
+        self.process(input)
+    }
+}
+

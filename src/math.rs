@@ -413,7 +413,7 @@ impl FloatMath for f64 {
 
 /// Integer square root of a `u32` (Newton).
 #[inline]
-pub(crate) fn isqrt_u32(n: u32) -> u32 {
+pub fn isqrt_u32(n: u32) -> u32 {
     if n <= 1 {
         return n;
     }
@@ -428,7 +428,7 @@ pub(crate) fn isqrt_u32(n: u32) -> u32 {
 
 /// Integer square root of a `u64` (Newton).
 #[inline]
-pub(crate) fn isqrt_u64(n: u64) -> u64 {
+pub fn isqrt_u64(n: u64) -> u64 {
     if n <= 1 {
         return n;
     }

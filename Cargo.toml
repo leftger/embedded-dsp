@@ -56,6 +56,9 @@ full = [
     "resampling",
     "spatial",
     "statistics",
+    "snapshot",
+    "synthesis",
+    "validation",
     "support",
     "transform",
     "window",
@@ -91,6 +94,9 @@ quaternion = []
 resampling = []
 spatial = []
 statistics = ["fast-math"]
+snapshot = []
+synthesis = []
+validation = []
 support = []
 transform = []
 window = []

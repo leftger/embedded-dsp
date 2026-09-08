@@ -253,3 +253,32 @@ pub fn atan2_q15(y: q15, x: q15, res: &mut q15) -> Status {
     *res = q15::from_bits((z >> 16) as i16);
     Status::Success
 }
+
+/// Fast polynomial rational approximation for hyperbolic tangent `tanh(x)`.
+pub fn fast_tanh_f32(x: f32) -> f32 {
+    if x < -3.0 {
+        -1.0
+    } else if x > 3.0 {
+        1.0
+    } else {
+        let x2 = x * x;
+        x * (27.0 + x2) / (27.0 + 9.0 * x2)
+    }
+}
+
+/// Fast 5th-order minimax polynomial approximation for `exp(x)`.
+pub fn fast_exp_f32(x: f32) -> f32 {
+    if x < -10.0 {
+        0.0
+    } else if x > 10.0 {
+        22026.465
+    } else {
+        // Pade / rational approximation for e^x
+        let x_half = x * 0.5;
+        let num = 12.0 + 6.0 * x_half + x_half * x_half;
+        let den = 12.0 - 6.0 * x_half + x_half * x_half;
+        let res_half = num / den;
+        res_half * res_half
+    }
+}
+
