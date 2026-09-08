@@ -140,30 +140,29 @@ fn test_safety_limiter_and_dynamics() {
 
 #[test]
 fn test_math_trait_floats() {
-    use FloatMath;
     let x: f32 = 0.5;
-    assert!(x.abs() > 0.0);
-    assert!(x.sin() > 0.0);
-    assert!(x.cos() > 0.0);
-    assert!(x.tan() > 0.0);
-    assert!(x.sqrt() > 0.0);
-    assert!(x.ln() < 0.0);
-    assert!(x.log10() < 0.0);
-    assert!(x.exp() > 1.0);
-    assert!(x.atan2(1.0) > 0.0);
-    assert!(x.powf(2.0) == 0.25);
-    assert!(x.tanh() > 0.0);
+    assert!(FloatMath::abs(x) > 0.0);
+    assert!(FloatMath::sin(x) > 0.0);
+    assert!(FloatMath::cos(x) > 0.0);
+    assert!(FloatMath::tan(x) > 0.0);
+    assert!(FloatMath::sqrt(x) > 0.0);
+    assert!(FloatMath::ln(x) < 0.0);
+    assert!(FloatMath::log10(x) < 0.0);
+    assert!(FloatMath::exp(x) > 1.0);
+    assert!(FloatMath::atan2(x, 1.0) > 0.0);
+    assert!(FloatMath::powf(x, 2.0) == 0.25);
+    assert!(FloatMath::tanh(x) > 0.0);
 
     let y: f64 = 0.5;
-    assert!(y.abs() > 0.0);
-    assert!(y.sin() > 0.0);
-    assert!(y.cos() > 0.0);
-    assert!(y.tan() > 0.0);
-    assert!(y.sqrt() > 0.0);
-    assert!(y.ln() < 0.0);
-    assert!(y.log10() < 0.0);
-    assert!(y.exp() > 1.0);
-    assert!(y.atan2(1.0) > 0.0);
-    assert!(y.powf(2.0) == 0.25);
-    assert!(y.tanh() > 0.0);
+    assert!(FloatMath::abs(y) > 0.0);
+    assert!(FloatMath::sin(y) > 0.0);
+    assert!(FloatMath::cos(y) > 0.0);
+    assert!(FloatMath::tan(y) > 0.0);
+    assert!(FloatMath::sqrt(y) > 0.0);
+    assert!(FloatMath::ln(y) < 0.0);
+    assert!(FloatMath::log10(y) < 0.0);
+    assert!(FloatMath::exp(y) > 1.0);
+    assert!(FloatMath::atan2(y, 1.0) > 0.0);
+    assert!(FloatMath::powf(y, 2.0) == 0.25);
+    assert!(FloatMath::tanh(y) > 0.0);
 }

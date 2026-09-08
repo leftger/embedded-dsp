@@ -62,7 +62,7 @@ pub struct ImpulseResponseInfo {
     pub peak_gain: f32,
     /// Number of samples taken to settle permanently within the target threshold band.
     pub settling_time_samples: usize,
-    /// Total signal energy $\sum h[n]^2$.
+    /// Total signal energy $\sum h\[n\]^2$.
     pub total_energy: f32,
     /// True if peak gain and energy remain finite (no numerical explosion).
     pub is_stable: bool,

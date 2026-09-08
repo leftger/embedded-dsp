@@ -4,7 +4,7 @@
 //! Kellett pink noise, Xorshift32 white noise, and linear/exponential chirp sweep generators.
 
 #[cfg(all(not(feature = "std"), feature = "libm"))]
-use libm::{cosf, expf, logf, sinf};
+use libm::{expf, logf, sinf};
 
 #[cfg(feature = "std")]
 fn sinf(val: f32) -> f32 {
