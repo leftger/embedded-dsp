@@ -15,6 +15,9 @@ mod theme;
 mod views;
 mod widgets;
 
+#[cfg(test)]
+mod tests;
+
 fn main() -> eframe::Result<()> {
     app::run_studio()
 }

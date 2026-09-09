@@ -241,8 +241,12 @@ impl ChirpSweep {
         let f1 = self.end_freq;
 
         let phase = if self.exponential {
-            let k = expf(logf(f1 / f0) / sweep_duration);
-            TAU * f0 * (expf(logf(k) * t) - 1.0) / logf(k)
+            let rate = logf(f1 / f0) / sweep_duration;
+            if rate.abs() < 1e-6 {
+                TAU * f0 * t
+            } else {
+                TAU * f0 * (expf(rate * t) - 1.0) / rate
+            }
         } else {
             let k = (f1 - f0) / sweep_duration;
             TAU * (f0 * t + 0.5 * k * t * t)

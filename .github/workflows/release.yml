@@ -28,7 +28,7 @@ jobs:
         if: env.CARGO_REGISTRY_TOKEN != ''
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --token "${CARGO_REGISTRY_TOKEN}"
+        run: cargo publish -p embedded-dsp --token "${CARGO_REGISTRY_TOKEN}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

@@ -73,7 +73,7 @@ impl CodegenView {
     }
 }
 
-fn generate_rust_code(config: &ProcessorConfig, sample_rate: f32) -> String {
+pub fn generate_rust_code(config: &ProcessorConfig, sample_rate: f32) -> String {
     let coeffs = biquad_lowpass_coeffs(config.cutoff_hz, sample_rate, config.q);
 
     format!(
@@ -123,7 +123,7 @@ impl FilterPipeline {{
     )
 }
 
-fn generate_c_code(config: &ProcessorConfig, sample_rate: f32) -> String {
+pub fn generate_c_code(config: &ProcessorConfig, sample_rate: f32) -> String {
     let coeffs = biquad_lowpass_coeffs(config.cutoff_hz, sample_rate, config.q);
 
     format!(
