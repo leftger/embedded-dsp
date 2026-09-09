@@ -1,0 +1,61 @@
+name: Deploy Studio to GitHub Pages
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'crates/embedded-dsp-studio/**'
+      - 'crates/embedded-dsp/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Trunk
+        run: |
+          TRUNK_VERSION="v0.21.8"
+          curl -L -f --retry 3 --retry-delay 2 \
+            https://github.com/trunk-rs/trunk/releases/download/${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz \
+            | tar -xzf - -C /usr/local/bin
+
+      - name: Build WebAssembly Studio with Trunk
+        run: |
+          cd crates/embedded-dsp-studio
+          trunk build --release --public-url "/embedded-dsp/"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: crates/embedded-dsp-studio/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

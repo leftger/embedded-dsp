@@ -111,6 +111,61 @@ pub fn biquad_allpass_coeffs(center_freq: f32, sample_rate: f32, q: f32) -> [f32
     [b0, b1, b2, a1, a2]
 }
 
+/// Computes Direct Form I Biquad coefficients `[b0, b1, b2, a1, a2]` for a Band-Pass Filter (constant skirt gain, peak gain = Q).
+pub fn biquad_bandpass_skirt_coeffs(center_freq: f32, sample_rate: f32, q: f32) -> [f32; 5] {
+    let w0 = 2.0 * core::f32::consts::PI * center_freq / sample_rate;
+    let cos_w0 = w0.cos();
+    let sin_w0 = w0.sin();
+    let alpha = sin_w0 / (2.0 * q);
+
+    let a0 = 1.0 + alpha;
+    let b0 = (sin_w0 / 2.0) / a0;
+    let b1 = 0.0;
+    let b2 = -b0;
+    let a1 = (2.0 * cos_w0) / a0;
+    let a2 = -(1.0 - alpha) / a0;
+
+    [b0, b1, b2, a1, a2]
+}
+
+/// Computes Direct Form I Biquad coefficients `[b0, b1, b2, a1, a2]` for a Low-Shelf Filter (RBJ Audio EQ Cookbook).
+pub fn biquad_lowshelf_coeffs(cutoff_freq: f32, sample_rate: f32, q: f32, gain_db: f32) -> [f32; 5] {
+    let w0 = 2.0 * core::f32::consts::PI * cutoff_freq / sample_rate;
+    let cos_w0 = w0.cos();
+    let sin_w0 = w0.sin();
+    let a = (10.0f32).powf(gain_db / 40.0);
+    let alpha = sin_w0 / (2.0 * q);
+    let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
+
+    let a0 = (a + 1.0) + (a - 1.0) * cos_w0 + two_sqrt_a_alpha;
+    let b0 = (a * ((a + 1.0) - (a - 1.0) * cos_w0 + two_sqrt_a_alpha)) / a0;
+    let b1 = (2.0 * a * ((a - 1.0) - (a + 1.0) * cos_w0)) / a0;
+    let b2 = (a * ((a + 1.0) - (a - 1.0) * cos_w0 - two_sqrt_a_alpha)) / a0;
+    let a1 = (2.0 * ((a - 1.0) + (a + 1.0) * cos_w0)) / a0;
+    let a2 = -((a + 1.0) + (a - 1.0) * cos_w0 - two_sqrt_a_alpha) / a0;
+
+    [b0, b1, b2, a1, a2]
+}
+
+/// Computes Direct Form I Biquad coefficients `[b0, b1, b2, a1, a2]` for a High-Shelf Filter (RBJ Audio EQ Cookbook).
+pub fn biquad_highshelf_coeffs(cutoff_freq: f32, sample_rate: f32, q: f32, gain_db: f32) -> [f32; 5] {
+    let w0 = 2.0 * core::f32::consts::PI * cutoff_freq / sample_rate;
+    let cos_w0 = w0.cos();
+    let sin_w0 = w0.sin();
+    let a = (10.0f32).powf(gain_db / 40.0);
+    let alpha = sin_w0 / (2.0 * q);
+    let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
+
+    let a0 = (a + 1.0) - (a - 1.0) * cos_w0 + two_sqrt_a_alpha;
+    let b0 = (a * ((a + 1.0) + (a - 1.0) * cos_w0 + two_sqrt_a_alpha)) / a0;
+    let b1 = (-2.0 * a * ((a - 1.0) + (a + 1.0) * cos_w0)) / a0;
+    let b2 = (a * ((a + 1.0) + (a - 1.0) * cos_w0 - two_sqrt_a_alpha)) / a0;
+    let a1 = (-2.0 * ((a - 1.0) - (a + 1.0) * cos_w0)) / a0;
+    let a2 = -((a + 1.0) - (a - 1.0) * cos_w0 - two_sqrt_a_alpha) / a0;
+
+    [b0, b1, b2, a1, a2]
+}
+
 /// Calculates multi-stage Butterworth Low-Pass filter biquad coefficients.
 /// `out_coeffs` must be a slice of size `5 * (order / 2)`.
 pub fn butterworth_lowpass_biquads(

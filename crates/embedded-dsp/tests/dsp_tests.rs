@@ -642,6 +642,19 @@ fn test_filter_design_coeffs() {
     let notch = biquad_notch_coeffs(60.0, 1000.0, 10.0);
     assert_eq!(notch.len(), 5);
 
+    let bp_skirt = biquad_bandpass_skirt_coeffs(1000.0, 48000.0, 2.0);
+    assert_eq!(bp_skirt.len(), 5);
+    assert!(bp_skirt[0] > 0.0);
+    assert_eq!(bp_skirt[1], 0.0);
+
+    let ls = biquad_lowshelf_coeffs(200.0, 48000.0, 0.7071, 6.0);
+    assert_eq!(ls.len(), 5);
+    assert!(ls[0] > 0.0);
+
+    let hs = biquad_highshelf_coeffs(8000.0, 48000.0, 0.7071, -6.0);
+    assert_eq!(hs.len(), 5);
+    assert!(hs[0] > 0.0);
+
     let mut butter = [0.0f32; 10];
     butterworth_lowpass_biquads(1000.0, 48000.0, 4, &mut butter);
     assert_ne!(butter[0], 0.0);

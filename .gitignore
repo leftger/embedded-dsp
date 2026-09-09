@@ -2,3 +2,4 @@
 /docs/
 *.zip
 lcov.info
+dist/

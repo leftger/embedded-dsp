@@ -207,4 +207,39 @@ mod test_suite {
         assert!(c_code.contains("static const float32_t biquad_coeffs[5]"));
         assert!(c_code.contains("arm_biquad_cascade_df1_f32"));
     }
+
+    #[test]
+    fn test_wav_and_csv_export_and_import() {
+        use crate::export::{export_csv, export_wav_16bit, parse_csv, parse_wav_16bit};
+
+        let sample_rate = 48000;
+        let original_samples: Vec<f32> = (0..1024)
+            .map(|i| {
+                (2.0 * core::f32::consts::PI * 440.0 * (i as f32) / (sample_rate as f32)).sin()
+            })
+            .collect();
+
+        // WAV round-trip
+        let wav_bytes = export_wav_16bit(&original_samples, sample_rate);
+        assert!(wav_bytes.len() >= 44 + 1024 * 2);
+        assert_eq!(&wav_bytes[0..4], b"RIFF");
+        assert_eq!(&wav_bytes[8..12], b"WAVE");
+
+        let (parsed_samples, parsed_rate) =
+            parse_wav_16bit(&wav_bytes).expect("Failed to parse WAV");
+        assert_eq!(parsed_rate, sample_rate);
+        assert_eq!(parsed_samples.len(), original_samples.len());
+        for (orig, parsed) in original_samples.iter().zip(parsed_samples.iter()) {
+            assert!((orig - parsed).abs() < 1e-3);
+        }
+
+        // CSV round-trip
+        let csv_text = export_csv(&original_samples, sample_rate as f32);
+        assert!(csv_text.starts_with("sample_idx,time_secs,amplitude\n"));
+        let parsed_csv = parse_csv(&csv_text).expect("Failed to parse CSV");
+        assert_eq!(parsed_csv.len(), original_samples.len());
+        for (orig, parsed) in original_samples.iter().zip(parsed_csv.iter()) {
+            assert!((orig - parsed).abs() < 1e-4);
+        }
+    }
 }

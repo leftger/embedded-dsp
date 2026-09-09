@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>embedded-dsp Studio (WebAssembly)</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0b0f14;
+            color: #d1d9e0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        #the_canvas_id {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        #loading_text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 20px;
+            font-weight: 500;
+            color: #58a6ff;
+            text-align: center;
+        }
+    </style>
+    <link data-trunk rel="rust" data-bin="embedded-dsp-studio" />
+</head>
+<body>
+    <div id="loading_text">⚡ Loading embedded-dsp Studio (WASM)...</div>
+    <canvas id="the_canvas_id"></canvas>
+</body>
+</html>

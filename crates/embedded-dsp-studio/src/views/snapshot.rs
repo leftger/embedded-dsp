@@ -44,7 +44,31 @@ impl SnapshotView {
             "Injects a deterministic Dirac delta impulse [δ(n)] into Processor Slot A, freezing a 4096-sample \
             window. Accurately measures filter settling time, damping, resonance ringing, and numerical stability.",
         );
-        ui.add_space(8.0);
+        ui.add_space(6.0);
+
+        if state.snapshot_captured {
+            ui.horizontal(|ui| {
+                if ui.button("📥 Export Snapshot WAV (16-bit PCM)").clicked() {
+                    let wav = crate::export::export_wav_16bit(
+                        state.snapshot_buffer.samples(),
+                        state.sample_rate as u32,
+                    );
+                    crate::export::save_or_download_file("impulse_snapshot.wav", "audio/wav", &wav);
+                }
+                if ui.button("📊 Export Snapshot CSV").clicked() {
+                    let csv = crate::export::export_csv(
+                        state.snapshot_buffer.samples(),
+                        state.sample_rate,
+                    );
+                    crate::export::save_or_download_file(
+                        "impulse_snapshot.csv",
+                        "text/csv",
+                        csv.as_bytes(),
+                    );
+                }
+            });
+            ui.add_space(6.0);
+        }
 
         // Analysis Metric Cards
         if let Some(info) = state.snapshot_response_info {

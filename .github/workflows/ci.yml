@@ -103,21 +103,13 @@ jobs:
         run: cargo test -p embedded-dsp --no-default-features --features full,libm
 
   docs:
-    name: Docs & GitHub Pages
+    name: Docs check
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: bash .github/scripts/ci_docs.sh
-      - name: Deploy Docs to GitHub Pages
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          folder: target/doc
-          branch: gh-pages
 
   publish-dry-run:
     name: Publish dry-run

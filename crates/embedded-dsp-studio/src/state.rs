@@ -585,7 +585,7 @@ impl StudioState {
 
     /// Runs real-time microbenchmarks comparing DSP routines.
     pub fn run_benchmarks(&mut self) {
-        use std::time::Instant;
+        use web_time::Instant;
 
         let mut out = String::new();
         let iterations = 100;

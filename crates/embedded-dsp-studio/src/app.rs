@@ -149,6 +149,7 @@ impl eframe::App for EmbeddedDspStudioApp {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_studio() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -166,4 +167,36 @@ pub fn run_studio() -> eframe::Result<()> {
             Ok(Box::new(EmbeddedDspStudioApp::default()))
         }),
     )
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn run_studio_web(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue> {
+    use eframe::wasm_bindgen::JsCast;
+    let document = web_sys::window()
+        .expect("No window")
+        .document()
+        .expect("No document");
+    let canvas = document
+        .get_element_by_id(canvas_id)
+        .expect("Failed to find canvas")
+        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .expect("Element is not a canvas");
+
+    let web_options = eframe::WebOptions::default();
+    let res = eframe::WebRunner::new()
+        .start(
+            canvas,
+            web_options,
+            Box::new(|cc| {
+                configure_theme(&cc.egui_ctx);
+                Ok(Box::new(EmbeddedDspStudioApp::default()))
+            }),
+        )
+        .await;
+
+    if let Some(loading) = document.get_element_by_id("loading_text") {
+        loading.remove();
+    }
+
+    res
 }

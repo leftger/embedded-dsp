@@ -25,7 +25,28 @@ impl SignalLabView {
             "Synthesize anti-aliased PolyBLEP periodic oscillators, linear/exponential chirp sweeps, \
             Paul Kellett pink noise (1/f), white noise, and impulse/step signals for comprehensive testing.",
         );
-        ui.add_space(8.0);
+        ui.add_space(6.0);
+
+        ui.horizontal(|ui| {
+            if ui.button("📥 Export Source A WAV").clicked() {
+                let wav = crate::export::export_wav_16bit(&state.time_a, state.sample_rate as u32);
+                crate::export::save_or_download_file("source_a.wav", "audio/wav", &wav);
+            }
+            if ui.button("📊 Export Source A CSV").clicked() {
+                let csv = crate::export::export_csv(&state.time_a, state.sample_rate);
+                crate::export::save_or_download_file("source_a.csv", "text/csv", csv.as_bytes());
+            }
+            ui.separator();
+            if ui.button("📥 Export Source B WAV").clicked() {
+                let wav = crate::export::export_wav_16bit(&state.time_b, state.sample_rate as u32);
+                crate::export::save_or_download_file("source_b.wav", "audio/wav", &wav);
+            }
+            if ui.button("📊 Export Source B CSV").clicked() {
+                let csv = crate::export::export_csv(&state.time_b, state.sample_rate);
+                crate::export::save_or_download_file("source_b.csv", "text/csv", csv.as_bytes());
+            }
+        });
+        ui.add_space(6.0);
 
         let mut changed = false;
 

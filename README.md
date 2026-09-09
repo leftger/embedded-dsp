@@ -25,6 +25,26 @@ A high-performance **`#![no_std]` Rust Digital Signal Processing library** desig
 
 ---
 
+## ⚡ embedded-dsp Studio (Interactive DSP Workbench)
+
+> **[🌐 Launch Live WebAssembly Studio](https://leftger.github.io/embedded-dsp/)** — Run real-time filter design, spectral forensics, and micro-benchmarks directly in your browser.
+
+An interactive desktop & browser testbench inspired by `DSP-Testbench` and `embedded-nn`:
+
+```bash
+# Run native desktop GUI
+cargo run -p embedded-dsp-studio
+```
+
+- **Dual Signal Lab**: Anti-aliased PolyBLEP oscillators (Saw/Square/Triangle/Sine), chirp sweeps (linear/exponential), pink noise ($1/f$), white noise, and Dirac impulse.
+- **Filter & Pipeline Rack**: Real-time sweepable Biquad IIR filters, Andrew Simper 2x oversampled State Variable Filters (SVF), Audio EQ Cookbook shelves, and Q15 quantization floor.
+- **Forensics & Analyzer**: 4096-point FFT magnitude, Welch PSD, oscilloscope, Lissajous phase goniometer, and true RMS/peak meters.
+- **Impulse Response Analyzer**: 4096-sample freeze buffer with settling time, peak gain, and energy measurements.
+- **WAV & CSV Export/Import**: Export forensic snapshots and waveforms directly to 16-bit PCM `.wav` or `.csv` files.
+- **Zero-Allocation MCU Codegen**: Generates instant C (CMSIS-DSP) and `#![no_std]` Rust code snippets tuned in the GUI.
+
+---
+
 ## Module Overview
 
 | Category | Key Algorithms & Structs |
