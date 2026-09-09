@@ -1,0 +1,150 @@
+[package]
+name = "embedded-dsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "A no_std Rust digital signal processing library for microcontrollers, embedded systems, and real-time signals."
+readme = "../../README.md"
+license.workspace = true
+repository.workspace = true
+keywords = ["dsp", "embedded", "no_std", "signal-processing", "fft"]
+categories = ["embedded", "no-std", "science"]
+
+[features]
+# Default matches a "give me the whole crate" install. Opt out with
+# `default-features = false` and pick `libm`/`std` plus the modules you want
+# (or `full` for every algorithm module).
+default = ["std", "libm", "full", "fixed"]
+std = []
+libm = ["dep:libm"]
+fixed = ["dep:fixed"]
+defmt = ["dep:defmt", "fixed?/defmt"]
+serde = ["dep:serde", "fixed?/serde"]
+# Conversions between the `[f32; 4]` quaternion representation used by
+# `quaternion` and `nalgebra`'s `Quaternion`/`UnitQuaternion`.
+nalgebra = ["quaternion", "dep:nalgebra"]
+alloc = []
+cortex-m-dsp = []
+
+# Enables every algorithm module. Independent of `std`/`libm` so no_std
+# consumers can use `default-features = false, features = ["libm", "full"]`.
+full = [
+    "audio",
+    "basic-math",
+    "beamforming",
+    "companding",
+    "complex-math",
+    "const-generics",
+    "controller",
+    "cordic",
+    "distance",
+    "dynamics",
+    "fast-math",
+    "filter-analysis",
+    "filter-design",
+    "filtering",
+    "fixed-point",
+    "interpolation",
+    "kalman",
+    "lut",
+    "matrix",
+    "pipeline",
+    "pll",
+    "psd",
+    "quaternion",
+    "resampling",
+    "spatial",
+    "statistics",
+    "snapshot",
+    "synthesis",
+    "validation",
+    "support",
+    "transform",
+    "window",
+]
+
+# Per-module features: pull in only the algorithms you need.
+audio = ["transform"]
+basic-math = []
+beamforming = ["transform"]
+companding = []
+complex-math = []
+const-generics = ["filtering", "matrix"]
+controller = []
+cordic = []
+distance = []
+dynamics = ["pipeline"]
+fast-math = []
+filter-analysis = []
+filter-design = []
+filtering = []
+# Q16.16 saturating arithmetic (rasterizer / no-FPU pipelines). Complements
+# the always-on CMSIS-style q7/q15/q31 fixed-point types in `types`.
+fixed-point = []
+interpolation = []
+kalman = ["matrix"]
+# Precomputed 256-entry sin/cos tables (i16), an alternative to `fast-math`.
+lut = []
+matrix = ["basic-math"]
+pipeline = ["filtering"]
+pll = []
+psd = ["transform", "window"]
+quaternion = []
+resampling = []
+spatial = []
+statistics = ["fast-math"]
+snapshot = []
+synthesis = []
+validation = []
+support = []
+transform = []
+window = []
+
+[dependencies]
+fixed = { workspace = true, optional = true }
+libm = { workspace = true, optional = true }
+defmt = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
+nalgebra = { workspace = true, optional = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[[example]]
+name = "basic_usage"
+path = "examples/basic_usage.rs"
+
+[[example]]
+name = "perf_comparison"
+path = "examples/perf_comparison.rs"
+required-features = ["libm"]
+
+[[example]]
+name = "audio_speech_pipeline"
+path = "examples/audio_speech_pipeline.rs"
+
+[[example]]
+name = "sensor_fusion_navigation"
+path = "examples/sensor_fusion_navigation.rs"
+
+[[example]]
+name = "motor_control_foc"
+path = "examples/motor_control_foc.rs"
+
+[[example]]
+name = "spectral_radar_transforms"
+path = "examples/spectral_radar_transforms.rs"
+
+[[example]]
+name = "spatial_vision_processing"
+path = "examples/spatial_vision_processing.rs"
+
+[[example]]
+name = "filter_workbench_and_analysis"
+path = "examples/filter_workbench_and_analysis.rs"
+
+[[bench]]
+name = "dsp_benchmarks"
+harness = false
+path = "benches/dsp_benchmarks.rs"

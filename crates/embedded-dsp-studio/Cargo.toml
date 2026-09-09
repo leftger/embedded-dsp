@@ -1,0 +1,22 @@
+[package]
+name = "embedded-dsp-studio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Interactive DSP Workbench & Studio for embedded-dsp (Synthesis, Filter Design, Spectral Analysis, Snapshot & Benchmarking)"
+
+[[bin]]
+name = "embedded-dsp-studio"
+path = "src/main.rs"
+
+[dependencies]
+embedded-dsp = { workspace = true, features = ["std", "full", "fixed", "serde"] }
+eframe = { workspace = true }
+egui_extras = { workspace = true }
+rfd = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }

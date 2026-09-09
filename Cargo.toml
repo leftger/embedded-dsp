@@ -1,150 +1,29 @@
-[package]
-name = "embedded-dsp"
+[workspace]
+resolver = "2"
+members = [
+    "crates/embedded-dsp",
+    "crates/embedded-dsp-studio",
+]
+
+[workspace.package]
 version = "0.5.1"
 edition = "2024"
 rust-version = "1.93"
 authors = ["Gerzain Mata <leftger@gmail.com>"]
-description = "A no_std Rust digital signal processing library for microcontrollers, embedded systems, and real-time signals."
-readme = "README.md"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/leftger/embedded-dsp"
-keywords = ["dsp", "embedded", "no_std", "signal-processing", "fft"]
-categories = ["embedded", "no-std", "science"]
+readme = "README.md"
 
-[features]
-# Default matches a "give me the whole crate" install. Opt out with
-# `default-features = false` and pick `libm`/`std` plus the modules you want
-# (or `full` for every algorithm module).
-default = ["std", "libm", "full", "fixed"]
-std = []
-libm = ["dep:libm"]
-fixed = ["dep:fixed"]
-defmt = ["dep:defmt", "fixed?/defmt"]
-serde = ["dep:serde", "fixed?/serde"]
-# Conversions between the `[f32; 4]` quaternion representation used by
-# `quaternion` and `nalgebra`'s `Quaternion`/`UnitQuaternion`.
-nalgebra = ["quaternion", "dep:nalgebra"]
-alloc = []
-cortex-m-dsp = []
+[workspace.dependencies]
+embedded-dsp = { path = "crates/embedded-dsp", version = "0.5.1", default-features = false }
+fixed = { version = "1.31.0", default-features = false }
+libm = { version = "0.2.11" }
+defmt = { version = "1.1", default-features = false }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+nalgebra = { version = "0.35", default-features = false, features = ["libm"] }
 
-# Enables every algorithm module. Independent of `std`/`libm` so no_std
-# consumers can use `default-features = false, features = ["libm", "full"]`.
-full = [
-    "audio",
-    "basic-math",
-    "beamforming",
-    "companding",
-    "complex-math",
-    "const-generics",
-    "controller",
-    "cordic",
-    "distance",
-    "dynamics",
-    "fast-math",
-    "filter-analysis",
-    "filter-design",
-    "filtering",
-    "fixed-point",
-    "interpolation",
-    "kalman",
-    "lut",
-    "matrix",
-    "pipeline",
-    "pll",
-    "psd",
-    "quaternion",
-    "resampling",
-    "spatial",
-    "statistics",
-    "snapshot",
-    "synthesis",
-    "validation",
-    "support",
-    "transform",
-    "window",
-]
-
-# Per-module features: pull in only the algorithms you need.
-audio = ["transform"]
-basic-math = []
-beamforming = ["transform"]
-companding = []
-complex-math = []
-const-generics = ["filtering", "matrix"]
-controller = []
-cordic = []
-distance = []
-dynamics = ["pipeline"]
-fast-math = []
-filter-analysis = []
-filter-design = []
-filtering = []
-# Q16.16 saturating arithmetic (rasterizer / no-FPU pipelines). Complements
-# the always-on CMSIS-style q7/q15/q31 fixed-point types in `types`.
-fixed-point = []
-interpolation = []
-kalman = ["matrix"]
-# Precomputed 256-entry sin/cos tables (i16), an alternative to `fast-math`.
-lut = []
-matrix = ["basic-math"]
-pipeline = ["filtering"]
-pll = []
-psd = ["transform", "window"]
-quaternion = []
-resampling = []
-spatial = []
-statistics = ["fast-math"]
-snapshot = []
-synthesis = []
-validation = []
-support = []
-transform = []
-window = []
-
-[dependencies]
-fixed = { version = "1.31.0", default-features = false, optional = true }
-libm = { version = "0.2.11", optional = true }
-defmt = { version = "1.1", optional = true, default-features = false }
-serde = { version = "1.0", optional = true, default-features = false, features = ["derive"] }
-nalgebra = { version = "0.35", optional = true, default-features = false, features = ["libm"] }
-
-[package.metadata.docs.rs]
-all-features = true
-
-[[example]]
-name = "basic_usage"
-path = "examples/basic_usage.rs"
-
-[[example]]
-name = "perf_comparison"
-path = "examples/perf_comparison.rs"
-required-features = ["libm"]
-
-[[example]]
-name = "audio_speech_pipeline"
-path = "examples/audio_speech_pipeline.rs"
-
-[[example]]
-name = "sensor_fusion_navigation"
-path = "examples/sensor_fusion_navigation.rs"
-
-[[example]]
-name = "motor_control_foc"
-path = "examples/motor_control_foc.rs"
-
-[[example]]
-name = "spectral_radar_transforms"
-path = "examples/spectral_radar_transforms.rs"
-
-[[example]]
-name = "spatial_vision_processing"
-path = "examples/spatial_vision_processing.rs"
-
-[[example]]
-name = "filter_workbench_and_analysis"
-path = "examples/filter_workbench_and_analysis.rs"
-
-[[bench]]
-name = "dsp_benchmarks"
-harness = false
-path = "benches/dsp_benchmarks.rs"
+eframe = { version = "0.36", default-features = true }
+egui_extras = { version = "0.36" }
+rfd = "0.17"
+log = "0.4"
