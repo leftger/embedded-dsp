@@ -426,10 +426,15 @@ pub enum Status {
 /// Representation of a complex number with real and imaginary components.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[repr(C)]
+#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable))]
 pub struct Complex<T> {
     pub real: T,
     pub imag: T,
 }
+
+#[cfg(feature = "bytemuck")]
+#[allow(unsafe_code)]
+unsafe impl<T: bytemuck::Pod> bytemuck::Pod for Complex<T> {}
 
 impl<T> Complex<T> {
     #[inline(always)]

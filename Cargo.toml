@@ -14,6 +14,9 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/leftger/embedded-dsp"
 readme = "README.md"
 
+[workspace.lints.rust]
+unsafe_code = "deny"
+
 [workspace.dependencies]
 embedded-dsp = { path = "crates/embedded-dsp", version = "0.5.1", default-features = false }
 fixed = { version = "1.31.0", default-features = false }
@@ -22,6 +25,9 @@ defmt = { version = "1.1", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 nalgebra = { version = "0.35", default-features = false, features = ["libm"] }
+bytemuck = { version = "1.24.0", default-features = false, features = ["derive"] }
+quickcheck = { version = "1.0.3", default-features = false }
+quickcheck_macros = { version = "1.0.0" }
 
 eframe = { version = "0.36", default-features = true }
 egui_extras = { version = "0.36" }

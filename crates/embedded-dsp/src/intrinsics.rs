@@ -1,3 +1,4 @@
+#![allow(unsafe_code)]
 //! SIMD and DSP hardware acceleration intrinsics hooks.
 //!
 //! Provides hardware-accelerated dual 16-bit MAC (`smlad`), saturating vector arithmetic (`qadd16`, `qsub16`),

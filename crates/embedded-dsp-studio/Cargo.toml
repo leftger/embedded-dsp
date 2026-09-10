@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 description = "Interactive DSP Workbench & Studio for embedded-dsp (Synthesis, Filter Design, Spectral Analysis, Snapshot & Benchmarking)"
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "embedded-dsp-studio"
 path = "src/main.rs"

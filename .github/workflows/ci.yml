@@ -177,3 +177,17 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: leftger/embedded-dsp
           report_type: test_results
+
+  embedded-bench:
+    name: Embedded Bench (thumbv7em)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+      - name: Build embedded benchmark harness
+        run: cargo build --release --target thumbv7em-none-eabihf
+        working-directory: tests/embedded
+

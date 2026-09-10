@@ -11,6 +11,9 @@ repository.workspace = true
 keywords = ["dsp", "embedded", "no_std", "signal-processing", "fft"]
 categories = ["embedded", "no-std", "science"]
 
+[lints]
+workspace = true
+
 [features]
 # Default matches a "give me the whole crate" install. Opt out with
 # `default-features = false` and pick `libm`/`std` plus the modules you want
@@ -21,6 +24,7 @@ libm = ["dep:libm"]
 fixed = ["dep:fixed"]
 defmt = ["dep:defmt", "fixed?/defmt"]
 serde = ["dep:serde", "fixed?/serde"]
+bytemuck = ["dep:bytemuck"]
 # Conversions between the `[f32; 4]` quaternion representation used by
 # `quaternion` and `nalgebra`'s `Quaternion`/`UnitQuaternion`.
 nalgebra = ["quaternion", "dep:nalgebra"]
@@ -107,6 +111,11 @@ libm = { workspace = true, optional = true }
 defmt = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 nalgebra = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true, features = ["derive"] }
+
+[dev-dependencies]
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true

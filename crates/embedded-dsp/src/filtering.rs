@@ -1453,3 +1453,438 @@ impl<const N: usize> Default for RecursiveMovingAverageQ15<N> {
         Self::new()
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Robust Second-Order Sections (Biquads) with Anti-Windup & Clamping
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Direct Form 1 filter history state holding delayed inputs and outputs `[x1, x2, y1, y2]`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable))]
+pub struct DirectForm1<T> {
+    pub xy: [T; 4],
+}
+
+impl<T: Default + Copy> Default for DirectForm1<T> {
+    fn default() -> Self {
+        Self {
+            xy: [T::default(); 4],
+        }
+    }
+}
+
+impl<T: Default + Copy> DirectForm1<T> {
+    /// Create a new zero-initialized Direct Form 1 state.
+    pub fn new() -> Self {
+        Self {
+            xy: [T::default(); 4],
+        }
+    }
+
+    /// Reset internal state buffer.
+    pub fn reset(&mut self) {
+        self.xy = [T::default(); 4];
+    }
+}
+
+/// Direct Form 2 Transposed filter state holding accumulator registers `[s0, s1]`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable))]
+pub struct DirectForm2Transposed<T> {
+    pub s: [T; 2],
+}
+
+impl<T: Default + Copy> Default for DirectForm2Transposed<T> {
+    fn default() -> Self {
+        Self {
+            s: [T::default(); 2],
+        }
+    }
+}
+
+impl<T: Default + Copy> DirectForm2Transposed<T> {
+    /// Create a new zero-initialized Direct Form 2 Transposed state.
+    pub fn new() -> Self {
+        Self {
+            s: [T::default(); 2],
+        }
+    }
+
+    /// Reset internal state buffer.
+    pub fn reset(&mut self) {
+        self.s = [T::default(); 2];
+    }
+}
+
+/// Second-order section (SOS) biquadratic filter configuration.
+///
+/// Contains coefficients `ba: [b0, b1, b2, a1, a2]` normalized such that `a0 = 1`.
+/// Recurrence relation:
+/// `y0 = b0*x0 + b1*x1 + b2*x2 + a1*y1 + a2*y2`
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct Biquad<T> {
+    pub ba: [T; 5],
+}
+
+impl<T: Copy> Biquad<T> {
+    /// Create a new Biquad configuration from coefficients `[b0, b1, b2, a1, a2]`.
+    pub const fn new(b0: T, b1: T, b2: T, a1: T, a2: T) -> Self {
+        Self {
+            ba: [b0, b1, b2, a1, a2],
+        }
+    }
+}
+
+impl Biquad<f32> {
+    /// Process a single input sample through Direct Form 1 state.
+    #[inline(always)]
+    pub fn process_df1(&self, state: &mut DirectForm1<f32>, x0: f32) -> f32 {
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let [x1, x2, y1, y2] = state.xy;
+        let y0 = b0 * x0 + b1 * x1 + b2 * x2 + a1 * y1 + a2 * y2;
+        state.xy = [x0, x1, y0, y1];
+        y0
+    }
+
+    /// Process a single input sample through Direct Form 2 Transposed state.
+    #[inline(always)]
+    pub fn process_df2t(&self, state: &mut DirectForm2Transposed<f32>, x0: f32) -> f32 {
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let y0 = b0 * x0 + state.s[0];
+        state.s[0] = b1 * x0 + a1 * y0 + state.s[1];
+        state.s[1] = b2 * x0 + a2 * y0;
+        y0
+    }
+}
+
+impl Biquad<f64> {
+    /// Process a single input sample through Direct Form 1 state.
+    #[inline(always)]
+    pub fn process_df1(&self, state: &mut DirectForm1<f64>, x0: f64) -> f64 {
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let [x1, x2, y1, y2] = state.xy;
+        let y0 = b0 * x0 + b1 * x1 + b2 * x2 + a1 * y1 + a2 * y2;
+        state.xy = [x0, x1, y0, y1];
+        y0
+    }
+
+    /// Process a single input sample through Direct Form 2 Transposed state.
+    #[inline(always)]
+    pub fn process_df2t(&self, state: &mut DirectForm2Transposed<f64>, x0: f64) -> f64 {
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let y0 = b0 * x0 + state.s[0];
+        state.s[0] = b1 * x0 + a1 * y0 + state.s[1];
+        state.s[1] = b2 * x0 + a2 * y0;
+        y0
+    }
+}
+
+/// Biquadratic filter configuration with summing junction offset and anti-windup output clamping.
+///
+/// Clamps output between `[min, max]` at the summing junction before storing into feedback state,
+/// preventing integrator windup and derivative kick when used in feedback control or PID applications.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct BiquadClamp<T> {
+    pub coeff: Biquad<T>,
+    /// Summing junction offset (setpoint)
+    pub u: T,
+    /// Minimum saturation clamp
+    pub min: T,
+    /// Maximum saturation clamp
+    pub max: T,
+}
+
+impl<T: Copy> BiquadClamp<T> {
+    /// Create a new clamped Biquad with coefficients, offset, and clamp bounds.
+    pub const fn new(coeff: Biquad<T>, min: T, max: T, u: T) -> Self {
+        Self { coeff, u, min, max }
+    }
+}
+
+impl BiquadClamp<f32> {
+    /// Process a sample using Direct Form 1 with anti-windup clamping.
+    #[inline(always)]
+    pub fn process_df1(&self, state: &mut DirectForm1<f32>, x0: f32) -> f32 {
+        let [b0, b1, b2, a1, a2] = self.coeff.ba;
+        let [x1, x2, y1, y2] = state.xy;
+        let unclamped = b0 * x0 + b1 * x1 + b2 * x2 + a1 * y1 + a2 * y2 + self.u;
+        let y0 = unclamped.clamp(self.min, self.max);
+        state.xy = [x0, x1, y0, y1];
+        y0
+    }
+
+    /// Process a sample using Direct Form 2 Transposed with anti-windup clamping.
+    #[inline(always)]
+    pub fn process_df2t(&self, state: &mut DirectForm2Transposed<f32>, x0: f32) -> f32 {
+        let [b0, b1, b2, a1, a2] = self.coeff.ba;
+        let y0 = (b0 * x0 + state.s[0] + self.u).clamp(self.min, self.max);
+        state.s[0] = b1 * x0 + a1 * y0 + state.s[1];
+        state.s[1] = b2 * x0 + a2 * y0;
+        y0
+    }
+}
+
+impl BiquadClamp<f64> {
+    /// Process a sample using Direct Form 1 with anti-windup clamping.
+    #[inline(always)]
+    pub fn process_df1(&self, state: &mut DirectForm1<f64>, x0: f64) -> f64 {
+        let [b0, b1, b2, a1, a2] = self.coeff.ba;
+        let [x1, x2, y1, y2] = state.xy;
+        let unclamped = b0 * x0 + b1 * x1 + b2 * x2 + a1 * y1 + a2 * y2 + self.u;
+        let y0 = unclamped.clamp(self.min, self.max);
+        state.xy = [x0, x1, y0, y1];
+        y0
+    }
+
+    /// Process a sample using Direct Form 2 Transposed with anti-windup clamping.
+    #[inline(always)]
+    pub fn process_df2t(&self, state: &mut DirectForm2Transposed<f64>, x0: f64) -> f64 {
+        let [b0, b1, b2, a1, a2] = self.coeff.ba;
+        let y0 = (b0 * x0 + state.s[0] + self.u).clamp(self.min, self.max);
+        state.s[0] = b1 * x0 + a1 * y0 + state.s[1];
+        state.s[1] = b2 * x0 + a2 * y0;
+        y0
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f32, f32, DirectForm1<f32>> for Biquad<f32> {
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm1<f32>, x: f32) -> f32 {
+        self.process_df1(state, x)
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f32, f32, DirectForm2Transposed<f32>> for Biquad<f32> {
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm2Transposed<f32>, x: f32) -> f32 {
+        self.process_df2t(state, x)
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f32, f32, DirectForm1<f32>> for BiquadClamp<f32> {
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm1<f32>, x: f32) -> f32 {
+        self.process_df1(state, x)
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f32, f32, DirectForm2Transposed<f32>> for BiquadClamp<f32> {
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm2Transposed<f32>, x: f32) -> f32 {
+        self.process_df2t(state, x)
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f64, f64, DirectForm1<f64>> for Biquad<f64> {
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm1<f64>, x: f64) -> f64 {
+        self.process_df1(state, x)
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f64, f64, DirectForm2Transposed<f64>> for Biquad<f64> {
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm2Transposed<f64>, x: f64) -> f64 {
+        self.process_df2t(state, x)
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f64, f64, DirectForm1<f64>> for BiquadClamp<f64> {
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm1<f64>, x: f64) -> f64 {
+        self.process_df1(state, x)
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f64, f64, DirectForm2Transposed<f64>> for BiquadClamp<f64> {
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm2Transposed<f64>, x: f64) -> f64 {
+        self.process_df2t(state, x)
+    }
+}
+
+/// Direct Form 1 state with quantization error feedback for noise shaping.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable))]
+pub struct DirectForm1NoiseShaped {
+    pub xy: [i32; 4],
+    pub err: i32,
+}
+
+impl DirectForm1NoiseShaped {
+    /// Create a new zero-initialized state with zero error feedback.
+    pub const fn new() -> Self {
+        Self {
+            xy: [0; 4],
+            err: 0,
+        }
+    }
+
+    /// Reset internal state and error accumulator.
+    pub fn reset(&mut self) {
+        self.xy = [0; 4];
+        self.err = 0;
+    }
+}
+
+/// Fixed-point 32-bit Biquad with parameterized fractional scaling and anti-windup clamping.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct BiquadFixed<const SHIFT: u32 = 30> {
+    /// Fixed-point coefficients `[b0, b1, b2, a1, a2]`.
+    pub ba: [i32; 5],
+    /// Summing junction offset
+    pub u: i32,
+    /// Minimum saturation clamp
+    pub min: i32,
+    /// Maximum saturation clamp
+    pub max: i32,
+}
+
+impl<const SHIFT: u32> BiquadFixed<SHIFT> {
+    /// Create a new fixed-point biquad configuration.
+    pub const fn new(ba: [i32; 5], min: i32, max: i32, u: i32) -> Self {
+        Self { ba, min, max, u }
+    }
+
+    /// Process single sample with 1st-order noise shaping to eliminate limit cycles.
+    #[inline(always)]
+    pub fn process_noise_shaped(&self, state: &mut DirectForm1NoiseShaped, x0: i32) -> i32 {
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let [x1, x2, y1, y2] = state.xy;
+        let acc = (b0 as i64 * x0 as i64)
+            + (b1 as i64 * x1 as i64)
+            + (b2 as i64 * x2 as i64)
+            + (a1 as i64 * y1 as i64)
+            + (a2 as i64 * y2 as i64)
+            + ((self.u as i64) << SHIFT)
+            - state.err as i64; // noise shaping feedback
+        let scaled = acc >> SHIFT;
+        let y0 = scaled.clamp(self.min as i64, self.max as i64) as i32;
+        state.err = (acc - ((y0 as i64) << SHIFT)) as i32;
+        state.xy = [x0, x1, y0, y1];
+        y0
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl<const SHIFT: u32> crate::pipeline::SplitProcess<i32, i32, DirectForm1NoiseShaped>
+    for BiquadFixed<SHIFT>
+{
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm1NoiseShaped, x: i32) -> i32 {
+        self.process_noise_shaped(state, x)
+    }
+}
+
+/// Delta-sigma modulator in MASH-(1)^K architecture.
+///
+/// Converts a 32-bit unsigned input sample `x` into an integer stream with average
+/// value `x / 2^32`, shaping quantization noise up by `K * 20 dB/decade`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Dsm<const K: usize> {
+    pub a: [u32; K],
+    pub c: [i8; K],
+}
+
+impl<const K: usize> Default for Dsm<K> {
+    fn default() -> Self {
+        Self {
+            a: [0; K],
+            c: [0; K],
+        }
+    }
+}
+
+impl<const K: usize> Dsm<K> {
+    /// Create a new zeroed Delta-Sigma modulator.
+    pub const fn new() -> Self {
+        Self {
+            a: [0; K],
+            c: [0; K],
+        }
+    }
+
+    /// Process a new 32-bit sample and return modulated output.
+    #[inline]
+    pub fn process_sample(&mut self, x: u32) -> i8 {
+        let mut d = 0i8;
+        for a in self.a.iter_mut() {
+            let (next_a, c) = a.overflowing_add(x);
+            *a = next_a;
+            d = (d << 1) | c as i8;
+        }
+        let mut y = d & 1;
+        for c in self.c.iter_mut().take(K.saturating_sub(1)) {
+            d >>= 1;
+            let next_y = (d & 1) + y - *c;
+            *c = y;
+            y = next_y;
+        }
+        y
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl<const K: usize> crate::pipeline::Process<u32, i8> for Dsm<K> {
+    #[inline(always)]
+    fn process(&mut self, x: u32) -> i8 {
+        self.process_sample(x)
+    }
+}
+
+/// Lightweight 32-bit XorShift pseudorandom generator for dither synthesis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct XorShift32(pub u32);
+
+impl Default for XorShift32 {
+    fn default() -> Self {
+        Self::new(0x12345678)
+    }
+}
+
+impl XorShift32 {
+    /// Create a new XorShift32 PRNG from non-zero seed.
+    #[inline(always)]
+    pub const fn new(seed: u32) -> Self {
+        Self(if seed == 0 { 0x12345678 } else { seed })
+    }
+
+    /// Produce next pseudorandom 32-bit word.
+    #[inline(always)]
+    pub fn next_u32(&mut self) -> u32 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.0 = x;
+        x
+    }
+
+    /// Produce next uniform float in `[0.0, 1.0)`.
+    #[inline(always)]
+    pub fn next_f32(&mut self) -> f32 {
+        (self.next_u32() >> 8) as f32 * (1.0 / 16777216.0)
+    }
+
+    /// Triangular Probability Density Function (TPDF) dither sample in `[-1.0, 1.0]`.
+    #[inline(always)]
+    pub fn tpdf_dither_f32(&mut self) -> f32 {
+        let r1 = self.next_f32();
+        let r2 = self.next_f32();
+        r1 - r2
+    }
+}
