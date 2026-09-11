@@ -430,3 +430,77 @@ impl<T: Iterator<Item = i64>> Iterator for AccuOsc<T> {
 
 impl<T: core::iter::FusedIterator + Iterator<Item = i64>> core::iter::FusedIterator for AccuOsc<T> {}
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Generic Accumulator / NCO iterator (ported from idsp)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Generic wrapping accumulator / Numerically Controlled Oscillator (NCO).
+///
+/// An infinite `Iterator` that yields phase values by adding a fixed `step`
+/// to its `state` on every call to `next()`. Overflow wraps naturally, making
+/// it ideal for phase accumulators in PLLs, NCOs, and test-signal generators.
+///
+/// # Type
+/// Use `core::num::Wrapping<i32>` (or any integer) for a wrapping phase
+/// accumulator, or `f32`/`f64` for a floating-point ramp.
+///
+/// # Algebra
+/// `Accu<T>` supports `Add`, `Sub`, and `Mul<T>` so accumulators can be
+/// composed: `a + b` gives an accumulator whose state and step are sums of
+/// the originals.
+///
+/// # Example
+///
+/// ```rust
+/// # use embedded_dsp::synthesis::Accu;
+/// use core::num::Wrapping;
+/// let mut nco = Accu::new(Wrapping(0i32), Wrapping(0x0800_0000i32)); // ~6.25% of full-scale
+/// let p0 = nco.next().unwrap();
+/// assert_eq!(p0, Wrapping(0x0800_0000i32));
+/// ```
+#[derive(Copy, Clone, Default, PartialEq, PartialOrd, Debug)]
+pub struct Accu<T> {
+    /// Current accumulator state (phase).
+    pub state: T,
+    /// Phase increment per step.
+    pub step: T,
+}
+
+impl<T> Accu<T> {
+    /// Create a new accumulator with the given initial state and step.
+    pub const fn new(state: T, step: T) -> Self {
+        Self { state, step }
+    }
+}
+
+impl<T: Copy + core::ops::AddAssign> Iterator for Accu<T> {
+    type Item = T;
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        self.state += self.step;
+        Some(self.state)
+    }
+}
+
+impl<T: Copy + core::ops::Mul<Output = T>> core::ops::Mul<T> for Accu<T> {
+    type Output = Self;
+    fn mul(self, rhs: T) -> Self {
+        Self::new(self.state * rhs, self.step * rhs)
+    }
+}
+
+impl<T: Copy + core::ops::Add<Output = T>> core::ops::Add for Accu<T> {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self::new(self.state + rhs.state, self.step + rhs.step)
+    }
+}
+
+impl<T: Copy + core::ops::Sub<Output = T>> core::ops::Sub for Accu<T> {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self::new(self.state - rhs.state, self.step - rhs.step)
+    }
+}
+
+

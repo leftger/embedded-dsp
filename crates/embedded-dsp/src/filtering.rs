@@ -2084,3 +2084,154 @@ impl<const N: usize> IntLowpass<N> {
 pub type IntLowpass1 = IntLowpass<1>;
 /// Second-order integer lowpass (alias for `IntLowpass<2>`).
 pub type IntLowpass2 = IntLowpass<2>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Normal Form Second-Order Section (Rader-Gold / Chamberlain oscillator)
+// Ported from the `idsp` crate by the Sinara/ARTIQ project.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Normal form (Rader-Gold) second-order IIR section.
+///
+/// Unlike a standard direct-form biquad, the normal form has **constant pole
+/// resolution** everywhere in the z-plane rather than clustering resolution
+/// near the real axis. This makes it ideal for:
+///
+/// - Precise narrow-band bandpass filters close to DC or Nyquist.
+/// - Quadrature sinusoidal oscillators (the `y[0]` / `y[1]` outputs are
+///   in-phase and 90°-shifted copies of the oscillation).
+/// - Notch filters requiring very high Q.
+///
+/// Also known as the **Chamberlain form** or **Rader-Gold oscillator**.
+///
+/// # Architecture
+///
+/// Transfer function: `H(z) = B(z) / A(z)` where
+/// - `B(z) = b0 + b1*z⁻¹ + b2*z⁻²` (feed-forward / zeros)
+/// - `A(z)` encodes a conjugate pole pair at `p.re ± j·p.im`
+///
+/// The feedback recurrence is:
+/// ```text
+/// y_re[n] =  p.re * y_re[n-1] - p.im * y_im[n-1] + (feed-forward)
+/// y_im[n] =  p.im * y_re[n-1] + p.re * y_im[n-1]
+/// ```
+///
+/// # State
+///
+/// The filter state `NormalFormState` holds:
+/// - `x: [f32; 2]` — previous two inputs
+/// - `y_re: f32` — current real (in-phase) output
+/// - `y_im: f32` — current imaginary (quadrature) output
+///
+/// # Example: quadrature NCO
+///
+/// ```rust
+/// # use embedded_dsp::filtering::{NormalForm, NormalFormState, Complex};
+/// // 1 kHz oscillator at 48 kHz sample rate
+/// let f = 1000.0_f32 / 48000.0;
+/// let nco = NormalForm::oscillator(f);
+/// let mut state = NormalFormState::default();
+/// // Kick the oscillator with a unit impulse
+/// let (i_out, q_out) = nco.process(&mut state, 1.0);
+/// assert!(i_out.abs() > 0.0);
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct NormalForm {
+    /// Feed-forward coefficients `[b0, b1, b2]`.
+    pub b: [f32; 3],
+    /// Conjugate pole pair: `p.re ± j·p.im`.
+    pub p: Complex<f32>,
+}
+
+/// State for [`NormalForm`].
+#[derive(Clone, Debug, Default)]
+pub struct NormalFormState {
+    /// Previous two input samples.
+    pub x: [f32; 2],
+    /// Current real (in-phase) output component.
+    pub y_re: f32,
+    /// Current imaginary (quadrature) output component.
+    pub y_im: f32,
+}
+
+impl NormalForm {
+    /// Construct from raw feed-forward `b` and pole `p`.
+    pub fn new(b: [f32; 3], p: Complex<f32>) -> Self {
+        Self { b, p }
+    }
+
+    /// Construct from a standard `[b; a]` biquad coefficient matrix.
+    ///
+    /// `ba[0]` = `[b0, b1, b2]` numerator coefficients.  
+    /// `ba[1]` = `[a0, a1, a2]` denominator coefficients (a0 usually 1.0).
+    ///
+    /// Panics if the poles are not complex conjugate (discriminant must be ≥ 0
+    /// for real coefficients and the pole magnitude must be ≤ 1 for stability).
+    pub fn from_ba(ba: &[[f32; 3]; 2]) -> Self {
+        let a0_inv = ba[1][0].recip();
+        let b = [ba[0][0] * a0_inv, ba[0][1] * a0_inv, ba[0][2] * a0_inv];
+        // Roots of a0*z² + a1*z + a2: p = -a1/(2a0) ± sqrt((a1/(2a0))² - a2/a0)
+        let p_re = -0.5 * ba[1][1] * a0_inv;
+        let disc = p_re * p_re - ba[1][2] * a0_inv;
+        assert!(disc <= 0.0, "NormalForm::from_ba: real poles (use direct-form biquad instead)");
+        let p_im = (-disc).sqrt();
+        Self { b, p: Complex::new(p_re, p_im) }
+    }
+
+    /// Construct a pure sinusoidal oscillator at normalised frequency `f`
+    /// (0 < f < 0.5, where 0.5 is Nyquist).
+    ///
+    /// Feed-forward is `[1, 0, 0]` so a unit impulse starts the oscillation.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use embedded_dsp::filtering::{NormalForm, NormalFormState};
+    /// let nco = NormalForm::oscillator(0.1); // 10% of sample rate
+    /// let mut s = NormalFormState::default();
+    /// let _ = nco.process(&mut s, 1.0); // impulse start
+    /// ```
+    pub fn oscillator(f: f32) -> Self {
+        let theta = 2.0 * core::f32::consts::PI * f;
+        Self {
+            b: [1.0, 0.0, 0.0],
+            p: Complex::new(theta.cos(), theta.sin()),
+        }
+    }
+
+    /// Construct a narrow-band bandpass filter centred at normalised frequency
+    /// `f` with quality factor `q`.
+    pub fn bandpass(f: f32, q: f32) -> Self {
+        let theta = 2.0 * core::f32::consts::PI * f;
+        let r = 1.0 - core::f32::consts::PI * f / q; // pole radius ≈ 1 - π·bw/fs
+        let bw_gain = 1.0 - r; // unity passband normalisation
+        Self {
+            b: [bw_gain, 0.0, -bw_gain],
+            p: Complex::new(r * theta.cos(), r * theta.sin()),
+        }
+    }
+
+    /// Process a single sample.
+    ///
+    /// Returns `(y_re, y_im)`: the real (in-phase) and imaginary (quadrature)
+    /// output components.
+    #[inline]
+    pub fn process(&self, state: &mut NormalFormState, x0: f32) -> (f32, f32) {
+        // Feed-forward (zeros)
+        let ff = self.b[0] * x0 + self.b[1] * state.x[0] + self.b[2] * state.x[1];
+
+        // Normal-form feedback (conjugate pole pair)
+        let new_re = self.p.re() * state.y_re - self.p.im() * state.y_im + ff;
+        let new_im = self.p.im() * state.y_re + self.p.re() * state.y_im;
+
+        // Update state
+        state.x = [x0, state.x[0]];
+        state.y_re = new_re;
+        state.y_im = new_im;
+
+        (new_re, new_im)
+    }
+
+    /// Reset state to zero.
+    pub fn reset(state: &mut NormalFormState) {
+        *state = NormalFormState::default();
+    }
+}
