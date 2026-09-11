@@ -257,3 +257,176 @@ impl ChirpSweep {
         sample
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exponential Swept-Sine Chirp Generator & Delta-Sigma Accumulator
+// ─────────────────────────────────────────────────────────────────────────────
+
+use crate::math::FloatMath;
+use crate::types::Complex;
+
+const Q32_F32: f32 = (1i64 << 32) as f32;
+
+/// Parameter errors for [`Sweep::fit`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SweepError {
+    /// Start parameter out of bounds or negative state.
+    Start,
+    /// Stop parameter out of bounds (must be in `0.0..=0.5` Nyquist).
+    Stop,
+}
+
+impl core::fmt::Display for SweepError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Start => f.write_str("Sweep start parameter out of bounds"),
+            Self::Stop => f.write_str("Sweep stop parameter out of bounds"),
+        }
+    }
+}
+
+/// Exponential sweep generator with integrated 1st-order delta-sigma modulator.
+///
+/// Sweeps exponentially across frequency decades with exact cycle alignment,
+/// providing the ideal excitation stimulus for transfer function and impulse response
+/// measurement without spectral leakage.
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct Sweep {
+    /// Rate of exponential frequency increase.
+    pub rate: i32,
+    /// Current 64-bit state with fractional bits for delta-sigma modulation.
+    pub state: i64,
+}
+
+impl Iterator for Sweep {
+    type Item = i64;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        const BIAS: i64 = 1 << 31;
+        let s = self.state;
+        self.state = s.checked_add(self.rate as i64 * ((s + BIAS) >> 32))?;
+        Some(s)
+    }
+}
+
+impl core::iter::FusedIterator for Sweep {}
+
+impl Sweep {
+    /// Create a new exponential sweep from raw rate and 64-bit initial state.
+    #[inline]
+    pub const fn new(rate: i32, state: i64) -> Self {
+        Self { rate, state }
+    }
+
+    /// Continuous-time exponential sweep rate.
+    #[inline]
+    pub fn rate(&self) -> f64 {
+        FloatMath::ln(1.0 + self.rate as f64 / ((1i64 << 32) as f64))
+    }
+
+    /// Delay/length in samples for a given harmonic.
+    #[inline]
+    pub fn delay(&self, harmonic: f64) -> f64 {
+        FloatMath::ln(harmonic) / self.rate()
+    }
+
+    /// Samples per octave.
+    #[inline]
+    pub fn octave(&self) -> f64 {
+        core::f64::consts::LN_2 / self.rate()
+    }
+
+    /// Samples per decade.
+    #[inline]
+    pub fn decade(&self) -> f64 {
+        core::f64::consts::LN_10 / self.rate()
+    }
+
+    /// Current continuous-time phase state.
+    #[inline]
+    pub fn state(&self) -> f64 {
+        self.cycles() * self.rate()
+    }
+
+    /// Number of cycles per harmonic.
+    #[inline]
+    pub fn cycles(&self) -> f64 {
+        self.state as f64 / ((1i64 << 32) as f64 * self.rate as f64)
+    }
+
+    /// Evaluate integrated sweep phase at a given sample time `t`.
+    #[inline]
+    pub fn continuous(&self, t: f64) -> f64 {
+        self.cycles() * FloatMath::exp(self.rate() * t)
+    }
+
+    /// Synthesize an exponential swept-sine profile.
+    ///
+    /// # Arguments
+    /// * `stop` - Maximum stop frequency in units of sample rate (e.g. 0.5 for Nyquist).
+    /// * `harmonics` - Number of harmonics to sweep across (e.g. 1000.0).
+    /// * `cycles` - Number of cycles (phase wraps) per harmonic (`>= 1.0`).
+    pub fn fit(stop: f32, harmonics: f32, cycles: f32) -> Result<Self, SweepError> {
+        if !(0.0..=0.5).contains(&stop) {
+            return Err(SweepError::Stop);
+        }
+        let exp_term = FloatMath::exp(stop / (cycles * harmonics)) - 1.0;
+        let rate = (Q32_F32 * exp_term) as i32;
+        let state = (rate as i64 * cycles as i64) << 32;
+        if state <= 0 {
+            return Err(SweepError::Start);
+        }
+        Ok(Self::new(rate, state))
+    }
+}
+
+/// Exponentially swept sine oscillator with 64-bit phase accumulator.
+#[derive(Clone, Debug)]
+pub struct AccuOsc<T> {
+    sweep: T,
+    accu: i64,
+}
+
+impl<T> AccuOsc<T> {
+    /// Create a new swept oscillator wrapping a sweep iterator.
+    pub const fn new(sweep: T) -> Self {
+        Self {
+            sweep,
+            accu: 0,
+        }
+    }
+
+    /// Current 64-bit phase accumulator state.
+    pub const fn state(&self) -> i64 {
+        self.accu
+    }
+}
+
+impl<T: Iterator<Item = i64>> Iterator for AccuOsc<T> {
+    type Item = Complex<i32>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.sweep.next().map(|p| {
+            self.accu = self.accu.wrapping_add(p);
+            let phase = (self.accu >> 32) as i32;
+            #[cfg(feature = "fast-math")]
+            {
+                let (c, s) = crate::fast_math::cossin(phase);
+                Complex::new(c, s)
+            }
+            #[cfg(not(feature = "fast-math"))]
+            {
+                let rad = phase as f32 * (core::f32::consts::PI / 2147483648.0);
+                let c = (FloatMath::cos(rad) * 2147483647.0) as i32;
+                let s = (FloatMath::sin(rad) * 2147483647.0) as i32;
+                Complex::new(c, s)
+            }
+        })
+    }
+}
+
+impl<T: core::iter::FusedIterator + Iterator<Item = i64>> core::iter::FusedIterator for AccuOsc<T> {}
+

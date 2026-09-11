@@ -1888,3 +1888,199 @@ impl XorShift32 {
         r1 - r2
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lock-in Demodulation & Lock-in Amplifier
+// ─────────────────────────────────────────────────────────────────────────────
+
+use crate::types::Complex;
+
+/// Dual-phase lock-in amplifier mixer and demodulator.
+///
+/// Combines channel filters `C` with an IQ local oscillator reference to demodulate
+/// a noisy input signal into in-phase $I$ and quadrature $Q$ components.
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct Lockin<C>(pub C);
+
+impl<C> Lockin<C> {
+    /// Create a new lock-in demodulator with the given low-pass channel filter.
+    pub const fn new(filter: C) -> Self {
+        Self(filter)
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl<X, U, C, S> crate::pipeline::SplitProcess<(X, Complex<U>), Complex<X>, [S; 2]> for Lockin<C>
+where
+    X: Copy + core::ops::Mul<U, Output = X>,
+    U: Copy,
+    C: crate::pipeline::SplitProcess<X, X, S>,
+{
+    /// Demodulate a sample `x.0` against a local oscillator `x.1` (in-phase and quadrature).
+    #[inline]
+    fn process(&self, state: &mut [S; 2], x: (X, Complex<U>)) -> Complex<X> {
+        let (sample, lo) = x;
+        Complex::new(
+            self.0.process(&mut state[0], sample * lo.real),
+            self.0.process(&mut state[1], sample * lo.imag),
+        )
+    }
+}
+
+/// Standalone Lock-in Amplifier with integrated single-pole low-pass filtering.
+///
+/// Multiplies an incoming signal with an internal or external quadrature reference,
+/// and low-pass filters both channels to extract amplitude and phase.
+#[derive(Clone, Copy, Debug)]
+pub struct LockinAmplifier {
+    pub filter_i: SinglePoleFilter,
+    pub filter_q: SinglePoleFilter,
+    pub phase: i32,
+    pub phase_inc: i32,
+}
+
+impl LockinAmplifier {
+    /// Create a new Lock-in Amplifier with carrier frequency, sample rate, and low-pass decay factor.
+    pub fn new(carrier_hz: f32, sample_rate: f32, filter_decay: f32) -> Self {
+        let phase_inc = ((carrier_hz / sample_rate) * 4294967296.0) as i32;
+        Self {
+            filter_i: SinglePoleFilter::lowpass(filter_decay),
+            filter_q: SinglePoleFilter::lowpass(filter_decay),
+            phase: 0,
+            phase_inc,
+        }
+    }
+
+    /// Set carrier frequency in Hz.
+    pub fn set_frequency(&mut self, carrier_hz: f32, sample_rate: f32) {
+        self.phase_inc = ((carrier_hz / sample_rate) * 4294967296.0) as i32;
+    }
+
+    /// Reset internal filter state and phase accumulator.
+    pub fn reset(&mut self) {
+        self.filter_i.reset();
+        self.filter_q.reset();
+        self.phase = 0;
+    }
+
+    /// Ingest a sample and return demodulated IQ `Complex<f32>`.
+    #[inline]
+    pub fn process(&mut self, sample: f32) -> Complex<f32> {
+        let (cos_ref, sin_ref) = {
+            #[cfg(feature = "fast-math")]
+            {
+                let (c, s) = crate::fast_math::cossin(self.phase);
+                (c as f32 * (1.0 / 2147483648.0), s as f32 * (1.0 / 2147483648.0))
+            }
+            #[cfg(not(feature = "fast-math"))]
+            {
+                let rad = self.phase as f32 * (core::f32::consts::PI / 2147483648.0);
+                (FloatMath::cos(rad), FloatMath::sin(rad))
+            }
+        };
+
+        self.phase = self.phase.wrapping_add(self.phase_inc);
+
+        let i_filt = self.filter_i.process(sample * cos_ref);
+        let q_filt = self.filter_q.process(sample * sin_ref);
+        Complex::new(i_filt, q_filt)
+    }
+
+    /// Process a sample using an external reference phase angle (in radians).
+    #[inline]
+    pub fn process_with_phase(&mut self, sample: f32, phase_rad: f32) -> Complex<f32> {
+        let (cos_ref, sin_ref) = {
+            #[cfg(feature = "fast-math")]
+            {
+                crate::fast_math::cossin_f32(phase_rad)
+            }
+            #[cfg(not(feature = "fast-math"))]
+            {
+                (FloatMath::cos(phase_rad), FloatMath::sin(phase_rad))
+            }
+        };
+
+        let i_filt = self.filter_i.process(sample * cos_ref);
+        let q_filt = self.filter_q.process(sample * sin_ref);
+        Complex::new(i_filt, q_filt)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Integer Lowpass Filter (ported from idsp)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Arbitrary-order integer lowpass filter with high dynamic range. DC gain is 1.
+///
+/// Supports order `N = 1` (first-order) and `N = 2` (second-order Butterworth).
+/// The filter saturates cleanly towards the `i32` range.
+///
+/// # Coefficient Calculation
+///
+/// **First-order** (`N = 1`): `k[0] = π * (1 << 31) * f0 / fn`  
+/// where `f0` is the 3 dB corner frequency and `fn` is the Nyquist frequency.
+///
+/// **Second-order Butterworth** (`N = 2`): `k = [k_sq >> 32, -k / q]`  
+/// where `q = 1/sqrt(2)` and `k` is as above.
+///
+/// Both variants have zeros at Nyquist, optimised for Cortex-M7.
+///
+/// Ported from the `idsp` crate by the Sinara/ARTIQ project.
+#[derive(Clone, Debug)]
+pub struct IntLowpass<const N: usize> {
+    /// Lead/lag gain coefficients in Q1.31 fixed-point.
+    pub k: [i32; N],
+    /// Wide internal state accumulators.
+    state: [i64; N],
+}
+
+impl<const N: usize> Default for IntLowpass<N>
+where
+    [i32; N]: Default,
+{
+    fn default() -> Self {
+        Self { k: Default::default(), state: [0i64; N] }
+    }
+}
+
+impl<const N: usize> IntLowpass<N> {
+    /// Create a new filter from gain coefficients.
+    pub fn new(k: [i32; N]) -> Self {
+        Self { k, state: [0i64; N] }
+    }
+
+    /// Reset internal state to zero.
+    pub fn reset(&mut self) {
+        self.state = [0i64; N];
+    }
+
+    /// Process a single sample and return the filtered output.
+    pub fn process(&mut self, x: i32) -> i32 {
+        if N == 1 {
+            let d = x.saturating_sub((self.state[0] >> 32) as i32) as i64
+                * self.k[0] as i64;
+            self.state[0] += d;
+            let y = (self.state[0] >> 32) as i32;
+            self.state[0] += d;
+            y
+        } else if N == 2 {
+            let mut d = x.saturating_sub((self.state[0] >> 32) as i32) as i64
+                * self.k[0] as i64;
+            d += (self.state[1] >> 32) * self.k[1] as i64;
+            self.state[1] += d;
+            self.state[0] += self.state[1];
+            let y = (self.state[0] >> 32) as i32;
+            self.state[0] += self.state[1];
+            self.state[1] += d;
+            y
+        } else {
+            unimplemented!()
+        }
+    }
+}
+
+/// First-order integer lowpass (alias for `IntLowpass<1>`).
+pub type IntLowpass1 = IntLowpass<1>;
+/// Second-order integer lowpass (alias for `IntLowpass<2>`).
+pub type IntLowpass2 = IntLowpass<2>;

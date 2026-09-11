@@ -65,6 +65,10 @@ gated_mod!("const-generics", const_generics);
 gated_mod!("controller", controller);
 gated_mod!("cordic", cordic);
 gated_mod!("distance", distance);
+#[cfg(feature = "dither")]
+pub mod dither;
+#[cfg(feature = "dsm")]
+pub mod dsm;
 gated_mod!(math "dynamics", dynamics);
 gated_mod!("fast-math", fast_math);
 gated_mod!(math "filter-analysis", filter_analysis);

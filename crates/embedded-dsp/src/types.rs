@@ -443,6 +443,20 @@ impl<T> Complex<T> {
     }
 }
 
+impl<T: Copy> Complex<T> {
+    /// Returns the real component.
+    #[inline(always)]
+    pub const fn re(&self) -> T {
+        self.real
+    }
+
+    /// Returns the imaginary component.
+    #[inline(always)]
+    pub const fn im(&self) -> T {
+        self.imag
+    }
+}
+
 /// Helper function for saturating multiplication in Q15 format.
 #[inline(always)]
 pub fn q15_mult(a: q15, b: q15) -> q15 {

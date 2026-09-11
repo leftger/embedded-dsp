@@ -204,3 +204,226 @@ impl CostasLoop {
         self.center_freq_rad * self.sample_rate_hz / (2.0 * core::f32::consts::PI)
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Integer PLLs (ported from idsp)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Type-2, order-3 integer sampled-phase PLL.
+///
+/// Tracks frequency and phase of an input signal with respect to the sampling
+/// clock. Open-loop transfer function is type-2 (double DC integrator).
+///
+/// All arithmetic is wrapping 32-bit integer — stable for any numerically valid
+/// gain; no floating-point rounding errors. Phase and frequency are understood
+/// modulo the i32 range (first Nyquist zone).
+///
+/// Single parameter (`bandwidth`) controls loop bandwidth, expressed as a
+/// fraction of the sample rate (`0 < bw < 0.5`).
+///
+/// # Ported from
+/// The `idsp` crate by the Sinara/ARTIQ project.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct IntPll {
+    /// Lead-lag coefficients `[b0, b1, a1]` stored as scaled i32.
+    /// Internal representation: float * 2^31 (Q1.31).
+    pub ba: [i32; 3],
+}
+
+impl IntPll {
+    /// Construct from zero, pole, and gain (all normalised to sample rate, i.e. in `[0,1)`).
+    pub fn from_zpk(zero: f32, pole: f32, gain: f32) -> Self {
+        const SCALE: f64 = (i32::MAX as f64) + 1.0; // 2^31
+        Self {
+            ba: [
+                (gain as f64 * SCALE) as i32,
+                ((-gain * zero) as f64 * SCALE) as i32,
+                ((pole - 1.0) as f64 * SCALE) as i32,
+            ],
+        }
+    }
+
+    /// Construct from normalised loop bandwidth `bw` and lead-lag split factor
+    /// `split` (typically `4.0`).
+    ///
+    /// Yields ~1.5 dB peaking and ~62° phase margin for `split = 4`.
+    pub fn from_bandwidth(bw: f32, split: f32) -> Self {
+        let a = bw * 2.0 * core::f32::consts::PI;
+        let zero = 1.0 - a / split;
+        let pole = 1.0 - a * split;
+        let gain = -a * a * split;
+        Self::from_zpk(zero, pole, gain)
+    }
+
+    /// Advance the PLL one sample.
+    ///
+    /// - `state`: mutable per-call state.
+    /// - `input_phase`: sampled input phase (wrapping i32).
+    ///
+    /// Returns the current output phase estimate.
+    pub fn process(&self, state: &mut IntPllState, input_phase: i32) -> i32 {
+        // Advance output phase using current frequency estimate
+        state.y = state.y.wrapping_add((state.f >> 32) as i32);
+
+        // Phase error (additive: output compensates input)
+        let raw_err = input_phase.wrapping_add(state.y);
+
+        // Clamp on wrap to prevent integrator wind-up
+        let clamped = state.clamp.process(raw_err);
+
+        // Nyquist zero: halved and averaged with previous
+        let z0 = clamped >> 1;
+        let y0 = z0.wrapping_add(state.z0);
+        state.z0 = z0;
+
+        // Lead-lag biquad with wide state
+        let b0y0 = self.ba[0] as i64 * y0 as i64;
+        let b1y1 = self.ba[1] as i64 * state.y0 as i64;
+        let a1f1 = self.ba[2] as i64 * (state.f0 >> 32) as i64;
+        state.f0 = state.f0.wrapping_add(b0y0 + b1y1 + a1f1);
+        state.y0 = y0;
+
+        // DC pole (frequency integrator)
+        state.f = state.f.wrapping_add(state.f0);
+
+        state.y
+    }
+}
+
+/// Clamp-on-wrap helper: maps positive wraps to `i32::MAX` and negative wraps to `i32::MIN`,
+/// recovering only on the corresponding un-wrap.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct ClampWrap {
+    /// Last accepted input
+    pub x0: i32,
+    /// Current clamp direction: -1, 0, or +1
+    pub dir: i8,
+}
+
+impl ClampWrap {
+    /// Feed a new input; returns a clamped version.
+    #[inline]
+    pub fn process(&mut self, x: i32) -> i32 {
+        let (delta, overflow) = x.overflowing_sub(self.x0);
+        self.x0 = x;
+        if overflow {
+            // delta's sign tells us which way the wrap went
+            let wrap_sign: i8 = if delta < 0 { 1 } else { -1 };
+            self.dir = self.dir.saturating_add(wrap_sign);
+        } else {
+            if self.dir > 0 { self.dir -= 1; }
+            else if self.dir < 0 { self.dir += 1; }
+        }
+        match self.dir.cmp(&0) {
+            core::cmp::Ordering::Less    => i32::MIN,
+            core::cmp::Ordering::Equal   => x,
+            core::cmp::Ordering::Greater => i32::MAX,
+        }
+    }
+}
+
+/// Mutable state for [`IntPll`].
+#[derive(Copy, Clone, Debug, Default)]
+pub struct IntPllState {
+    /// Phase-error clamper
+    pub clamp: ClampWrap,
+    /// Pre-Nyquist-zero phase error
+    pub z0: i32,
+    /// Post-Nyquist-zero phase error
+    pub y0: i32,
+    /// Lead-lag accumulator (wide)
+    pub f0: i64,
+    /// DC integrator (wide) — upper 32 bits are frequency
+    pub f: i64,
+    /// Current phase estimate
+    pub y: i32,
+}
+
+impl IntPllState {
+    /// Current phase estimate.
+    #[inline] pub fn phase(&self) -> i32 { self.y }
+    /// Current frequency estimate (wrapping i32 increment per sample).
+    #[inline] pub fn frequency(&self) -> i32 { (self.f >> 32) as i32 }
+}
+
+/// Reciprocal PLL (RPLL).
+///
+/// Consumes noisy, quantised timestamps of a reference signal and reconstructs
+/// the phase and frequency of the update invocations with respect to (and in
+/// units of `1 << 32` of) that reference.
+///
+/// Call [`Rpll::process`] at a fixed rate. Supply `Some(timestamp)` when a
+/// reference edge occurs (at most once per `1 << dt2` update cycles), else `None`.
+///
+/// # Ported from
+/// The `idsp` crate by the Sinara/ARTIQ project.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct Rpll {
+    x: i32,  // previous timestamp
+    ff: u32, // frequency estimate from frequency loop
+    f: u32,  // combined frequency estimate
+    y: i32,  // phase estimate
+}
+
+/// Static configuration for [`Rpll`].
+#[derive(Copy, Clone, Debug)]
+pub struct RpllConfig {
+    /// `1 << dt2` is the counter-to-update-rate ratio.
+    pub dt2: u8,
+    /// Frequency lock settling-time exponent (`>= dt2`).
+    pub shift_frequency: u8,
+    /// Phase lock settling-time exponent (usually `shift_frequency - 1`).
+    pub shift_phase: u8,
+}
+
+impl Rpll {
+    /// Current phase estimate.
+    #[inline] pub fn phase(&self) -> i32 { self.y }
+    /// Current frequency estimate (u32 per update cycle).
+    #[inline] pub fn frequency(&self) -> u32 { self.f }
+
+    /// Advance one update cycle.
+    ///
+    /// - `cfg`: static RPLL configuration.
+    /// - `timestamp`: `Some(counter)` on a reference edge, else `None`.
+    ///
+    /// Returns `(phase, frequency)`.
+    pub fn process(&mut self, cfg: &RpllConfig, timestamp: Option<i32>) -> (i32, u32) {
+        // Advance phase using current frequency
+        self.y = self.y.wrapping_add(self.f as i32);
+
+        if let Some(x) = timestamp {
+            let dx = x.wrapping_sub(self.x);
+            self.x = x;
+
+            // Signal phase: ff * dx >> shift_frequency
+            let p_sig = ((self.ff as u64)
+                .wrapping_mul(dx as u64)
+                .wrapping_add(1u64 << (cfg.shift_frequency - 1))
+                >> cfg.shift_frequency) as u32;
+
+            // Reference phase for one reference period at this update rate
+            let p_ref = 1u32.wrapping_shl(
+                (32u32 + cfg.dt2 as u32).saturating_sub(cfg.shift_frequency as u32),
+            );
+
+            // Frequency loop
+            self.ff = self.ff.wrapping_add(p_ref.wrapping_sub(p_sig));
+
+            // Time between timestamp and "now" in counter cycles
+            let dt = (x.wrapping_neg()) & ((1i32 << cfg.dt2) - 1);
+
+            // Estimated reference phase "now"
+            let y_ref = ((self.f >> cfg.dt2 as u32) as i64 * dt as i64) as i32;
+
+            // Phase error with gain
+            let dy = (y_ref.wrapping_sub(self.y))
+                >> (cfg.shift_phase - cfg.dt2) as u32;
+
+            // Combine
+            self.f = self.ff.wrapping_add(dy as u32);
+        }
+
+        (self.y, self.f)
+    }
+}

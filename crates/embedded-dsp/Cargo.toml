@@ -43,6 +43,8 @@ full = [
     "controller",
     "cordic",
     "distance",
+    "dsm",
+    "dither",
     "dynamics",
     "fast-math",
     "filter-analysis",
@@ -78,6 +80,8 @@ const-generics = ["filtering", "matrix"]
 controller = []
 cordic = []
 distance = []
+dsm = []
+dither = []
 dynamics = ["pipeline"]
 fast-math = []
 filter-analysis = []
