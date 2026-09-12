@@ -21,10 +21,12 @@ ignore:
   - "crates/embedded-dsp-studio/**"
   - "**/embedded-dsp-studio/**"
 
-# Inline annotations in the PR "Files changed" tab are a paid Codecov feature.
-# With them enabled and no paid plan, Codecov can attempt the Checks API and
-# fail to fall back to a plain status, leaving no `codecov/project` check at
-# all. Disabling them keeps the status check, which is the part that matters.
+# Inline annotations in the PR "Files changed" tab are enabled by default, but
+# Codecov is deprecating them (annotations cannot be cleared once sent, and they
+# conflict with Flags/Components). Disabling them is also the documented
+# fallback path: "If GitHub checks are disabled but statuses are still set up,
+# normal status checks will be used instead", so `codecov/project` is still
+# posted. See https://docs.codecov.com/docs/github-checks
 github_checks:
   annotations: false
 
@@ -32,9 +34,13 @@ coverage:
   status:
     project:
       default:
-        # Explicit: an `enabled: false` appearing here would otherwise silently
-        # disable the status.
-        enabled: true
+        # NOTE: only keys documented at
+        # https://docs.codecov.com/docs/commit-status are used here. Statuses are
+        # enabled by default; the documented way to disable one is `project:
+        # false`, not an `enabled:` key, which that reference lists nowhere. An
+        # unrecognised key is rejected server-side, and with
+        # `fail_ci_if_error: false` in the workflow that rejection is silent.
+        #
         # Target the library floor rather than the previous `auto` (which only
         # compared against the base commit and allowed a 1% dip every time).
         # `threshold` is the permitted shortfall, so this reports failure below
@@ -51,7 +57,6 @@ coverage:
         threshold: 0.5%
     patch:
       default:
-        enabled: true
         # Deliberately lower than the project target: new code rarely starts as
         # well covered as the library average. Raise it if the library number
         # starts eroding from below.
