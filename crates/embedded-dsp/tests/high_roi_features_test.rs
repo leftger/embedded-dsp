@@ -757,3 +757,49 @@ fn test_biquad_fixed_wide_accumulator() {
     }
     assert!(max_err <= 1.0, "wide accumulator error {max_err}");
 }
+
+#[test]
+fn test_biquad_int_generic_widths() {
+    use embedded_dsp::filtering::{BiquadInt, BiquadIntSample, DirectForm1Int};
+
+    fn check_identity<T: BiquadIntSample + Default + core::fmt::Debug, const SHIFT: u32>(
+        one: T,
+        zero: T,
+    ) {
+        // ba = [1.0, 0, 0, 0, 0] passes samples through unchanged.
+        let filter =
+            BiquadInt::<T, SHIFT>::new([one, zero, zero, zero, zero], T::MIN, T::MAX, zero);
+        let mut state = DirectForm1Int::<T>::default();
+        assert_eq!(filter.process_df1(&mut state, one), one);
+        state.reset();
+        assert_eq!(state.xy, [zero; 4]);
+    }
+
+    check_identity::<i8, 6>(1 << 6, 0);
+    check_identity::<i16, 10>(1 << 10, 0);
+    check_identity::<i32, 12>(1 << 12, 0);
+    check_identity::<i64, 20>(1 << 20, 0);
+
+    // i16 leaky integrator: y = 0.25 x + 0.75 y1 (DC gain 1).
+    const SHIFT: u32 = 12;
+    let zero = 0i16;
+    let filter = BiquadInt::<i16, SHIFT>::new(
+        [1 << 10, zero, zero, 3 << 10, zero],
+        i16::MIN,
+        i16::MAX,
+        zero,
+    );
+    let mut state = DirectForm1Int::<i16>::default();
+    let x = 1000i16;
+    let mut y = 0i16;
+    for _ in 0..200 {
+        y = filter.process_df1(&mut state, x);
+    }
+    assert!((y as i32 - x as i32).abs() <= 3, "DC gain off: {y}");
+
+    // Output clamping saturates at the configured limits.
+    let clamp = BiquadInt::<i16, SHIFT>::new([1 << 12, zero, zero, zero, zero], -100, 100, zero);
+    let mut state = DirectForm1Int::<i16>::default();
+    assert_eq!(clamp.process_df1(&mut state, 1000), 100);
+    assert_eq!(clamp.process_df1(&mut state, -1000), -100);
+}

@@ -1877,6 +1877,172 @@ impl<const SHIFT: u32> crate::pipeline::SplitProcess<i32, i32, DirectForm1Wide>
     }
 }
 
+/// Integer sample type usable with [`BiquadInt`].
+///
+/// Implemented for `i8`, `i16`, `i32` and `i64`, each with a wider accumulator
+/// (`i16`, `i32`, `i64` and `i128` respectively). This mirrors `idsp`'s generic
+/// integer `Biquad<C>` over the primitive integer widths.
+pub trait BiquadIntSample: Copy + PartialOrd {
+    /// Wider accumulator type used for the recursion.
+    type Wide: Copy + PartialOrd;
+    /// Most negative value.
+    const MIN: Self;
+    /// Most positive value.
+    const MAX: Self;
+
+    /// Widen to the accumulator type.
+    fn widen(self) -> Self::Wide;
+    /// Saturate an accumulator value back to the sample range.
+    fn narrow(w: Self::Wide) -> Self;
+    /// Accumulator zero.
+    fn wide_zero() -> Self::Wide;
+    /// Wrapping accumulator multiply.
+    fn wide_mul(a: Self::Wide, b: Self::Wide) -> Self::Wide;
+    /// Wrapping accumulator add.
+    fn wide_add(a: Self::Wide, b: Self::Wide) -> Self::Wide;
+    /// Arithmetic right shift of the accumulator.
+    fn wide_shr(a: Self::Wide, n: u32) -> Self::Wide;
+}
+
+macro_rules! impl_biquad_int_sample {
+    ($sample:ty, $wide:ty) => {
+        impl BiquadIntSample for $sample {
+            type Wide = $wide;
+            const MIN: Self = <$sample>::MIN;
+            const MAX: Self = <$sample>::MAX;
+
+            #[inline(always)]
+            fn widen(self) -> $wide {
+                self as $wide
+            }
+
+            #[inline(always)]
+            fn narrow(w: $wide) -> Self {
+                w.clamp(<$sample>::MIN as $wide, <$sample>::MAX as $wide) as $sample
+            }
+
+            #[inline(always)]
+            fn wide_zero() -> $wide {
+                0
+            }
+
+            #[inline(always)]
+            fn wide_mul(a: $wide, b: $wide) -> $wide {
+                a.wrapping_mul(b)
+            }
+
+            #[inline(always)]
+            fn wide_add(a: $wide, b: $wide) -> $wide {
+                a.wrapping_add(b)
+            }
+
+            #[inline(always)]
+            fn wide_shr(a: $wide, n: u32) -> $wide {
+                a >> n
+            }
+        }
+    };
+}
+
+impl_biquad_int_sample!(i8, i16);
+impl_biquad_int_sample!(i16, i32);
+impl_biquad_int_sample!(i32, i64);
+impl_biquad_int_sample!(i64, i128);
+
+/// Direct Form 1 state for [`BiquadInt`]: `[x1, x2, y1, y2]`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DirectForm1Int<T> {
+    /// `[x1, x2, y1, y2]`.
+    pub xy: [T; 4],
+}
+
+impl<T: Copy + Default> Default for DirectForm1Int<T> {
+    fn default() -> Self {
+        Self {
+            xy: [T::default(); 4],
+        }
+    }
+}
+
+impl<T: Copy + Default> DirectForm1Int<T> {
+    /// Create a new zeroed state.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reset the state to zero.
+    pub fn reset(&mut self) {
+        self.xy = [T::default(); 4];
+    }
+}
+
+/// Fixed-point second-order section generic over the integer sample type.
+///
+/// Coefficients `ba = [b0, b1, b2, a1, a2]` are scaled by `2^SHIFT`, the
+/// recurrence runs in the wider [`BiquadIntSample::Wide`] accumulator, and the
+/// output is saturated to `[min, max]`. This closes the `idsp` gap of a biquad
+/// that works over `i8`/`i16`/`i32`/`i64` samples.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct BiquadInt<T: BiquadIntSample, const SHIFT: u32 = 30> {
+    /// Fixed-point coefficients `[b0, b1, b2, a1, a2]`.
+    pub ba: [T; 5],
+    /// Summing-junction offset, in output units.
+    pub u: T,
+    /// Minimum saturation clamp.
+    pub min: T,
+    /// Maximum saturation clamp.
+    pub max: T,
+}
+
+impl<T: BiquadIntSample, const SHIFT: u32> BiquadInt<T, SHIFT> {
+    /// Create a new integer biquad configuration.
+    pub const fn new(ba: [T; 5], min: T, max: T, u: T) -> Self {
+        Self { ba, min, max, u }
+    }
+
+    /// Process a single sample through Direct Form 1.
+    ///
+    /// # Panics
+    /// Fails to compile unless `SHIFT < 32`.
+    #[inline(always)]
+    pub fn process_df1(&self, state: &mut DirectForm1Int<T>, x0: T) -> T {
+        const { assert!(SHIFT < 32, "BiquadInt requires SHIFT < 32") };
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let [x1, x2, y1, y2] = state.xy;
+
+        let mut acc = T::wide_zero();
+        for (c, s) in [(b0, x0), (b1, x1), (b2, x2), (a1, y1), (a2, y2)] {
+            acc = T::wide_add(acc, T::wide_mul(c.widen(), s.widen()));
+        }
+
+        // Scale down, add the offset, then clamp to the configured output range.
+        let scaled = T::narrow(T::wide_shr(acc, SHIFT));
+        let y_raw = T::narrow(T::wide_add(scaled.widen(), self.u.widen()));
+        let y0 = if y_raw < self.min {
+            self.min
+        } else if y_raw > self.max {
+            self.max
+        } else {
+            y_raw
+        };
+
+        state.xy = [x0, x1, y0, y1];
+        y0
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl<T: BiquadIntSample, const SHIFT: u32>
+    crate::pipeline::SplitProcess<T, T, DirectForm1Int<T>> for BiquadInt<T, SHIFT>
+{
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm1Int<T>, x: T) -> T {
+        self.process_df1(state, x)
+    }
+}
+
 /// Delta-sigma modulator in MASH-(1)^K architecture.
 ///
 /// Converts a 32-bit unsigned input sample `x` into an integer stream with average

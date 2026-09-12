@@ -63,7 +63,7 @@ available. Honest differences are marked, including the few places where `idsp` 
 | Biquad `f32`/`f64` DF1 + DF2T | ✅ | ✅ |
 | Biquad `i32` clamping / anti-windup / guard bits | ✅ | ✅ |
 | Biquad fixed-point noise shaping | ✅ | ✅ |
-| Biquad generic integer `i8`/`i16`/`i64` | ➖ (`i32` + `q15`/`q31`) | ✅ |
+| Biquad generic integer `i8`/`i16`/`i32`/`i64` | ✅ `BiquadInt<T>` | ✅ |
 | Biquad DF1 wide (`Q32.32`) / dither actions | ✅ | ✅ |
 | Control-plane settings via `miniconf` | ✅ `config::BiquadSettings` | ✅ |
 | Normal-form IIR | ✅ arbitrary numerator | ⚠️ forced `p.im·z⁻¹` factor |
