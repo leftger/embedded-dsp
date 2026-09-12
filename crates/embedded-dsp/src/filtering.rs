@@ -2331,6 +2331,7 @@ impl Tpa {
     }
 
     /// Fixed-point multiply: `(c * a) >> 32` with wrapping (Q32.32 coefficient).
+    #[cfg(feature = "pipeline")]
     #[inline]
     fn mul(self, c: i32, a: i32) -> i32 {
         ((c as i64).wrapping_mul(a as i64) >> 32) as i32
@@ -2341,6 +2342,7 @@ impl Tpa {
     /// Takes `[a1, a2]` (incident wave from the previous stage and the delay
     /// state) and returns `[b1, b2]`: the output wave to the next stage and
     /// the new delay state.
+    #[cfg(feature = "pipeline")]
     #[inline]
     fn adapt(&self, x: [i32; 2], a: i32) -> [i32; 2] {
         match self {

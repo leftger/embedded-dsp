@@ -71,21 +71,21 @@ full = [
 ]
 
 # Per-module features: pull in only the algorithms you need.
-audio = ["transform"]
+audio = ["transform", "filter-design"]
 basic-math = []
 beamforming = ["transform"]
 companding = []
-complex-math = []
+complex-math = ["fast-math"]
 const-generics = ["filtering", "matrix"]
-controller = []
-cordic = []
-distance = []
+controller = ["filtering"]
+cordic = ["fast-math"]
+distance = ["fast-math"]
 dsm = []
 dither = []
 dynamics = ["pipeline"]
 fast-math = []
 filter-analysis = []
-filter-design = []
+filter-design = ["filter-analysis", "support"]
 filtering = []
 # Q16.16 saturating arithmetic (rasterizer / no-FPU pipelines). Complements
 # the always-on CMSIS-style q7/q15/q31 fixed-point types in `types`.

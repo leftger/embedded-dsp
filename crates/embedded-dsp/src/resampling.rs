@@ -490,6 +490,7 @@ pub fn spectral_interpolate_2x_f32(src: &[f32], dst: &mut [f32]) -> Status {
 /// `[c0, ..., c_{M-1}, (center), ±c_{M-1}, ..., ±c0]` where the center tap is
 /// `1` for [`OddSymmetric`], `0` for [`OddAntiSymmetric`] and absent for the
 /// even-length [`EvenSymmetric`]/[`EvenAntiSymmetric`] types.
+#[cfg(feature = "pipeline")]
 #[inline]
 fn fir_convolve<C: Copy, T, const M: usize, const ODD: bool, const SYM: bool>(
     c: &[C; M],
@@ -530,6 +531,7 @@ macro_rules! linear_phase_fir {
             pub const LEN: usize = 2 * M - 1 + $odd as usize;
         }
 
+        #[cfg(feature = "pipeline")]
         impl<C: Copy, T, const M: usize, const N: usize> crate::pipeline::SplitProcess<T, T, [T; N]>
             for $name<[C; M]>
         where
@@ -556,6 +558,7 @@ macro_rules! linear_phase_fir {
             }
         }
 
+        #[cfg(feature = "pipeline")]
         impl<C: Copy, T, const M: usize, const N: usize> crate::pipeline::SplitInplace<T, [T; N]>
             for $name<[C; M]>
         where
