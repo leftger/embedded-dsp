@@ -182,6 +182,88 @@ fn bench_pid_q31() {
     );
 }
 
+fn bench_idsp_parity_ops() {
+    use embedded_dsp::fast_math::atan2_i32;
+    use embedded_dsp::filtering::{BiquadFixed, DirectForm1NoiseShaped};
+    use embedded_dsp::pll::{IntPll, IntPllState};
+
+    let iterations = 200_000;
+
+    // cossin (128-entry midpoint LUT, comparable to idsp's ~23.5 cycles on M7)
+    let mut phase = 0i32;
+    let start = Instant::now();
+    let mut sum = 0i64;
+    for i in 0..iterations {
+        phase = phase.wrapping_add(0x0100_0000);
+        let (c, s) = cossin(phase);
+        sum = sum.wrapping_add(c as i64 + s as i64);
+    }
+    let elapsed = start.elapsed();
+    println!(
+        "cossin i32:            {:.2} MCalls/s ({:?}, sum={})",
+        iterations as f64 / elapsed.as_secs_f64() / 1e6,
+        elapsed,
+        sum
+    );
+
+    // atan2_i32 (comparable to idsp's ~52 cycles on M7)
+    let start = Instant::now();
+    let mut sum = 0i64;
+    for i in 1..=iterations {
+        let a = ((i as i32).wrapping_mul(31)).rotate_left(7);
+        let b = ((i as i32).wrapping_mul(17)).rotate_right(3);
+        sum = sum.wrapping_add(atan2_i32(a, b) as i64);
+    }
+    let elapsed = start.elapsed();
+    println!(
+        "atan2_i32:             {:.2} MCalls/s ({:?}, sum={})",
+        iterations as f64 / elapsed.as_secs_f64() / 1e6,
+        elapsed,
+        sum
+    );
+
+    // IntPll (type-2 order-3 integer PLL)
+    let pll = IntPll::from_bandwidth(1e-3, 4.0);
+    let mut pll_state = IntPllState::default();
+    let start = Instant::now();
+    let mut acc = 0i32;
+    let mut sum = 0i64;
+    for _ in 0..iterations {
+        acc = acc.wrapping_add(0x0010_0000);
+        sum = sum.wrapping_add(pll.process(&mut pll_state, acc) as i64);
+    }
+    let elapsed = start.elapsed();
+    println!(
+        "IntPll::process:       {:.2} MCalls/s ({:?}, sum={})",
+        iterations as f64 / elapsed.as_secs_f64() / 1e6,
+        elapsed,
+        sum
+    );
+
+    // Fixed-point biquad with noise shaping (idsp's i32 biquad does ~8.5 cyc)
+    let bq = BiquadFixed::<30>::new(
+        [1_000_000, 2_000_000, 1_000_000, 1_500_000_000, -500_000_000],
+        -1 << 30,
+        1 << 30,
+        0,
+    );
+    let mut bq_state = DirectForm1NoiseShaped::new();
+    let start = Instant::now();
+    let mut sum = 0i64;
+    let mut x = 0i32;
+    for _ in 0..iterations {
+        x = x.wrapping_add(10_000);
+        sum = sum.wrapping_add(bq.process_noise_shaped(&mut bq_state, x) as i64);
+    }
+    let elapsed = start.elapsed();
+    println!(
+        "BiquadFixed process:   {:.2} MCalls/s ({:?}, sum={})",
+        iterations as f64 / elapsed.as_secs_f64() / 1e6,
+        elapsed,
+        sum
+    );
+}
+
 fn main() {
     println!("=== embedded-dsp Performance Benchmarks ===\n");
     bench_dot_prod_q15();
@@ -190,5 +272,6 @@ fn main() {
     bench_cordic_vs_lut();
     bench_mult_q31();
     bench_pid_q31();
+    bench_idsp_parity_ops();
     println!("\n=== Benchmark Complete ===");
 }

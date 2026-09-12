@@ -521,3 +521,54 @@ fn test_clamp_wrap_semantics() {
     assert_eq!(c.process(pos_wrap), i32::MAX); // clamp held on non-wrap
     assert_eq!(c.process(0x71f63049), 0x71f63049); // opposite wrap releases
 }
+
+#[test]
+fn test_cossin_accuracy_idsp_spec() {
+    // idsp publishes < 4e-6 RMS per-quadrature over 20-bit phase; we measure
+    // the quadrature-magnitude error, which is ~sqrt(2)x larger.
+    const AMPLITUDE: f64 = (1i64 << 31) as f64 - 0.85 * (1i64 << 15) as f64;
+    const PHASE_DEPTH: usize = 20;
+    let mut rms = 0.0f64;
+    let mut max = 0.0f64;
+    for idx in 0..(1 << PHASE_DEPTH) {
+        let phase = (idx << (32 - PHASE_DEPTH)) as i32;
+        let (c, s) = cossin(phase);
+        let (c, s) = (c as f64 / AMPLITUDE, s as f64 / AMPLITUDE);
+        let rad = 2.0 * core::f64::consts::PI * (phase as u32 as f64) / (1u64 << 32) as f64;
+        let (sr, cr) = rad.sin_cos();
+        let e = ((c - cr).powi(2) + (s - sr).powi(2)).sqrt();
+        rms += e * e;
+        max = max.max(e);
+    }
+    rms = (rms / (1 << PHASE_DEPTH) as f64).sqrt();
+    assert!(rms < 6.0e-6, "cossin RMS error {rms:.3e} exceeds idsp spec");
+    assert!(max < 1.2e-5, "cossin max error {max:.3e} exceeds idsp spec");
+}
+
+#[test]
+fn test_atan2_accuracy_idsp_spec() {
+    // idsp publishes ~1.3e-6 rad RMS / 2.3e-6 rad max phase error.
+    // Start at i = 1 to avoid the exact -pi/+pi branch-cut ambiguity.
+    let n = 64_000;
+    let mut rms = 0.0f64;
+    let mut max = 0.0f64;
+    for i in 1..n {
+        let ang = (i as f64 / n as f64) * core::f64::consts::TAU - core::f64::consts::PI;
+        let (sr, cr) = ang.sin_cos();
+        let yi = (sr * (i32::MAX as f64)) as i32;
+        let xi = (cr * (i32::MAX as f64)) as i32;
+        let p = atan2_i32(yi, xi);
+        let e = p as f64 / (i32::MAX as f64) * core::f64::consts::PI - ang;
+        rms += e * e;
+        max = max.max(e.abs());
+    }
+    rms = (rms / (n - 1) as f64).sqrt();
+    assert!(
+        rms < 2.0e-6,
+        "atan2 RMS error {rms:.3e} rad exceeds idsp spec"
+    );
+    assert!(
+        max < 3.0e-6,
+        "atan2 max error {max:.3e} rad exceeds idsp spec"
+    );
+}
