@@ -292,6 +292,11 @@ name = "filtering_resampling_extras"
 path = "tests/filtering_resampling_extras.rs"
 required-features = ["libm", "full"]
 
+[[test]]
+name = "module_extras_coverage"
+path = "tests/module_extras_coverage.rs"
+required-features = ["libm", "full"]
+
 [[example]]
 name = "basic_usage"
 path = "examples/basic_usage.rs"
