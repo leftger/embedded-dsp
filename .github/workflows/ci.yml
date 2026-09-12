@@ -178,6 +178,20 @@ jobs:
           slug: leftger/embedded-dsp
           report_type: test_results
 
+  bench:
+    name: Benchmarks (native)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run native DSP benchmarks
+        run: |
+          echo "### ⏱️ Native DSP Benchmarks" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cargo bench -p embedded-dsp --bench dsp_benchmarks | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
   embedded-bench:
     name: Embedded Bench (thumbv7em)
     runs-on: ubuntu-latest
@@ -187,7 +201,7 @@ jobs:
         with:
           targets: thumbv7em-none-eabihf
       - uses: Swatinem/rust-cache@v2
-      - name: Build embedded benchmark harness
+      - name: Build embedded benchmark harness (biquad + idsp parity)
         run: cargo build --release --target thumbv7em-none-eabihf
         working-directory: tests/embedded
 

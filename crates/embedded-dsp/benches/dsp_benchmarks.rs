@@ -193,7 +193,7 @@ fn bench_idsp_parity_ops() {
     let mut phase = 0i32;
     let start = Instant::now();
     let mut sum = 0i64;
-    for i in 0..iterations {
+    for _ in 0..iterations {
         phase = phase.wrapping_add(0x0100_0000);
         let (c, s) = cossin(phase);
         sum = sum.wrapping_add(c as i64 + s as i64);
