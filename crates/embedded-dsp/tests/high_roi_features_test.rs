@@ -1,7 +1,9 @@
 use core::f32::consts::PI;
 use embedded_dsp::controller::PidBuilder;
 use embedded_dsp::fast_math::{Unwrapper, atan2_i32, cossin, cossin_f32, fast_atan2_f32};
-use embedded_dsp::filtering::{DirectForm1, Lockin, LockinAmplifier, NormalForm, NormalFormState};
+use embedded_dsp::filtering::{
+    DirectForm1, Lockin, LockinAmplifier, NormalForm, NormalFormState, Wdf, WdfState,
+};
 use embedded_dsp::pipeline::{SplitInplace, SplitProcess};
 use embedded_dsp::resampling::{
     EvenSymmetric, HbfDec, HbfDecCascade, HbfInt, HbfIntCascade, OddSymmetric,
@@ -419,4 +421,53 @@ fn test_hbf_decimator_cascade_stopband() {
     let rms: f32 = dst[32..n_low].iter().map(|&v| v * v).sum::<f32>() / (n_low - 32) as f32;
     let rms = rms.sqrt();
     assert!(rms < 1e-4, "stopband tone must be rejected, RMS was {rms}");
+}
+
+#[test]
+fn test_wdf_allpass_against_reference() {
+    // Single section, g = 0.25 (Tpa::B). The allpass transfer is
+    // H(z) = (a + z^-1) / (1 + a z^-1) with a = -g = -0.25.
+    let wdf = Wdf::<1, 0xB>::quantize(&[0.25]).expect("g=0.25 fits Tpa::B");
+    let mut state = WdfState::<1>::default();
+
+    // Reference: direct-form allpass y = a*x + x1 - a*y1.
+    let a = -0.25f64;
+    let mut x1 = 0.0f64;
+    let mut y1 = 0.0f64;
+
+    for n in 0..16 {
+        let x = if n == 0 { 1 << 29 } else { 0 };
+        let y_wdf = wdf.process(&mut state, x) as f64 / (1 << 30) as f64;
+        let y_ref = a * (x as f64 / (1 << 30) as f64) + x1 - a * y1;
+        assert!(
+            (y_wdf - y_ref).abs() < 1e-6,
+            "n={n}: wdf={y_wdf}, ref={y_ref}"
+        );
+        x1 = if n == 0 { 0.5 } else { 0.0 };
+        y1 = y_ref;
+    }
+}
+
+#[test]
+fn test_freqz_matches_biquad_response() {
+    use embedded_dsp::filter_analysis::{biquad_frequency_response, freqz};
+    use embedded_dsp::types::Complex;
+
+    // Biquad lowpass coefficients, sign convention y = b*x + a1*y1 + a2*y2.
+    let coeffs = [0.2f32, 0.4, 0.2, 1.2, -0.4];
+    for f in [0.0f32, 0.01, 0.1, 0.25, 0.4] {
+        // freqz uses standard convention a = [1, -a1, -a2].
+        let h = freqz(&[0.2, 0.4, 0.2], &[1.0, -1.2, 0.4], f);
+        let expected = biquad_frequency_response(&coeffs, f);
+        assert!(
+            (h.real - expected.real).abs() < 1e-5 && (h.imag - expected.imag).abs() < 1e-5,
+            "f={f}: freqz={:?}, biquad={:?}",
+            Complex::new(h.real, h.imag),
+            expected
+        );
+    }
+
+    // DC gain of an all-pole filter: H(1) = 1/(1 - 1 + 0.5) = 2.
+    let h = freqz(&[1.0], &[1.0, -1.0, 0.5], 0.0);
+    assert!((h.real - 2.0).abs() < 1e-5, "DC gain was {}", h.real);
 }

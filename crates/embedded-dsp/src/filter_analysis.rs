@@ -334,3 +334,32 @@ pub fn fir_quantization_snr_db(taps_f32: &[f32], taps_q15: &[q15], num_points: u
     }
     10.0 * (sig_pow / err_pow).log10()
 }
+
+// --- General transfer-function evaluation (freqz) ---
+
+/// Evaluate an arbitrary `[b, a]` transfer function on the unit circle.
+///
+/// Computes `H(z) = (Σ b[k] z⁻ᵏ) / (Σ a[k] z⁻ᵏ)` at `z = e^{-j·2π·frequency}`
+/// using Horner's method. `frequency` is relative to the sample rate
+/// (cycles/sample, `0.0..=0.5`). `a` must be non-empty and use the standard
+/// difference-equation sign convention (`y = b*x - a[1]*y1 - a[2]*y2 - ...`).
+///
+/// # Panics
+/// Panics if `a` is empty.
+pub fn freqz(b: &[f32], a: &[f32], frequency: f32) -> Complex<f32> {
+    assert!(!a.is_empty(), "freqz requires a non-empty denominator");
+    let omega = 2.0 * core::f32::consts::PI * frequency;
+    // z = e^{-jω}
+    let z = Complex::new(omega.cos(), -omega.sin());
+    complex_divide(polyval(b, z), polyval(a, z))
+}
+
+/// Horner evaluation of a polynomial with complex argument: `Σ p[k] z^(len-1-k)`.
+fn polyval(p: &[f32], z: Complex<f32>) -> Complex<f32> {
+    let mut acc = Complex::new(0.0f32, 0.0f32);
+    for &c in p.iter().rev() {
+        acc = complex_multiply(acc, z);
+        acc.real += c;
+    }
+    acc
+}
