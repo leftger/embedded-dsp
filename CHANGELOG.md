@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Fixed
+
+- **`CostasLoop` carrier tracking**: the quadrature arm was mixed with `-sin(theta)` instead of `+sin(theta)`, inverting the phase-detector feedback, and the detector was an unnormalised, clamped `I·Q`. The result was that the loop only tracked within a narrow band of loop bandwidths and collapsed to ~0 Hz at 50 Hz or above — the bandwidth this crate's own tests and examples use. With a 100 Hz carrier and a 50 Hz loop bandwidth, `frequency_hz()` decayed from 100 Hz to 0.000 Hz; a half-scale input gave 97.8 Hz where a full-scale input gave 0.0 Hz. The loop now mixes with `+sin(theta)`, low-pass filters both arms (cutoff at the centre frequency, which is what rejects the `2·f_c` mixer image), and uses the amplitude-normalised detector `2·i·q/(i² + q²)`. The frequency estimate is now independent of input amplitude and holds across the pull-in range at both 100 Hz/10 kHz and 1 kHz/48 kHz, including under BPSK data inversions.
+
+### Changed
+
+- **`CostasLoop::process_sample` now returns the low-pass filtered I/Q arms** rather than the raw mixer outputs, so the returned pair is the demodulated baseband instead of pre-filter products. A filtered arm is bounded by the input amplitude rather than by the instantaneous sample.
+- **`CostasLoop`'s effective loop bandwidth is capped at `center_freq_hz / 20`.** The arm filter sits inside the loop and its lag makes larger bandwidths unstable, so `loop_bandwidth_hz` is an upper bound rather than a guarantee: requesting 50 Hz against a 100 Hz centre yields a ~5 Hz effective bandwidth. This is documented on the type.
+
+### Added
+
+- `CostasLoop::reset()`, restoring the phase, frequency estimate, and arm-filter state while keeping the configured centre frequency and loop coefficients.
+
 ## [0.5.0] - 2026-09-01
 
 ### Added

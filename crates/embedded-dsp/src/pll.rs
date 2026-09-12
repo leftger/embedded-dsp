@@ -136,6 +136,34 @@ impl SogiPll {
 }
 
 /// Costas Loop for BPSK / QPSK carrier phase and frequency tracking.
+///
+/// # Structure
+///
+/// A quadrature (I/Q) Costas loop, one sample at a time:
+///
+/// 1. **Mix.** The input is multiplied by the NCO to form the in-phase and
+///    quadrature arms, `i = x·cos θ` and `q = x·sin θ`.
+/// 2. **Arm filter.** Both arms are low-pass filtered. This is what makes the
+///    loop work: the mixer output contains the wanted baseband term plus a
+///    2·f_c image, and the phase detector below only produces a usable DC term
+///    once the image has been attenuated. The cutoff is therefore tied to the
+///    *centre frequency*, not to the loop bandwidth.
+/// 3. **Phase detector.** The amplitude-normalised Costas product
+///    `2·i·q/(i² + q²)`, which equals `sin(2Δθ)` — proportional to twice the
+///    phase error for small errors, bounded to ±1, and independent of signal
+///    amplitude (so the loop gain does not change when the input level does).
+/// 4. **Loop filter.** Proportional-integral, driving the NCO frequency and
+///    phase.
+///
+/// # Bandwidth
+///
+/// The arm filter sits inside the loop and contributes lag, so the achievable
+/// bandwidth is limited by the arm cutoff: the effective bandwidth used for the
+/// loop coefficients is `min(loop_bandwidth_hz, f_arm / 20)`. Requesting a loop
+/// bandwidth anywhere near the centre frequency cannot be realised with a
+/// single-pole arm filter, and the loop will fail to lock — `|frequency_hz()|`
+/// collapses towards zero instead of tracking. Prefer `loop_bandwidth_hz` of a
+/// few percent of `center_freq_hz`.
 #[derive(Debug, Clone, Copy)]
 pub struct CostasLoop {
     sample_rate_hz: f32,
@@ -144,13 +172,30 @@ pub struct CostasLoop {
     center_freq_rad: f32,
     alpha: f32, // Proportional loop filter parameter
     beta: f32,  // Integral loop filter parameter
+    arm_k: f32, // One-pole arm filter coefficient
+    i_lp: f32,  // Filtered in-phase arm
+    q_lp: f32,  // Filtered quadrature arm
 }
 
 impl CostasLoop {
     /// Create a new Costas Loop.
+    ///
+    /// `loop_bandwidth_hz` is capped at `center_freq_hz / 20`; see the type-level
+    /// documentation for why.
     pub fn new(center_freq_hz: f32, sample_rate_hz: f32, loop_bandwidth_hz: f32, damping: f32) -> Self {
-        let center_freq_rad = 2.0 * core::f32::consts::PI * center_freq_hz / sample_rate_hz;
-        let theta = 2.0 * core::f32::consts::PI * loop_bandwidth_hz / sample_rate_hz;
+        let pi = core::f32::consts::PI;
+        let center_freq_rad = 2.0 * pi * center_freq_hz / sample_rate_hz;
+
+        // Arm filter cutoff at the centre frequency: it has to reject the
+        // 2*f_c mixer image, which a filter scaled to the loop bandwidth cannot
+        // do whenever the carrier is only a small multiple of the bandwidth.
+        let f_arm = center_freq_hz.abs().clamp(1.0e-6, 0.49 * sample_rate_hz);
+        let arm_k = 1.0 - (-2.0 * pi * f_arm / sample_rate_hz).exp();
+
+        // Derive the PI coefficients from the realisable bandwidth. The
+        // arm-filter lag inside the loop makes much larger values unstable.
+        let bw_eff = loop_bandwidth_hz.abs().min(f_arm / 20.0);
+        let theta = 2.0 * pi * bw_eff / sample_rate_hz;
         let d = 1.0 + 2.0 * damping * theta + theta * theta;
         let alpha = (4.0 * damping * theta) / d;
         let beta = (4.0 * theta * theta) / d;
@@ -162,19 +207,30 @@ impl CostasLoop {
             center_freq_rad,
             alpha,
             beta,
+            arm_k,
+            i_lp: 0.0,
+            q_lp: 0.0,
         }
     }
 
-    /// Process a modulated carrier sample and return the demodulated baseband in-phase (I) sample.
+    /// Process a modulated carrier sample and return the filtered baseband I and Q arms.
     pub fn process_sample(&mut self, sample: f32) -> (f32, f32) {
-        let cos_val = self.phase.cos();
-        let sin_val = (-self.phase).sin();
+        let i_arm = sample * self.phase.cos();
+        let q_arm = sample * self.phase.sin();
 
-        let i_arm = sample * cos_val;
-        let q_arm = sample * sin_val;
+        // Arm low-pass.
+        self.i_lp += self.arm_k * (i_arm - self.i_lp);
+        self.q_lp += self.arm_k * (q_arm - self.q_lp);
 
-        // BPSK phase error detector: e = I * sign(Q) or e = I * Q
-        let error = (i_arm * q_arm).clamp(-1.0, 1.0);
+        // Normalised Costas phase detector: 2*i*q/(i^2 + q^2) == sin(2*d_theta).
+        // Always in [-1, 1], so no clamp is needed; the guard only avoids a
+        // division by zero before the arm filters have any energy in them.
+        let power = self.i_lp * self.i_lp + self.q_lp * self.q_lp;
+        let error = if power > 1.0e-20 {
+            2.0 * self.i_lp * self.q_lp / power
+        } else {
+            0.0
+        };
 
         // Loop filter update
         self.freq_rad_per_sample += self.beta * error;
@@ -189,7 +245,16 @@ impl CostasLoop {
             self.phase += 2.0 * pi;
         }
 
-        (i_arm, q_arm)
+        (self.i_lp, self.q_lp)
+    }
+
+    /// Reset the phase, frequency estimate, and arm-filter state, keeping the
+    /// configured centre frequency and loop coefficients.
+    pub fn reset(&mut self) {
+        self.phase = 0.0;
+        self.freq_rad_per_sample = self.center_freq_rad;
+        self.i_lp = 0.0;
+        self.q_lp = 0.0;
     }
 
     /// Current tracked carrier frequency in Hz.
