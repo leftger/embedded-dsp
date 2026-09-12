@@ -257,6 +257,11 @@ name = "validation_tests"
 path = "tests/validation_tests.rs"
 required-features = ["libm", "full"]
 
+[[test]]
+name = "dither_dsm_pipeline_coverage"
+path = "tests/dither_dsm_pipeline_coverage.rs"
+required-features = ["libm", "full"]
+
 [[example]]
 name = "basic_usage"
 path = "examples/basic_usage.rs"

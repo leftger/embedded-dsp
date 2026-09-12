@@ -189,18 +189,24 @@ jobs:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
-      - name: Measure code coverage
+      # Coverage measures the `embedded-dsp` DSP library. The
+      # `embedded-dsp-studio` egui GUI is excluded (see codecov.yml), and the
+      # two feature configurations are merged so the reported number matches
+      # what codecov derives from the uploaded lcov.
+      - name: Measure library code coverage
         run: |
-          echo "### 📊 Code Coverage Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 📊 Code Coverage Report (embedded-dsp library)" >> "$GITHUB_STEP_SUMMARY"
           echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          cargo llvm-cov --workspace --all-features --summary-only | tee -a "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov --no-report -p embedded-dsp --all-features
+          cargo llvm-cov --no-report -p embedded-dsp --no-default-features --features full,libm
+          cargo llvm-cov report --summary-only | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cargo llvm-cov --workspace --all-features --lcov --output-path lcov-all.info
-          cargo llvm-cov -p embedded-dsp --no-default-features --features full,libm --lcov --output-path lcov-nostd.info
+          cargo llvm-cov report --lcov --output-path lcov.info
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
-          files: lcov-all.info,lcov-nostd.info
+          files: lcov.info
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: leftger/embedded-dsp
