@@ -257,6 +257,46 @@ name = "validation_tests"
 path = "tests/validation_tests.rs"
 required-features = ["libm", "full"]
 
+[[test]]
+name = "dither_dsm_pipeline_coverage"
+path = "tests/dither_dsm_pipeline_coverage.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "biquad_and_cic_coverage"
+path = "tests/biquad_and_cic_coverage.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "stats_window_matrix_coverage"
+path = "tests/stats_window_matrix_coverage.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "pll_kalman_coverage"
+path = "tests/pll_kalman_coverage.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "types_controller_coverage"
+path = "tests/types_controller_coverage.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "misc_modules_coverage"
+path = "tests/misc_modules_coverage.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "filtering_resampling_extras"
+path = "tests/filtering_resampling_extras.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "module_extras_coverage"
+path = "tests/module_extras_coverage.rs"
+required-features = ["libm", "full"]
+
 [[example]]
 name = "basic_usage"
 path = "examples/basic_usage.rs"

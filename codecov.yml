@@ -5,6 +5,13 @@ ignore:
   - "**/examples/**"
   - "embedded-dsp-docs.zip"
   - "**/embedded-dsp-docs.zip"
+  # The `embedded-dsp-studio` desktop GUI (egui/eframe) is excluded from the
+  # coverage metric: its `views/` and `widgets/` modules are immediate-mode
+  # rendering code exercised only when a window is drawn, so unit-testing it
+  # would mostly assert that painting does not panic. Coverage therefore
+  # measures the `embedded-dsp` DSP library.
+  - "crates/embedded-dsp-studio/**"
+  - "**/embedded-dsp-studio/**"
 
 coverage:
   status:
