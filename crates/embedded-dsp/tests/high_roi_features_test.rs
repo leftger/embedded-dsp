@@ -648,3 +648,68 @@ fn test_pid_builder_order_and_validation() {
         .coefficients(1.0);
     assert!(ba[4].abs() > 0.0, "I2 order must produce an a2 term");
 }
+
+#[test]
+fn test_int_lowpass_dc_gain_and_nyquist_rejection() {
+    use embedded_dsp::filtering::IntLowpass;
+
+    // Corner frequency at 10% of Nyquist.
+    let k = (core::f64::consts::PI * 0.1 * (1u64 << 31) as f64) as i32;
+    let step = 1i32 << 24;
+
+    // First order: unity DC gain, finite Nyquist rejection.
+    let mut f1 = IntLowpass::<1>::new([k]);
+    let mut y = 0;
+    for _ in 0..200 {
+        y = f1.process(step);
+    }
+    assert!(
+        (y as f64 / step as f64 - 1.0).abs() < 1e-6,
+        "N=1 DC gain {y}"
+    );
+
+    let mut f1 = IntLowpass::<1>::new([k]);
+    let mut peak = 0i32;
+    for i in 0..200 {
+        let x = if i % 2 == 0 { step } else { -step };
+        peak = peak.max(f1.process(x).abs());
+    }
+    assert!(peak < step / 4, "N=1 Nyquist not rejected: {peak}");
+
+    // Second order Butterworth: k = [k_sq >> 32, -k / q], q = 1/sqrt(2).
+    let k_sq = ((k as i64 * k as i64) >> 32) as i32;
+    let q = core::f64::consts::FRAC_1_SQRT_2;
+    let k2 = [k_sq, (-(k as f64) / q) as i32];
+
+    let mut f2 = IntLowpass::<2>::new(k2);
+    let mut y = 0;
+    for _ in 0..200 {
+        y = f2.process(step);
+    }
+    assert!(
+        (y as f64 / step as f64 - 1.0).abs() < 1e-5,
+        "N=2 DC gain {y}"
+    );
+
+    let mut f2 = IntLowpass::<2>::new(k2);
+    let mut peak = 0i32;
+    for i in 0..200 {
+        let x = if i % 2 == 0 { step } else { -step };
+        peak = peak.max(f2.process(x).abs());
+    }
+    assert!(peak < step / 8, "N=2 Nyquist not rejected: {peak}");
+
+    // reset() clears the integrator state.
+    let mut f2 = IntLowpass::<2>::new(k2);
+    for _ in 0..50 {
+        f2.process(step);
+    }
+    f2.reset();
+    assert_eq!(f2.process(0), 0);
+    let mut f1 = IntLowpass::<1>::new([k]);
+    for _ in 0..50 {
+        f1.process(step);
+    }
+    f1.reset();
+    assert_eq!(f1.process(0), 0);
+}
