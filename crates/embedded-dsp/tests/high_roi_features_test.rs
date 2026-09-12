@@ -713,3 +713,47 @@ fn test_int_lowpass_dc_gain_and_nyquist_rejection() {
     f1.reset();
     assert_eq!(f1.process(0), 0);
 }
+
+#[test]
+fn test_biquad_fixed_wide_accumulator() {
+    use embedded_dsp::filtering::{BiquadFixed, DirectForm1Wide};
+
+    const SHIFT: u32 = 30;
+    let scale = (1i64 << SHIFT) as f64;
+
+    // Identity biquad passes samples through (idsp's DirectForm1Wide doctest).
+    let identity = BiquadFixed::<SHIFT>::new([1 << SHIFT, 0, 0, 0, 0], i32::MIN, i32::MAX, 0);
+    let mut state = DirectForm1Wide::new();
+    assert_eq!(identity.process_wide(&mut state, 6), 6);
+    assert_eq!(identity.process_wide(&mut state, -7), -7);
+    state.reset();
+    assert_eq!(state, DirectForm1Wide::default());
+
+    // A stable lowpass biquad; the wide recursion must track the f64
+    // reference within one LSB.
+    let (nb, na) = ([0.2929f64, 0.5858, 0.2929], [-0.1716f64, 0.1716]);
+    let ba = [
+        (nb[0] * scale) as i32,
+        (nb[1] * scale) as i32,
+        (nb[2] * scale) as i32,
+        (na[0] * scale) as i32,
+        (na[1] * scale) as i32,
+    ];
+    let filter = BiquadFixed::<SHIFT>::new(ba, i32::MIN, i32::MAX, 0);
+    let mut state = DirectForm1Wide::new();
+    let (mut x1, mut x2, mut y1, mut y2) = (0.0f64, 0.0, 0.0, 0.0);
+    let mut sig: i32 = 12345;
+    let mut max_err = 0.0f64;
+    for _ in 0..500 {
+        sig = sig.wrapping_mul(1_103_515_245).wrapping_add(12345);
+        let x = (sig >> 8) & 0xffff;
+        let y = filter.process_wide(&mut state, x);
+        let y_ref = nb[0] * x as f64 + nb[1] * x1 + nb[2] * x2 + na[0] * y1 + na[1] * y2;
+        x2 = x1;
+        x1 = x as f64;
+        y2 = y1;
+        y1 = y_ref;
+        max_err = max_err.max((y as f64 - y_ref).abs());
+    }
+    assert!(max_err <= 1.0, "wide accumulator error {max_err}");
+}

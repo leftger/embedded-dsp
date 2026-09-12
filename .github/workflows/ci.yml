@@ -104,7 +104,7 @@ jobs:
             fast-math filter-analysis filter-design fixed-point interpolation kalman lut \
             matrix pipeline pll psd quaternion resampling spatial statistics snapshot \
             synthesis validation support transform window companding const-generics \
-            audio beamforming; do
+            audio beamforming miniconf; do
             echo "::group::libm,$feature"
             cargo check -p embedded-dsp --no-default-features --features "libm,$feature" --target thumbv7em-none-eabihf
             echo "::endgroup::"

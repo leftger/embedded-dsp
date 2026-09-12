@@ -64,8 +64,8 @@ available. Honest differences are marked, including the few places where `idsp` 
 | Biquad `i32` clamping / anti-windup / guard bits | ✅ | ✅ |
 | Biquad fixed-point noise shaping | ✅ | ✅ |
 | Biquad generic integer `i8`/`i16`/`i64` | ➖ (`i32` + `q15`/`q31`) | ✅ |
-| Biquad DF1 wide / dither actions | ➖ | ✅ |
-| Biquad/settings via `miniconf` | ❌ | ✅ |
+| Biquad DF1 wide (`Q32.32`) / dither actions | ✅ | ✅ |
+| Control-plane settings via `miniconf` | ✅ `config::BiquadSettings` | ✅ |
 | Normal-form IIR | ✅ arbitrary numerator | ⚠️ forced `p.im·z⁻¹` factor |
 | Wave digital allpass filters | ✅ | ✅ |
 | PI²D² controller builder (per-action limits) | ✅ | ✅ |

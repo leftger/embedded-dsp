@@ -25,6 +25,8 @@ fixed = ["dep:fixed"]
 defmt = ["dep:defmt", "fixed?/defmt"]
 serde = ["dep:serde", "fixed?/serde"]
 bytemuck = ["dep:bytemuck"]
+# `miniconf::Tree` control-plane settings for runtime-tunable filters.
+miniconf = ["dep:miniconf", "serde", "filtering"]
 # Conversions between the `[f32; 4]` quaternion representation used by
 # `quaternion` and `nalgebra`'s `Quaternion`/`UnitQuaternion`.
 nalgebra = ["quaternion", "dep:nalgebra"]
@@ -116,10 +118,16 @@ defmt = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 nalgebra = { workspace = true, optional = true }
 bytemuck = { workspace = true, optional = true, features = ["derive"] }
+miniconf = { workspace = true, optional = true, features = [
+    "derive",
+    "meta-node",
+    "meta-edge",
+] }
 
 [dev-dependencies]
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
+miniconf = { workspace = true, features = ["json-core"] }
 
 [package.metadata.docs.rs]
 all-features = true
@@ -176,6 +184,11 @@ required-features = ["libm", "full"]
 name = "split_process_biquad_quickcheck"
 path = "tests/split_process_biquad_quickcheck.rs"
 required-features = ["libm", "filtering", "pipeline"]
+
+[[test]]
+name = "miniconf_config"
+path = "tests/miniconf_config.rs"
+required-features = ["libm", "miniconf"]
 
 [[test]]
 name = "stats_interp_distance_complex_coverage"

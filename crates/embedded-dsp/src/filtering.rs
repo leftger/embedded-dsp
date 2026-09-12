@@ -1778,6 +1778,52 @@ impl<const SHIFT: u32> BiquadFixed<SHIFT> {
         state.xy = [x0, x1, y0, y1];
         y0
     }
+
+    /// Process a single sample with a 64-bit (`Q32.32`) output accumulator.
+    ///
+    /// Compared with [`Self::process_noise_shaped`], the feedback path carries
+    /// 32 fractional bits instead of being rounded each sample, which removes
+    /// the need for dithering at the cost of a wider state. This is the
+    /// embedded-dsp equivalent of `idsp`'s `DirectForm1Wide` processing.
+    ///
+    /// # Panics
+    /// Fails to compile unless `1 <= SHIFT <= 32`.
+    #[inline(always)]
+    pub fn process_wide(&self, state: &mut DirectForm1Wide, x0: i32) -> i32 {
+        const {
+            assert!(
+                SHIFT >= 1 && SHIFT <= 32,
+                "BiquadFixed::process_wide requires 1 <= SHIFT <= 32"
+            )
+        };
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let [x1, x2] = state.x;
+        let [y1, y2] = state.y;
+
+        // Numerator: full-width products, no truncation.
+        let mut acc = (b0 as i64)
+            .wrapping_mul(x0 as i64)
+            .wrapping_add((b1 as i64).wrapping_mul(x1 as i64))
+            .wrapping_add((b2 as i64).wrapping_mul(x2 as i64));
+
+        // Denominator: 32x32 split multiply of the wide states by the bits.
+        acc = acc.wrapping_add(((y1 as u32 as i64).wrapping_mul(a1 as i64)) >> 32);
+        acc = acc.wrapping_add(((y1 >> 32) as i32 as i64).wrapping_mul(a1 as i64));
+        acc = acc.wrapping_add(((y2 as u32 as i64).wrapping_mul(a2 as i64)) >> 32);
+        acc = acc.wrapping_add(((y2 >> 32) as i32 as i64).wrapping_mul(a2 as i64));
+
+        // Promote from the `SHIFT`-bit coefficient scale to Q32.32.
+        acc <<= 32 - SHIFT;
+
+        let y0 = ((acc >> 32) as i32 as i64)
+            .wrapping_add(self.u as i64)
+            .clamp(self.min as i64, self.max as i64) as i32;
+
+        // Keep the fractional low word of the accumulator, overwrite the output word.
+        state.y = [((y0 as i64) << 32) | (acc as u32 as i64), y1];
+        state.x = [x0, x1];
+        y0
+    }
 }
 
 #[cfg(feature = "pipeline")]
@@ -1787,6 +1833,47 @@ impl<const SHIFT: u32> crate::pipeline::SplitProcess<i32, i32, DirectForm1NoiseS
     #[inline(always)]
     fn process(&self, state: &mut DirectForm1NoiseShaped, x: i32) -> i32 {
         self.process_noise_shaped(state, x)
+    }
+}
+
+/// Direct Form 1 state with a 64-bit (`Q32.32`) output accumulator.
+///
+/// This is the embedded-dsp equivalent of `idsp`'s `DirectForm1Wide`: the
+/// recursion is carried at 32 fractional bits so coefficient rounding does not
+/// accumulate inside the feedback path. Use it with
+/// [`BiquadFixed::process_wide`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DirectForm1Wide {
+    /// Input history `[x1, x2]`.
+    pub x: [i32; 2],
+    /// Output accumulator history `[y1, y2]` in `Q32.32`.
+    pub y: [i64; 2],
+}
+
+impl DirectForm1Wide {
+    /// Create a new zero-initialized wide state.
+    pub const fn new() -> Self {
+        Self {
+            x: [0; 2],
+            y: [0; 2],
+        }
+    }
+
+    /// Reset the state and accumulator history.
+    pub fn reset(&mut self) {
+        self.x = [0; 2];
+        self.y = [0; 2];
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl<const SHIFT: u32> crate::pipeline::SplitProcess<i32, i32, DirectForm1Wide>
+    for BiquadFixed<SHIFT>
+{
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm1Wide, x: i32) -> i32 {
+        self.process_wide(state, x)
     }
 }
 

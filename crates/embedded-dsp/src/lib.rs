@@ -80,6 +80,7 @@ gated_mod!("kalman", kalman);
 gated_mod!("lut", lut);
 pub mod math;
 gated_mod!("matrix", matrix);
+gated_mod!("miniconf", config);
 gated_mod!("nalgebra", nalgebra_interop);
 gated_mod!("pipeline", pipeline);
 gated_mod!(math "pll", pll);
