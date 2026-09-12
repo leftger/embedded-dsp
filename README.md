@@ -45,6 +45,51 @@ cargo run -p embedded-dsp-studio
 
 ---
 
+## Comparison with `idsp`
+
+`embedded-dsp` is a superset of the well-established [`idsp`](https://crates.io/crates/idsp) crate for the
+algorithms the two share, and adds transforms, audio/vision, sensor-fusion, control, and tooling on top.
+The fixed-point/integer algorithms were ported and re-verified against `idsp`'s own test vectors where
+available. Honest differences are marked, including the few places where `idsp` still has more to offer.
+
+| Feature | `embedded-dsp` | `idsp` |
+| :--- | :---: | :---: |
+| `#![no_std]`, zero-allocation | ✅ | ✅ |
+| Fixed point `q7`/`q15`/`q31` + `fixed` interop | ✅ | ✅ (`i8`/`i16`/`i32`/`i64`) |
+| `cossin` LUT (i32) | ✅ ~5e-6 RMS | ✅ ~4e-6 RMS |
+| `atan2` (i32) | ✅ ~1.3e-6 rad | ✅ ~1.3e-6 rad |
+| Integer `PLL` / reciprocal `RPLL` | ✅ | ✅ |
+| Integer lowpass, CORDIC, unwrap, `saturating_scale` | ✅ | ✅ |
+| Biquad `f32`/`f64` DF1 + DF2T | ✅ | ✅ |
+| Biquad `i32` clamping / anti-windup / guard bits | ✅ | ✅ |
+| Biquad fixed-point noise shaping | ✅ | ✅ |
+| Biquad generic integer `i8`/`i16`/`i64` | ➖ (`i32` + `q15`/`q31`) | ✅ |
+| Biquad DF1 wide / dither actions | ➖ | ✅ |
+| Biquad/settings via `miniconf` | ❌ | ✅ |
+| Normal-form IIR | ✅ arbitrary numerator | ⚠️ forced `p.im·z⁻¹` factor |
+| Wave digital allpass filters | ✅ | ✅ |
+| PI²D² controller builder (per-action limits) | ✅ | ✅ |
+| Half-band Type I–IV linear-phase FIR | ✅ | ✅ |
+| Half-band cascades with known-good taps | ✅ 140 dB + 98 dB | ✅ 140 dB |
+| CIC decimator/interpolator | ✅ | ✅ |
+| General FIR, LMS/NLMS | ✅ | ➖ |
+| FFT (CFFT/RFFT/BFP Q15/Q31), DCT, DWT, Hartley, Hilbert | ✅ | ❌ |
+| Goertzel, Mel/MFCC, VAD, compressor/gate | ✅ | ❌ |
+| Welch/Burg PSD analysis | ✅ | ➖ |
+| Kalman (const-generic, EKF, square-root) | ✅ | ✅ (composable models) |
+| 2D vision, beamforming, GCC-PHAT, quaternions, matrices | ✅ | ❌ |
+| Lock-in amplifier | ✅ | ✅ |
+| Dither + MASH delta-sigma | ✅ | ✅ |
+| Resampling (polyphase, fractional) | ✅ | ➖ |
+| Companding (G.711 µ/A-law) | ✅ | ❌ |
+| In-repo micro-benchmarks | ✅ | ✅ (`tests/embedded`) |
+| Python bindings | ❌ | ✅ |
+| Interactive WebAssembly studio | ✅ | ❌ |
+
+Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · ❌ not provided.
+
+---
+
 ## Module Overview
 
 | Category | Key Algorithms & Structs |
@@ -128,6 +173,17 @@ cargo run --example spectral_radar_transforms
 cargo run --example spatial_vision_processing
 cargo run --release --example perf_comparison
 ```
+
+### Benchmarks
+
+Native micro-benchmarks (run in CI, results attached to the job summary):
+
+```bash
+cargo bench -p embedded-dsp --bench dsp_benchmarks
+```
+
+Bare-metal cycle counts on Cortex-M are in [`tests/embedded`](tests/embedded) and include the
+integer primitives shared with `idsp` (`cossin`, `atan2`, `IntPll`).
 
 ---
 
