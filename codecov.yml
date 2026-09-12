@@ -1,3 +1,11 @@
+# Codecov configuration.
+#
+# Where the coverage gate actually lives: the enforcing check is the "Enforce
+# coverage floor" step in .github/workflows/ci.yml, driven by the COVERAGE_MIN
+# env var. It has no dependency on a third-party app or plan. The statuses
+# configured below take effect only once the Codecov GitHub App is installed and
+# posting checks; keep `coverage.status.project.default.target` in sync with
+# COVERAGE_MIN (currently 95).
 ignore:
   - "benches/**"
   - "**/benches/**"
@@ -13,10 +21,20 @@ ignore:
   - "crates/embedded-dsp-studio/**"
   - "**/embedded-dsp-studio/**"
 
+# Inline annotations in the PR "Files changed" tab are a paid Codecov feature.
+# With them enabled and no paid plan, Codecov can attempt the Checks API and
+# fail to fall back to a plain status, leaving no `codecov/project` check at
+# all. Disabling them keeps the status check, which is the part that matters.
+github_checks:
+  annotations: false
+
 coverage:
   status:
     project:
       default:
+        # Explicit: an `enabled: false` appearing here would otherwise silently
+        # disable the status.
+        enabled: true
         # Target the library floor rather than the previous `auto` (which only
         # compared against the base commit and allowed a 1% dip every time).
         # `threshold` is the permitted shortfall, so this reports failure below
@@ -24,12 +42,6 @@ coverage:
         # coverage-mapping differences between llvm-cov builds make
         # #[inline(always)] functions report as unexecuted on CI, which costs
         # ~0.3 points versus an identical local run.
-        #
-        # NOTE: this is currently advisory only. The Codecov GitHub App is not
-        # installed on this repository, so no codecov/* status check is posted
-        # and a drop cannot block a merge. The enforcing gate is the "Enforce
-        # coverage floor" step in .github/workflows/ci.yml, driven by the
-        # COVERAGE_MIN env var; keep the two values in sync.
         #
         # Ceiling note: ~92 lines (transform.rs twiddle tables, fast_math.rs
         # CORDIC table, lut.rs) are `const fn`s evaluated only at compile time,
@@ -39,5 +51,9 @@ coverage:
         threshold: 0.5%
     patch:
       default:
+        enabled: true
+        # Deliberately lower than the project target: new code rarely starts as
+        # well covered as the library average. Raise it if the library number
+        # starts eroding from below.
         target: 60%
         threshold: 1%
