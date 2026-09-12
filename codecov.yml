@@ -1,3 +1,11 @@
+# Codecov configuration.
+#
+# Where the coverage gate actually lives: the enforcing check is the "Enforce
+# coverage floor" step in .github/workflows/ci.yml, driven by the COVERAGE_MIN
+# env var. It has no dependency on a third-party app or plan. The statuses
+# configured below take effect only once the Codecov GitHub App is installed and
+# posting checks; keep `coverage.status.project.default.target` in sync with
+# COVERAGE_MIN (currently 95).
 ignore:
   - "benches/**"
   - "**/benches/**"
@@ -13,13 +21,44 @@ ignore:
   - "crates/embedded-dsp-studio/**"
   - "**/embedded-dsp-studio/**"
 
+# Inline annotations in the PR "Files changed" tab are enabled by default, but
+# Codecov is deprecating them (annotations cannot be cleared once sent, and they
+# conflict with Flags/Components). Disabling them is also the documented
+# fallback path: "If GitHub checks are disabled but statuses are still set up,
+# normal status checks will be used instead", so `codecov/project` is still
+# posted. See https://docs.codecov.com/docs/github-checks
+github_checks:
+  annotations: false
+
 coverage:
   status:
     project:
       default:
-        target: auto
-        threshold: 1%
+        # NOTE: only keys documented at
+        # https://docs.codecov.com/docs/commit-status are used here. Statuses are
+        # enabled by default; the documented way to disable one is `project:
+        # false`, not an `enabled:` key, which that reference lists nowhere. An
+        # unrecognised key is rejected server-side, and with
+        # `fail_ci_if_error: false` in the workflow that rejection is silent.
+        #
+        # Target the library floor rather than the previous `auto` (which only
+        # compared against the base commit and allowed a 1% dip every time).
+        # `threshold` is the permitted shortfall, so this reports failure below
+        # 94.5%. The half-point of slack absorbs runner-level noise:
+        # coverage-mapping differences between llvm-cov builds make
+        # #[inline(always)] functions report as unexecuted on CI, which costs
+        # ~0.3 points versus an identical local run.
+        #
+        # Ceiling note: ~92 lines (transform.rs twiddle tables, fast_math.rs
+        # CORDIC table, lut.rs) are `const fn`s evaluated only at compile time,
+        # so no test can mark them executed. Practical maximum is therefore
+        # just under 100%, not 100%.
+        target: 95%
+        threshold: 0.5%
     patch:
       default:
+        # Deliberately lower than the project target: new code rarely starts as
+        # well covered as the library average. Raise it if the library number
+        # starts eroding from below.
         target: 60%
         threshold: 1%

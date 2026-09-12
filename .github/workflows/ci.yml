@@ -16,6 +16,11 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   MSRV: "1.93"
+  # Minimum line coverage for the `embedded-dsp` library, enforced by the
+  # coverage job below. Keep in sync with `coverage.status.project` in
+  # codecov.yml (that config only takes effect once the Codecov GitHub App is
+  # installed and posting status checks; this env var is what actually gates).
+  COVERAGE_MIN: "95"
 
 jobs:
   fmt:
@@ -203,6 +208,24 @@ jobs:
           cargo llvm-cov report --summary-only | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           cargo llvm-cov report --lcov --output-path lcov.info
+      # The codecov.yml project target only applies once the Codecov GitHub App
+      # is installed and posting status checks, which it currently is not. This
+      # step makes the floor real: it fails the job when library line coverage
+      # drops below COVERAGE_MIN.
+      - name: Enforce coverage floor
+        run: |
+          pct="$(cargo llvm-cov report --summary-only | awk '$1 == "TOTAL" { gsub(/%/, "", $10); print $10 }')"
+          if [ -z "$pct" ]; then
+            echo "::error::could not read the coverage total from 'cargo llvm-cov report'"
+            exit 1
+          fi
+          echo "library line coverage: ${pct}% (floor: ${COVERAGE_MIN}%)"
+          awk -v pct="$pct" -v min="$COVERAGE_MIN" 'BEGIN {
+            if (pct + 0 < min + 0) {
+              printf "::error::library line coverage %.2f%% is below the %.2f%% floor\n", pct, min
+              exit 1
+            }
+          }'
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
