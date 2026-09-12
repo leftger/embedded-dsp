@@ -17,8 +17,19 @@ coverage:
   status:
     project:
       default:
-        target: auto
-        threshold: 1%
+        # Enforce the library floor rather than the previous `auto` (which only
+        # compared against the base commit and allowed a 1% dip every time).
+        # `threshold` is the permitted shortfall, so this fails below 94.5%.
+        # The half-point of slack absorbs runner-level noise: coverage-mapping
+        # differences between llvm-cov builds make #[inline(always)] functions
+        # report as unexecuted on CI, which costs ~0.3 points versus a local run.
+        #
+        # Ceiling note: ~92 lines (transform.rs twiddle tables, fast_math.rs
+        # CORDIC table, lut.rs) are `const fn`s evaluated only at compile time,
+        # so no test can mark them executed. Practical maximum is therefore
+        # just under 100%, not 100%.
+        target: 95%
+        threshold: 0.5%
     patch:
       default:
         target: 60%
