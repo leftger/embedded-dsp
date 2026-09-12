@@ -56,9 +56,8 @@ pub fn biquad_frequency_response(coeffs: &[f32; 5], freq_norm: f32) -> Complex<f
 /// `freq_norm` (cycles/sample, `0.0..=0.5`).
 pub fn biquad_cascade_frequency_response(coeffs: &[f32], freq_norm: f32) -> Complex<f32> {
     let mut total = Complex::new(1.0f32, 0.0f32);
-    for stage in coeffs.chunks_exact(5) {
-        let section: [f32; 5] = [stage[0], stage[1], stage[2], stage[3], stage[4]];
-        total = complex_multiply(total, biquad_frequency_response(&section, freq_norm));
+    for section in coeffs.as_chunks::<5>().0 {
+        total = complex_multiply(total, biquad_frequency_response(section, freq_norm));
     }
     total
 }
@@ -157,9 +156,7 @@ pub fn biquad_is_stable(coeffs: &[f32; 5]) -> bool {
 /// Returns `true` if every stage of a biquad cascade (`coeffs.len()` a multiple of 5) is
 /// stable.
 pub fn biquad_cascade_is_stable(coeffs: &[f32]) -> bool {
-    coeffs
-        .chunks_exact(5)
-        .all(|stage| biquad_is_stable(&[stage[0], stage[1], stage[2], stage[3], stage[4]]))
+    coeffs.as_chunks::<5>().0.iter().all(biquad_is_stable)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
