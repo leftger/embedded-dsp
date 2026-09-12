@@ -91,6 +91,8 @@ pub fn idct2d_f32(src: &[f32], dst: &mut [f32], rows: usize, cols: usize) -> Sta
 /// Performs 2D spatial convolution of `src` image (`rows x cols`) with a `k_rows x k_cols` kernel.
 ///
 /// If `normalize` is `true`, the convolution output is divided by the sum of the absolute kernel weights.
+// Image and kernel dimensions are independent, so the argument count is inherent.
+#[allow(clippy::too_many_arguments)]
 pub fn convolve2d_f32(
     src: &[f32],
     dst: &mut [f32],
@@ -154,7 +156,7 @@ pub fn nonlin2d_filter_f32(
     filtype: NonlinFilterType,
 ) -> Status {
     let total = rows * cols;
-    if rows == 0 || cols == 0 || k_size == 0 || k_size % 2 == 0 || k_size > 7 {
+    if rows == 0 || cols == 0 || k_size == 0 || k_size.is_multiple_of(2) || k_size > 7 {
         return Status::ArgumentError;
     }
     if src.len() < total || dst.len() < total {

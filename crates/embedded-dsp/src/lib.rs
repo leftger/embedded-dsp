@@ -1,5 +1,5 @@
 #![no_std]
-#![allow(missing_docs)]
+#![warn(missing_docs)]
 
 //! # embedded-dsp
 //!
@@ -44,12 +44,14 @@ extern crate std;
 macro_rules! gated_mod {
     ($feature:literal, $module:ident) => {
         #[cfg(feature = $feature)]
+        #[doc = concat!("The `", stringify!($module), "` module.")]
         pub mod $module;
         #[cfg(feature = $feature)]
         pub use $module::*;
     };
     (math $feature:literal, $module:ident) => {
         #[cfg(all(feature = $feature, any(feature = "std", feature = "libm")))]
+        #[doc = concat!("The `", stringify!($module), "` module.")]
         pub mod $module;
         #[cfg(all(feature = $feature, any(feature = "std", feature = "libm")))]
         pub use $module::*;
@@ -80,6 +82,7 @@ gated_mod!("kalman", kalman);
 gated_mod!("lut", lut);
 pub mod math;
 gated_mod!("matrix", matrix);
+gated_mod!("miniconf", config);
 gated_mod!("nalgebra", nalgebra_interop);
 gated_mod!("pipeline", pipeline);
 gated_mod!(math "pll", pll);

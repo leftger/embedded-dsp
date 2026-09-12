@@ -79,12 +79,7 @@ fn test_transforms_q31_q15_and_wavelets() {
     );
 
     // Wavelets
-    let daub4 = [
-        0.4829629131445341,
-        0.8365163037378079,
-        0.2241438680420134,
-        -0.1294095225512604,
-    ];
+    let daub4 = [0.482_962_9, 0.836_516_3, 0.224_143_86, -0.129_409_52];
     let mut wave_buf = [1.0f32, 2.0, 3.0, 4.0];
     assert_eq!(wavelet_step_f32(&mut wave_buf, 4, &daub4), Status::Success);
     assert_eq!(

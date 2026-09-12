@@ -25,6 +25,8 @@ fixed = ["dep:fixed"]
 defmt = ["dep:defmt", "fixed?/defmt"]
 serde = ["dep:serde", "fixed?/serde"]
 bytemuck = ["dep:bytemuck"]
+# `miniconf::Tree` control-plane settings for runtime-tunable filters.
+miniconf = ["dep:miniconf", "serde", "filtering"]
 # Conversions between the `[f32; 4]` quaternion representation used by
 # `quaternion` and `nalgebra`'s `Quaternion`/`UnitQuaternion`.
 nalgebra = ["quaternion", "dep:nalgebra"]
@@ -71,21 +73,21 @@ full = [
 ]
 
 # Per-module features: pull in only the algorithms you need.
-audio = ["transform"]
+audio = ["transform", "filter-design"]
 basic-math = []
 beamforming = ["transform"]
 companding = []
-complex-math = []
+complex-math = ["fast-math"]
 const-generics = ["filtering", "matrix"]
-controller = []
-cordic = []
-distance = []
+controller = ["filtering"]
+cordic = ["fast-math"]
+distance = ["fast-math"]
 dsm = []
 dither = []
 dynamics = ["pipeline"]
 fast-math = []
 filter-analysis = []
-filter-design = []
+filter-design = ["filter-analysis", "support"]
 filtering = []
 # Q16.16 saturating arithmetic (rasterizer / no-FPU pipelines). Complements
 # the always-on CMSIS-style q7/q15/q31 fixed-point types in `types`.
@@ -116,48 +118,187 @@ defmt = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 nalgebra = { workspace = true, optional = true }
 bytemuck = { workspace = true, optional = true, features = ["derive"] }
+miniconf = { workspace = true, optional = true, features = [
+    "derive",
+    "meta-node",
+    "meta-edge",
+] }
 
 [dev-dependencies]
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
+miniconf = { workspace = true, features = ["json-core"] }
 
 [package.metadata.docs.rs]
 all-features = true
 
+# Integration tests are declared explicitly so each can carry `required-features`.
+# Without this, `cargo test --no-default-features --features <subset>` failed to
+# compile tests that reference modules outside the selected subset.
+[[test]]
+name = "basic_math_coverage"
+path = "tests/basic_math_coverage.rs"
+required-features = ["libm", "basic-math"]
+
+[[test]]
+name = "filtering_coverage"
+path = "tests/filtering_coverage.rs"
+required-features = ["libm", "filtering"]
+
+[[test]]
+name = "fixed_basic_types_transform"
+path = "tests/fixed_basic_types_transform.rs"
+required-features = ["libm", "basic-math", "transform"]
+
+[[test]]
+name = "high_roi_features_test"
+path = "tests/high_roi_features_test.rs"
+required-features = [
+    "libm",
+    "controller",
+    "fast-math",
+    "filter-analysis",
+    "filtering",
+    "pipeline",
+    "pll",
+    "resampling",
+    "synthesis",
+]
+
+[[test]]
+name = "matrix_window_support_fastmath"
+path = "tests/matrix_window_support_fastmath.rs"
+required-features = ["libm", "fast-math", "matrix", "support", "window"]
+
+[[test]]
+name = "push_to_95_coverage_b"
+path = "tests/push_to_95_coverage_b.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "push_to_95_coverage_d"
+path = "tests/push_to_95_coverage_d.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "split_process_biquad_quickcheck"
+path = "tests/split_process_biquad_quickcheck.rs"
+required-features = ["libm", "filtering", "pipeline"]
+
+[[test]]
+name = "miniconf_config"
+path = "tests/miniconf_config.rs"
+required-features = ["libm", "miniconf"]
+
+[[test]]
+name = "stats_interp_distance_complex_coverage"
+path = "tests/stats_interp_distance_complex_coverage.rs"
+required-features = [
+    "libm",
+    "complex-math",
+    "distance",
+    "interpolation",
+    "statistics",
+]
+
+# Broad coverage tests that glob-import the crate root need every module.
+[[test]]
+name = "coverage_boost_tests"
+path = "tests/coverage_boost_tests.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "dsp_tests"
+path = "tests/dsp_tests.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "final_90_plus_coverage_boost"
+path = "tests/final_90_plus_coverage_boost.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "microcontroller_features_tests"
+path = "tests/microcontroller_features_tests.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "more_coverage_boost"
+path = "tests/more_coverage_boost.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "push_to_95_coverage_a"
+path = "tests/push_to_95_coverage_a.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "push_to_95_coverage_c"
+path = "tests/push_to_95_coverage_c.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "push_to_95_coverage_e"
+path = "tests/push_to_95_coverage_e.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "snapshot_tests"
+path = "tests/snapshot_tests.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "synthesis_tests"
+path = "tests/synthesis_tests.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "validation_tests"
+path = "tests/validation_tests.rs"
+required-features = ["libm", "full"]
+
 [[example]]
 name = "basic_usage"
 path = "examples/basic_usage.rs"
+required-features = ["libm", "full"]
 
 [[example]]
 name = "perf_comparison"
 path = "examples/perf_comparison.rs"
-required-features = ["libm"]
+required-features = ["libm", "full"]
 
 [[example]]
 name = "audio_speech_pipeline"
 path = "examples/audio_speech_pipeline.rs"
+required-features = ["libm", "full"]
 
 [[example]]
 name = "sensor_fusion_navigation"
 path = "examples/sensor_fusion_navigation.rs"
+required-features = ["libm", "full"]
 
 [[example]]
 name = "motor_control_foc"
 path = "examples/motor_control_foc.rs"
+required-features = ["libm", "full"]
 
 [[example]]
 name = "spectral_radar_transforms"
 path = "examples/spectral_radar_transforms.rs"
+required-features = ["libm", "full"]
 
 [[example]]
 name = "spatial_vision_processing"
 path = "examples/spatial_vision_processing.rs"
+required-features = ["libm", "full"]
 
 [[example]]
 name = "filter_workbench_and_analysis"
 path = "examples/filter_workbench_and_analysis.rs"
+required-features = ["libm", "full"]
 
 [[bench]]
 name = "dsp_benchmarks"
 harness = false
 path = "benches/dsp_benchmarks.rs"
+required-features = ["libm", "full"]

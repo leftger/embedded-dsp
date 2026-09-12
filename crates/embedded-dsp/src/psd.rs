@@ -9,12 +9,19 @@ use crate::window::*;
 /// Window function choice for spectral estimation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WelchWindow {
+    /// Rectangular (boxcar) window.
     Rectangular,
+    /// Hamming window.
     Hamming,
+    /// Hann window.
     Hanning,
+    /// Blackman window.
     Blackman,
+    /// Blackman-Harris window.
     BlackmanHarris,
+    /// Bartlett window.
     Bartlett,
+    /// Welch window.
     Welch,
 }
 

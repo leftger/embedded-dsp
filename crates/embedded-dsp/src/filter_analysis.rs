@@ -56,9 +56,8 @@ pub fn biquad_frequency_response(coeffs: &[f32; 5], freq_norm: f32) -> Complex<f
 /// `freq_norm` (cycles/sample, `0.0..=0.5`).
 pub fn biquad_cascade_frequency_response(coeffs: &[f32], freq_norm: f32) -> Complex<f32> {
     let mut total = Complex::new(1.0f32, 0.0f32);
-    for stage in coeffs.chunks_exact(5) {
-        let section: [f32; 5] = [stage[0], stage[1], stage[2], stage[3], stage[4]];
-        total = complex_multiply(total, biquad_frequency_response(&section, freq_norm));
+    for section in coeffs.as_chunks::<5>().0 {
+        total = complex_multiply(total, biquad_frequency_response(section, freq_norm));
     }
     total
 }
@@ -157,9 +156,7 @@ pub fn biquad_is_stable(coeffs: &[f32; 5]) -> bool {
 /// Returns `true` if every stage of a biquad cascade (`coeffs.len()` a multiple of 5) is
 /// stable.
 pub fn biquad_cascade_is_stable(coeffs: &[f32]) -> bool {
-    coeffs
-        .chunks_exact(5)
-        .all(|stage| biquad_is_stable(&[stage[0], stage[1], stage[2], stage[3], stage[4]]))
+    coeffs.as_chunks::<5>().0.iter().all(biquad_is_stable)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -240,7 +237,7 @@ pub fn biquad_quantization_snr_db(
     post_shift: u8,
     num_points: usize,
 ) -> f32 {
-    if sos_f32.len() != sos_q15.len() || sos_f32.is_empty() || sos_f32.len() % 5 != 0 {
+    if sos_f32.len() != sos_q15.len() || sos_f32.is_empty() || !sos_f32.len().is_multiple_of(5) {
         return 0.0;
     }
 
@@ -333,4 +330,33 @@ pub fn fir_quantization_snr_db(taps_f32: &[f32], taps_q15: &[q15], num_points: u
         return 120.0;
     }
     10.0 * (sig_pow / err_pow).log10()
+}
+
+// --- General transfer-function evaluation (freqz) ---
+
+/// Evaluate an arbitrary `[b, a]` transfer function on the unit circle.
+///
+/// Computes `H(z) = (Σ b[k] z⁻ᵏ) / (Σ a[k] z⁻ᵏ)` at `z = e^{-j·2π·frequency}`
+/// using Horner's method. `frequency` is relative to the sample rate
+/// (cycles/sample, `0.0..=0.5`). `a` must be non-empty and use the standard
+/// difference-equation sign convention (`y = b*x - a[1]*y1 - a[2]*y2 - ...`).
+///
+/// # Panics
+/// Panics if `a` is empty.
+pub fn freqz(b: &[f32], a: &[f32], frequency: f32) -> Complex<f32> {
+    assert!(!a.is_empty(), "freqz requires a non-empty denominator");
+    let omega = 2.0 * core::f32::consts::PI * frequency;
+    // z = e^{-jω}
+    let z = Complex::new(omega.cos(), -omega.sin());
+    complex_divide(polyval(b, z), polyval(a, z))
+}
+
+/// Horner evaluation of a polynomial with complex argument: `Σ p[k] z^(len-1-k)`.
+fn polyval(p: &[f32], z: Complex<f32>) -> Complex<f32> {
+    let mut acc = Complex::new(0.0f32, 0.0f32);
+    for &c in p.iter().rev() {
+        acc = complex_multiply(acc, z);
+        acc.real += c;
+    }
+    acc
 }

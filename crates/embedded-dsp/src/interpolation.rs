@@ -18,6 +18,7 @@ pub fn linear_interp_f32(table: &[f32], x: f32, x_step: f32) -> f32 {
     table[idx] + frac * (table[idx + 1] - table[idx])
 }
 
+/// Linear interpolation (`q31`).
 pub fn linear_interp_q31(table: &[q31], x: q31) -> q31 {
     if table.len() < 2 {
         return q31::ZERO;
@@ -29,6 +30,7 @@ pub fn linear_interp_q31(table: &[q31], x: q31) -> q31 {
     q31::from_bits(((y0 + y1) / 2) as i32)
 }
 
+/// Linear interpolation (`q15`).
 pub fn linear_interp_q15(table: &[q15], x: q15) -> q15 {
     if table.len() < 2 {
         return q15::ZERO;
@@ -65,13 +67,18 @@ pub fn bilinear_interp_f32(table: &[f32], num_rows: usize, num_cols: usize, x: f
 
 // --- Cubic Spline Interpolation ---
 
+/// Cubic spline interpolation instance.
 pub struct SplineInstanceF32<'a> {
+    /// Input history.
     pub x: &'a [f32],
+    /// Output accumulator history.
     pub y: &'a [f32],
+    /// Filter coefficients.
     pub coeffs: &'a [f32], // 4 * (n - 1) coefficients: [a, b, c, d] per segment
 }
 
 impl<'a> SplineInstanceF32<'a> {
+    /// Interpolate.
     pub fn interpolate(&self, x_val: f32) -> f32 {
         let n = self.x.len();
         if n == 0 {

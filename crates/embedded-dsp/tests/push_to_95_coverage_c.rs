@@ -50,12 +50,7 @@ fn test_transforms_inverse_and_flags() {
     let mut hartley = [1.0f32; 8];
     assert_eq!(hartley_transform_f32(&mut hartley), Status::Success);
 
-    let db4_h = [
-        0.4829629131445341,
-        0.8365163037378079,
-        0.2241438680420134,
-        -0.1294095225512604,
-    ];
+    let db4_h = [0.482_962_9, 0.836_516_3, 0.224_143_86, -0.129_409_52];
     let mut wav_data = [1.0f32; 8];
     assert_eq!(wavelet_step_f32(&mut wav_data, 8, &db4_h), Status::Success);
     assert_eq!(
@@ -85,12 +80,7 @@ fn test_transforms_error_branches() {
     assert_ne!(fwht_i32(&mut bad_buf_i32), Status::Success);
     assert_ne!(haar_transform_i32(&mut bad_buf_i32), Status::Success);
 
-    let db4_h = [
-        0.4829629131445341,
-        0.8365163037378079,
-        0.2241438680420134,
-        -0.1294095225512604,
-    ];
+    let db4_h = [0.482_962_9, 0.836_516_3, 0.224_143_86, -0.129_409_52];
     assert_ne!(wavelet_step_f32(&mut bad_buf, 3, &db4_h), Status::Success);
     assert_ne!(
         inverse_wavelet_step_f32(&mut bad_buf, 3, &db4_h),
@@ -187,12 +177,12 @@ fn test_windows_and_statistics_extra() {
 
 #[test]
 fn test_matrix_extra() {
-    let mut data_a = [1.0f32, 2.0, 3.0, 4.0];
-    let mut data_b = [5.0f32, 6.0, 7.0, 8.0];
+    let data_a = [1.0f32, 2.0, 3.0, 4.0];
+    let data_b = [5.0f32, 6.0, 7.0, 8.0];
     let mut data_out = [0.0f32; 4];
 
-    let mat_a = MatrixInstance::new(2, 2, &mut data_a);
-    let mat_b = MatrixInstance::new(2, 2, &mut data_b);
+    let mat_a = MatrixInstance::new(2, 2, &data_a);
+    let mat_b = MatrixInstance::new(2, 2, &data_b);
     let mut mat_out = MatrixInstanceMut::new(2, 2, &mut data_out);
 
     assert_eq!(mat_add_f32(&mat_a, &mat_b, &mut mat_out), Status::Success);

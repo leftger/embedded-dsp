@@ -30,6 +30,9 @@ pub struct StateVariableFilter {
     out_peak: f32,
 }
 
+// The accessors intentionally return the `out_*` outputs rather than the
+// same-named integrator state fields, which is the useful public API.
+#[allow(clippy::misnamed_getters)]
 impl StateVariableFilter {
     /// Creates a filter for `sample_rate_hz`, defaulting to a 200 Hz cutoff and 0.5 resonance.
     pub fn new(sample_rate_hz: f32) -> Self {

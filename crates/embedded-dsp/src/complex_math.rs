@@ -4,6 +4,7 @@ use crate::types::*;
 
 // --- Complex Addition ---
 
+/// Complex vector addition (`f32`) into `dst`.
 pub fn cmplx_add_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -11,6 +12,7 @@ pub fn cmplx_add_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Complex vector addition (`q31`) into `dst`.
 pub fn cmplx_add_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -18,6 +20,7 @@ pub fn cmplx_add_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Complex vector addition (`q15`) into `dst`.
 pub fn cmplx_add_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -27,6 +30,7 @@ pub fn cmplx_add_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
 
 // --- Complex Subtraction ---
 
+/// Complex vector subtraction (`f32`) into `dst`.
 pub fn cmplx_sub_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -34,6 +38,7 @@ pub fn cmplx_sub_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Complex vector subtraction (`q31`) into `dst`.
 pub fn cmplx_sub_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -41,6 +46,7 @@ pub fn cmplx_sub_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Complex vector subtraction (`q15`) into `dst`.
 pub fn cmplx_sub_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -50,6 +56,7 @@ pub fn cmplx_sub_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
 
 // --- Complex Multiplication (Complex * Complex) ---
 
+/// Complex-by-complex multiplication (`f32`) into `dst`.
 pub fn cmplx_mult_cmplx_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     let num_samples = src_a.len() / 2;
     let len = num_samples.min(src_b.len() / 2).min(dst.len() / 2);
@@ -64,6 +71,7 @@ pub fn cmplx_mult_cmplx_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Complex-by-complex multiplication (`q31`) into `dst`.
 pub fn cmplx_mult_cmplx_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     let num_samples = src_a.len() / 2;
     let len = num_samples.min(src_b.len() / 2).min(dst.len() / 2);
@@ -82,6 +90,7 @@ pub fn cmplx_mult_cmplx_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Complex-by-complex multiplication (`q15`) into `dst`.
 pub fn cmplx_mult_cmplx_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     let num_samples = src_a.len() / 2;
     let len = num_samples.min(src_b.len() / 2).min(dst.len() / 2);
@@ -102,6 +111,7 @@ pub fn cmplx_mult_cmplx_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
 
 // --- Complex Multiplication (Complex * Real) ---
 
+/// Complex-by-real multiplication (`f32`) into `dst`.
 pub fn cmplx_mult_real_f32(src_cmplx: &[f32], src_real: &[f32], dst: &mut [f32]) {
     let num_samples = (src_cmplx.len() / 2).min(src_real.len()).min(dst.len() / 2);
     for i in 0..num_samples {
@@ -111,6 +121,7 @@ pub fn cmplx_mult_real_f32(src_cmplx: &[f32], src_real: &[f32], dst: &mut [f32])
     }
 }
 
+/// Complex-by-real multiplication (`q31`) into `dst`.
 pub fn cmplx_mult_real_q31(src_cmplx: &[q31], src_real: &[q31], dst: &mut [q31]) {
     let num_samples = (src_cmplx.len() / 2).min(src_real.len()).min(dst.len() / 2);
     for i in 0..num_samples {
@@ -120,6 +131,7 @@ pub fn cmplx_mult_real_q31(src_cmplx: &[q31], src_real: &[q31], dst: &mut [q31])
     }
 }
 
+/// Complex-by-real multiplication (`q15`) into `dst`.
 pub fn cmplx_mult_real_q15(src_cmplx: &[q15], src_real: &[q15], dst: &mut [q15]) {
     let num_samples = (src_cmplx.len() / 2).min(src_real.len()).min(dst.len() / 2);
     for i in 0..num_samples {
@@ -131,6 +143,7 @@ pub fn cmplx_mult_real_q15(src_cmplx: &[q15], src_real: &[q15], dst: &mut [q15])
 
 // --- Complex Magnitude ---
 
+/// Magnitude of a complex vector (`f32`) into `dst`.
 pub fn cmplx_mag_f32(src: &[f32], dst: &mut [f32]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
@@ -140,6 +153,7 @@ pub fn cmplx_mag_f32(src: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Magnitude of a complex vector (`q31`) into `dst`.
 pub fn cmplx_mag_q31(src: &[q31], dst: &mut [q31]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
@@ -152,6 +166,7 @@ pub fn cmplx_mag_q31(src: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Magnitude of a complex vector (`q15`) into `dst`.
 pub fn cmplx_mag_q15(src: &[q15], dst: &mut [q15]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
@@ -166,6 +181,7 @@ pub fn cmplx_mag_q15(src: &[q15], dst: &mut [q15]) {
 
 // --- Complex Magnitude Squared ---
 
+/// Squared magnitude of a complex vector (`f32`) into `dst`.
 pub fn cmplx_mag_squared_f32(src: &[f32], dst: &mut [f32]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
@@ -175,6 +191,7 @@ pub fn cmplx_mag_squared_f32(src: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Squared magnitude of a complex vector (`q31`) into `dst`.
 pub fn cmplx_mag_squared_q31(src: &[q31], dst: &mut [q31]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
@@ -185,6 +202,7 @@ pub fn cmplx_mag_squared_q31(src: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Squared magnitude of a complex vector (`q15`) into `dst`.
 pub fn cmplx_mag_squared_q15(src: &[q15], dst: &mut [q15]) {
     let num_samples = (src.len() / 2).min(dst.len());
     for i in 0..num_samples {
@@ -197,6 +215,7 @@ pub fn cmplx_mag_squared_q15(src: &[q15], dst: &mut [q15]) {
 
 // --- Complex Conjugate ---
 
+/// Complex conjugate (`f32`) into `dst`.
 pub fn cmplx_conj_f32(src: &[f32], dst: &mut [f32]) {
     let num_samples = (src.len() / 2).min(dst.len() / 2);
     for i in 0..num_samples {
@@ -205,6 +224,7 @@ pub fn cmplx_conj_f32(src: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Complex conjugate (`q31`) into `dst`.
 pub fn cmplx_conj_q31(src: &[q31], dst: &mut [q31]) {
     let num_samples = (src.len() / 2).min(dst.len() / 2);
     for i in 0..num_samples {
@@ -213,6 +233,7 @@ pub fn cmplx_conj_q31(src: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Complex conjugate (`q15`) into `dst`.
 pub fn cmplx_conj_q15(src: &[q15], dst: &mut [q15]) {
     let num_samples = (src.len() / 2).min(dst.len() / 2);
     for i in 0..num_samples {
@@ -223,6 +244,7 @@ pub fn cmplx_conj_q15(src: &[q15], dst: &mut [q15]) {
 
 // --- Complex Dot Product ---
 
+/// Complex dot product (`f32`).
 pub fn cmplx_dot_prod_f32(src_a: &[f32], src_b: &[f32]) -> Complex<f32> {
     let num_samples = (src_a.len() / 2).min(src_b.len() / 2);
     let mut real_sum = 0.0f32;
@@ -239,6 +261,7 @@ pub fn cmplx_dot_prod_f32(src_a: &[f32], src_b: &[f32]) -> Complex<f32> {
     Complex::new(real_sum, imag_sum)
 }
 
+/// Complex dot product (`q31`).
 pub fn cmplx_dot_prod_q31(src_a: &[q31], src_b: &[q31]) -> Complex<q63> {
     let num_samples = (src_a.len() / 2).min(src_b.len() / 2);
     let mut real_sum: q63 = 0;
@@ -255,6 +278,7 @@ pub fn cmplx_dot_prod_q31(src_a: &[q31], src_b: &[q31]) -> Complex<q63> {
     Complex::new(real_sum, imag_sum)
 }
 
+/// Complex dot product (`q15`).
 pub fn cmplx_dot_prod_q15(src_a: &[q15], src_b: &[q15]) -> Complex<q63> {
     let num_samples = (src_a.len() / 2).min(src_b.len() / 2);
     let mut real_sum: q63 = 0;

@@ -6,12 +6,16 @@ use crate::types::*;
 
 /// Instance structure for the floating-point FIR filter.
 pub struct FirInstanceF32<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a [f32],
+    /// Filter state buffer.
     pub state: &'a mut [f32],
 }
 
 impl<'a> FirInstanceF32<'a> {
+    /// Initializes the instance.
     pub fn init(num_taps: u16, coeffs: &'a [f32], state: &'a mut [f32]) -> Self {
         state.fill(0.0);
         Self {
@@ -22,6 +26,7 @@ impl<'a> FirInstanceF32<'a> {
     }
 }
 
+/// FIR filtering (`f32`) into `dst`.
 pub fn fir_f32(instance: &mut FirInstanceF32, src: &[f32], dst: &mut [f32]) {
     let num_taps = instance.num_taps as usize;
     let block_size = src.len().min(dst.len());
@@ -44,12 +49,16 @@ pub fn fir_f32(instance: &mut FirInstanceF32, src: &[f32], dst: &mut [f32]) {
 
 /// Instance structure for the Q31 FIR filter.
 pub struct FirInstanceQ31<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a [q31],
+    /// Filter state buffer.
     pub state: &'a mut [q31],
 }
 
 impl<'a> FirInstanceQ31<'a> {
+    /// Initializes the instance.
     pub fn init(num_taps: u16, coeffs: &'a [q31], state: &'a mut [q31]) -> Self {
         state.fill(q31::ZERO);
         Self {
@@ -60,6 +69,7 @@ impl<'a> FirInstanceQ31<'a> {
     }
 }
 
+/// FIR filtering (`q31`) into `dst`.
 pub fn fir_q31(instance: &mut FirInstanceQ31, src: &[q31], dst: &mut [q31]) {
     let num_taps = instance.num_taps as usize;
     let block_size = src.len().min(dst.len());
@@ -80,12 +90,16 @@ pub fn fir_q31(instance: &mut FirInstanceQ31, src: &[q31], dst: &mut [q31]) {
 
 /// Instance structure for the Q15 FIR filter.
 pub struct FirInstanceQ15<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a [q15],
+    /// Filter state buffer.
     pub state: &'a mut [q15],
 }
 
 impl<'a> FirInstanceQ15<'a> {
+    /// Initializes the instance.
     pub fn init(num_taps: u16, coeffs: &'a [q15], state: &'a mut [q15]) -> Self {
         state.fill(q15::ZERO);
         Self {
@@ -96,6 +110,7 @@ impl<'a> FirInstanceQ15<'a> {
     }
 }
 
+/// FIR filtering (`q15`) into `dst`.
 pub fn fir_q15(instance: &mut FirInstanceQ15, src: &[q15], dst: &mut [q15]) {
     let num_taps = instance.num_taps as usize;
     let block_size = src.len().min(dst.len());
@@ -118,12 +133,16 @@ pub fn fir_q15(instance: &mut FirInstanceQ15, src: &[q15], dst: &mut [q15]) {
 
 /// Instance structure for the floating-point Biquad Cascade Direct Form I filter.
 pub struct BiquadCascadeInstanceF32<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [f32],    // 5 * num_stages: [b0, b1, b2, a1, a2]
+    /// Filter state buffer.
     pub state: &'a mut [f32], // 4 * num_stages: [x[n-1], x[n-2], y[n-1], y[n-2]]
 }
 
 impl<'a> BiquadCascadeInstanceF32<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [f32], state: &'a mut [f32]) -> Self {
         state.fill(0.0);
         Self {
@@ -134,6 +153,7 @@ impl<'a> BiquadCascadeInstanceF32<'a> {
     }
 }
 
+/// Biquad cascade, Direct Form I (`f32`).
 pub fn biquad_cascade_df1_f32(
     instance: &mut BiquadCascadeInstanceF32,
     src: &[f32],
@@ -177,12 +197,16 @@ pub fn biquad_cascade_df1_f32(
 /// Same SOS layout `[b0, b1, b2, a1, a2]` as [`BiquadCascadeInstanceF32`].
 /// State is two delays per stage (`[s1, s2, ...]`).
 pub struct BiquadCascadeDf2tInstanceF32<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [f32],
+    /// Filter state buffer.
     pub state: &'a mut [f32],
 }
 
 impl<'a> BiquadCascadeDf2tInstanceF32<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [f32], state: &'a mut [f32]) -> Self {
         state.fill(0.0);
         Self {
@@ -193,6 +217,7 @@ impl<'a> BiquadCascadeDf2tInstanceF32<'a> {
     }
 }
 
+/// Biquad cascade, transposed Direct Form II (`f32`).
 pub fn biquad_cascade_df2t_f32(
     instance: &mut BiquadCascadeDf2tInstanceF32,
     src: &[f32],
@@ -228,13 +253,18 @@ pub fn biquad_cascade_df2t_f32(
 /// `post_shift` extra headroom in stored coeffs (`coeff_f32 / 2^{post_shift}` in Q15);
 /// the MAC is shifted `15 - post_shift` (CMSIS-style).
 pub struct BiquadCascadeInstanceQ15<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Output right-shift.
     pub post_shift: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [q15],
+    /// Filter state buffer.
     pub state: &'a mut [q15],
 }
 
 impl<'a> BiquadCascadeInstanceQ15<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [q15], state: &'a mut [q15], post_shift: u8) -> Self {
         state.fill(q15::ZERO);
         Self {
@@ -246,6 +276,7 @@ impl<'a> BiquadCascadeInstanceQ15<'a> {
     }
 }
 
+/// Biquad cascade, Direct Form I (`q15`).
 pub fn biquad_cascade_df1_q15(
     instance: &mut BiquadCascadeInstanceQ15,
     src: &[q15],
@@ -285,13 +316,18 @@ pub fn biquad_cascade_df1_q15(
 
 /// Instance structure for the Q31 Biquad Cascade Direct Form I filter.
 pub struct BiquadCascadeInstanceQ31<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Output right-shift.
     pub post_shift: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [q31],
+    /// Filter state buffer.
     pub state: &'a mut [q31],
 }
 
 impl<'a> BiquadCascadeInstanceQ31<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [q31], state: &'a mut [q31], post_shift: u8) -> Self {
         state.fill(q31::ZERO);
         Self {
@@ -303,6 +339,7 @@ impl<'a> BiquadCascadeInstanceQ31<'a> {
     }
 }
 
+/// Biquad cascade, Direct Form I (`q31`).
 pub fn biquad_cascade_df1_q31(
     instance: &mut BiquadCascadeInstanceQ31,
     src: &[q31],
@@ -346,13 +383,18 @@ pub fn biquad_cascade_df1_q31(
 /// [`BiquadCascadeInstanceQ15`]. State is two delays per stage (`[s1, s2, ...]`),
 /// which is better-conditioned for high-Q poles than Direct Form I.
 pub struct BiquadCascadeDf2tInstanceQ15<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Output right-shift.
     pub post_shift: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [q15],
+    /// Filter state buffer.
     pub state: &'a mut [q15],
 }
 
 impl<'a> BiquadCascadeDf2tInstanceQ15<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [q15], state: &'a mut [q15], post_shift: u8) -> Self {
         state.fill(q15::ZERO);
         Self {
@@ -364,6 +406,7 @@ impl<'a> BiquadCascadeDf2tInstanceQ15<'a> {
     }
 }
 
+/// Biquad cascade, transposed Direct Form II (`q15`).
 pub fn biquad_cascade_df2t_q15(
     instance: &mut BiquadCascadeDf2tInstanceQ15,
     src: &[q15],
@@ -402,13 +445,18 @@ pub fn biquad_cascade_df2t_q15(
 
 /// Instance structure for the Q31 Biquad Cascade Transposed Direct Form II filter.
 pub struct BiquadCascadeDf2tInstanceQ31<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Output right-shift.
     pub post_shift: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [q31],
+    /// Filter state buffer.
     pub state: &'a mut [q31],
 }
 
 impl<'a> BiquadCascadeDf2tInstanceQ31<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [q31], state: &'a mut [q31], post_shift: u8) -> Self {
         state.fill(q31::ZERO);
         Self {
@@ -420,6 +468,7 @@ impl<'a> BiquadCascadeDf2tInstanceQ31<'a> {
     }
 }
 
+/// Biquad cascade, transposed Direct Form II (`q31`).
 pub fn biquad_cascade_df2t_q31(
     instance: &mut BiquadCascadeDf2tInstanceQ31,
     src: &[q31],
@@ -460,13 +509,18 @@ pub fn biquad_cascade_df2t_q31(
 
 /// Instance structure for the floating-point LMS adaptive filter.
 pub struct LmsInstanceF32<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a mut [f32],
+    /// Filter state buffer.
     pub state: &'a mut [f32],
+    /// Adaptation step size.
     pub mu: f32,
 }
 
 impl<'a> LmsInstanceF32<'a> {
+    /// Initializes the instance.
     pub fn init(num_taps: u16, coeffs: &'a mut [f32], state: &'a mut [f32], mu: f32) -> Self {
         state.fill(0.0);
         coeffs.fill(0.0);
@@ -479,6 +533,7 @@ impl<'a> LmsInstanceF32<'a> {
     }
 }
 
+/// LMS adaptive filtering (`f32`).
 pub fn lms_f32(
     instance: &mut LmsInstanceF32,
     src: &[f32],
@@ -555,14 +610,20 @@ pub fn lms_leaky_f32(
 
 /// Normalized LMS instance (`eps` floors the power denominator).
 pub struct NlmsInstanceF32<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a mut [f32],
+    /// Filter state buffer.
     pub state: &'a mut [f32],
+    /// Adaptation step size.
     pub mu: f32,
+    /// Regularization epsilon.
     pub eps: f32,
 }
 
 impl<'a> NlmsInstanceF32<'a> {
+    /// Initializes the instance.
     pub fn init(
         num_taps: u16,
         coeffs: &'a mut [f32],
@@ -622,13 +683,18 @@ pub fn nlms_f32(
 
 /// Q15 LMS adaptive filter.
 pub struct LmsInstanceQ15<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a mut [q15],
+    /// Filter state buffer.
     pub state: &'a mut [q15],
+    /// Adaptation step size.
     pub mu: q15,
 }
 
 impl<'a> LmsInstanceQ15<'a> {
+    /// Initializes the instance.
     pub fn init(num_taps: u16, coeffs: &'a mut [q15], state: &'a mut [q15], mu: q15) -> Self {
         state.fill(q15::ZERO);
         coeffs.fill(q15::ZERO);
@@ -681,6 +747,7 @@ fn lms_q15_inner(
     }
 }
 
+/// LMS adaptive filtering (`q15`).
 pub fn lms_q15(
     instance: &mut LmsInstanceQ15,
     src: &[q15],
@@ -705,14 +772,20 @@ pub fn lms_leaky_q15(
 
 /// Q15 NLMS instance.
 pub struct NlmsInstanceQ15<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a mut [q15],
+    /// Filter state buffer.
     pub state: &'a mut [q15],
+    /// Adaptation step size.
     pub mu: q15,
+    /// Regularization epsilon.
     pub eps: q15,
 }
 
 impl<'a> NlmsInstanceQ15<'a> {
+    /// Initializes the instance.
     pub fn init(
         num_taps: u16,
         coeffs: &'a mut [q15],
@@ -732,6 +805,7 @@ impl<'a> NlmsInstanceQ15<'a> {
     }
 }
 
+/// Normalized LMS adaptive filtering (`q15`).
 pub fn nlms_q15(
     instance: &mut NlmsInstanceQ15,
     src: &[q15],
@@ -775,6 +849,7 @@ pub fn nlms_q15(
 
 // --- Convolution ---
 
+/// Convolution (`f32`) into `dst`.
 pub fn conv_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -790,6 +865,7 @@ pub fn conv_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Convolution (`q31`) into `dst`.
 pub fn conv_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -797,7 +873,7 @@ pub fn conv_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
 
     for n in 0..out_len {
         let mut acc: i64 = 0;
-        let k_min = if n >= len_b - 1 { n - (len_b - 1) } else { 0 };
+        let k_min = n.saturating_sub(len_b - 1);
         let k_max = n.min(len_a - 1);
         for k in k_min..=k_max {
             acc += (src_a[k].to_bits() as i64 * src_b[n - k].to_bits() as i64) >> 31;
@@ -806,6 +882,7 @@ pub fn conv_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Convolution (`q15`) into `dst`.
 pub fn conv_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -813,7 +890,7 @@ pub fn conv_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
 
     for n in 0..out_len {
         let mut acc: i32 = 0;
-        let k_min = if n >= len_b - 1 { n - (len_b - 1) } else { 0 };
+        let k_min = n.saturating_sub(len_b - 1);
         let k_max = n.min(len_a - 1);
         for k in k_min..=k_max {
             acc += (src_a[k].to_bits() as i32 * src_b[n - k].to_bits() as i32) >> 15;
@@ -822,6 +899,7 @@ pub fn conv_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     }
 }
 
+/// Convolution (`q7`) into `dst`.
 pub fn conv_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -829,7 +907,7 @@ pub fn conv_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
 
     for n in 0..out_len {
         let mut acc: i32 = 0;
-        let k_min = if n >= len_b - 1 { n - (len_b - 1) } else { 0 };
+        let k_min = n.saturating_sub(len_b - 1);
         let k_max = n.min(len_a - 1);
         for k in k_min..=k_max {
             acc += (src_a[k].to_bits() as i32 * src_b[n - k].to_bits() as i32) >> 7;
@@ -840,6 +918,7 @@ pub fn conv_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
 
 // --- Correlation ---
 
+/// Correlation (`f32`) into `dst`.
 pub fn correlate_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -858,6 +937,7 @@ pub fn correlate_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Correlation (`q31`) into `dst`.
 pub fn correlate_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -875,6 +955,7 @@ pub fn correlate_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Correlation (`q15`) into `dst`.
 pub fn correlate_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -915,7 +996,7 @@ pub fn median_filter_1d_f32(
     if n == 0 || dst.len() < n {
         return Status::LengthError;
     }
-    if window_len == 0 || window_len % 2 == 0 || window_len > 63 {
+    if window_len == 0 || window_len.is_multiple_of(2) || window_len > 63 {
         return Status::ArgumentError;
     }
 
@@ -961,7 +1042,7 @@ pub fn median_filter_1d_q15(
     if n == 0 || dst.len() < n {
         return Status::LengthError;
     }
-    if window_len == 0 || window_len % 2 == 0 || window_len > 63 {
+    if window_len == 0 || window_len.is_multiple_of(2) || window_len > 63 {
         return Status::ArgumentError;
     }
 
@@ -1006,7 +1087,7 @@ pub fn median_filter_1d_q31(
     if n == 0 || dst.len() < n {
         return Status::LengthError;
     }
-    if window_len == 0 || window_len % 2 == 0 || window_len > 63 {
+    if window_len == 0 || window_len.is_multiple_of(2) || window_len > 63 {
         return Status::ArgumentError;
     }
 
@@ -1346,10 +1427,12 @@ impl DcBlockerQ15 {
     }
 
     #[inline(always)]
+    /// Processes a single input sample.
     pub fn process(&mut self, x: q15) -> q15 {
         self.inner.process(x)
     }
 
+    /// Resets the internal state.
     pub fn reset(&mut self) {
         self.inner.reset();
     }
@@ -1387,7 +1470,7 @@ impl<const N: usize> RecursiveMovingAverage<N> {
         };
         self.sum += x - oldest;
         self.history.push(x);
-        if self.history.len() == 0 {
+        if self.history.is_empty() {
             0.0
         } else {
             self.sum / self.history.len() as f32
@@ -1416,6 +1499,7 @@ pub struct RecursiveMovingAverageQ15<const N: usize> {
 }
 
 impl<const N: usize> RecursiveMovingAverageQ15<N> {
+    /// Creates a new instance.
     pub const fn new() -> Self {
         Self {
             history: CircularBuffer::new(q15::ZERO),
@@ -1424,6 +1508,7 @@ impl<const N: usize> RecursiveMovingAverageQ15<N> {
     }
 
     #[inline(always)]
+    /// Processes a single input sample.
     pub fn process(&mut self, x: q15) -> q15 {
         let oldest = if self.history.is_full() {
             self.history.oldest().unwrap_or(q15::ZERO)
@@ -1432,7 +1517,7 @@ impl<const N: usize> RecursiveMovingAverageQ15<N> {
         };
         self.sum += x.to_bits() as i32 - oldest.to_bits() as i32;
         self.history.push(x);
-        if self.history.len() == 0 {
+        if self.history.is_empty() {
             q15::ZERO
         } else {
             q15::from_bits(
@@ -1442,6 +1527,7 @@ impl<const N: usize> RecursiveMovingAverageQ15<N> {
         }
     }
 
+    /// Resets the internal state.
     pub fn reset(&mut self) {
         self.history.clear(q15::ZERO);
         self.sum = 0;
@@ -1463,6 +1549,7 @@ impl<const N: usize> Default for RecursiveMovingAverageQ15<N> {
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable))]
 pub struct DirectForm1<T> {
+    /// Input/output history.
     pub xy: [T; 4],
 }
 
@@ -1493,6 +1580,7 @@ impl<T: Default + Copy> DirectForm1<T> {
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable))]
 pub struct DirectForm2Transposed<T> {
+    /// S.
     pub s: [T; 2],
 }
 
@@ -1526,6 +1614,7 @@ impl<T: Default + Copy> DirectForm2Transposed<T> {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Biquad<T> {
+    /// Second-order-section coefficients `[b0, b1, b2, a1, a2]`.
     pub ba: [T; 5],
 }
 
@@ -1589,6 +1678,7 @@ impl Biquad<f64> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct BiquadClamp<T> {
+    /// Coeff.
     pub coeff: Biquad<T>,
     /// Summing junction offset (setpoint)
     pub u: T,
@@ -1720,7 +1810,9 @@ impl crate::pipeline::SplitProcess<f64, f64, DirectForm2Transposed<f64>> for Biq
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable))]
 pub struct DirectForm1NoiseShaped {
+    /// Input/output history.
     pub xy: [i32; 4],
+    /// Quantization error feedback accumulator.
     pub err: i32,
 }
 
@@ -1778,6 +1870,52 @@ impl<const SHIFT: u32> BiquadFixed<SHIFT> {
         state.xy = [x0, x1, y0, y1];
         y0
     }
+
+    /// Process a single sample with a 64-bit (`Q32.32`) output accumulator.
+    ///
+    /// Compared with [`Self::process_noise_shaped`], the feedback path carries
+    /// 32 fractional bits instead of being rounded each sample, which removes
+    /// the need for dithering at the cost of a wider state. This is the
+    /// embedded-dsp equivalent of `idsp`'s `DirectForm1Wide` processing.
+    ///
+    /// # Panics
+    /// Fails to compile unless `1 <= SHIFT <= 32`.
+    #[inline(always)]
+    pub fn process_wide(&self, state: &mut DirectForm1Wide, x0: i32) -> i32 {
+        const {
+            assert!(
+                SHIFT >= 1 && SHIFT <= 32,
+                "BiquadFixed::process_wide requires 1 <= SHIFT <= 32"
+            )
+        };
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let [x1, x2] = state.x;
+        let [y1, y2] = state.y;
+
+        // Numerator: full-width products, no truncation.
+        let mut acc = (b0 as i64)
+            .wrapping_mul(x0 as i64)
+            .wrapping_add((b1 as i64).wrapping_mul(x1 as i64))
+            .wrapping_add((b2 as i64).wrapping_mul(x2 as i64));
+
+        // Denominator: 32x32 split multiply of the wide states by the bits.
+        acc = acc.wrapping_add(((y1 as u32 as i64).wrapping_mul(a1 as i64)) >> 32);
+        acc = acc.wrapping_add(((y1 >> 32) as i32 as i64).wrapping_mul(a1 as i64));
+        acc = acc.wrapping_add(((y2 as u32 as i64).wrapping_mul(a2 as i64)) >> 32);
+        acc = acc.wrapping_add(((y2 >> 32) as i32 as i64).wrapping_mul(a2 as i64));
+
+        // Promote from the `SHIFT`-bit coefficient scale to Q32.32.
+        acc <<= 32 - SHIFT;
+
+        let y0 = ((acc >> 32) as i32 as i64)
+            .wrapping_add(self.u as i64)
+            .clamp(self.min as i64, self.max as i64) as i32;
+
+        // Keep the fractional low word of the accumulator, overwrite the output word.
+        state.y = [((y0 as i64) << 32) | (acc as u32 as i64), y1];
+        state.x = [x0, x1];
+        y0
+    }
 }
 
 #[cfg(feature = "pipeline")]
@@ -1790,13 +1928,222 @@ impl<const SHIFT: u32> crate::pipeline::SplitProcess<i32, i32, DirectForm1NoiseS
     }
 }
 
+/// Direct Form 1 state with a 64-bit (`Q32.32`) output accumulator.
+///
+/// This is the embedded-dsp equivalent of `idsp`'s `DirectForm1Wide`: the
+/// recursion is carried at 32 fractional bits so coefficient rounding does not
+/// accumulate inside the feedback path. Use it with
+/// [`BiquadFixed::process_wide`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DirectForm1Wide {
+    /// Input history `[x1, x2]`.
+    pub x: [i32; 2],
+    /// Output accumulator history `[y1, y2]` in `Q32.32`.
+    pub y: [i64; 2],
+}
+
+impl DirectForm1Wide {
+    /// Create a new zero-initialized wide state.
+    pub const fn new() -> Self {
+        Self {
+            x: [0; 2],
+            y: [0; 2],
+        }
+    }
+
+    /// Reset the state and accumulator history.
+    pub fn reset(&mut self) {
+        self.x = [0; 2];
+        self.y = [0; 2];
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl<const SHIFT: u32> crate::pipeline::SplitProcess<i32, i32, DirectForm1Wide>
+    for BiquadFixed<SHIFT>
+{
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm1Wide, x: i32) -> i32 {
+        self.process_wide(state, x)
+    }
+}
+
+/// Integer sample type usable with [`BiquadInt`].
+///
+/// Implemented for `i8`, `i16`, `i32` and `i64`, each with a wider accumulator
+/// (`i16`, `i32`, `i64` and `i128` respectively). This mirrors `idsp`'s generic
+/// integer `Biquad<C>` over the primitive integer widths.
+pub trait BiquadIntSample: Copy + PartialOrd {
+    /// Wider accumulator type used for the recursion.
+    type Wide: Copy + PartialOrd;
+    /// Most negative value.
+    const MIN: Self;
+    /// Most positive value.
+    const MAX: Self;
+
+    /// Widen to the accumulator type.
+    fn widen(self) -> Self::Wide;
+    /// Saturate an accumulator value back to the sample range.
+    fn narrow(w: Self::Wide) -> Self;
+    /// Accumulator zero.
+    fn wide_zero() -> Self::Wide;
+    /// Wrapping accumulator multiply.
+    fn wide_mul(a: Self::Wide, b: Self::Wide) -> Self::Wide;
+    /// Wrapping accumulator add.
+    fn wide_add(a: Self::Wide, b: Self::Wide) -> Self::Wide;
+    /// Arithmetic right shift of the accumulator.
+    fn wide_shr(a: Self::Wide, n: u32) -> Self::Wide;
+}
+
+macro_rules! impl_biquad_int_sample {
+    ($sample:ty, $wide:ty) => {
+        impl BiquadIntSample for $sample {
+            type Wide = $wide;
+            const MIN: Self = <$sample>::MIN;
+            const MAX: Self = <$sample>::MAX;
+
+            #[inline(always)]
+            fn widen(self) -> $wide {
+                self as $wide
+            }
+
+            #[inline(always)]
+            fn narrow(w: $wide) -> Self {
+                w.clamp(<$sample>::MIN as $wide, <$sample>::MAX as $wide) as $sample
+            }
+
+            #[inline(always)]
+            fn wide_zero() -> $wide {
+                0
+            }
+
+            #[inline(always)]
+            fn wide_mul(a: $wide, b: $wide) -> $wide {
+                a.wrapping_mul(b)
+            }
+
+            #[inline(always)]
+            fn wide_add(a: $wide, b: $wide) -> $wide {
+                a.wrapping_add(b)
+            }
+
+            #[inline(always)]
+            fn wide_shr(a: $wide, n: u32) -> $wide {
+                a >> n
+            }
+        }
+    };
+}
+
+impl_biquad_int_sample!(i8, i16);
+impl_biquad_int_sample!(i16, i32);
+impl_biquad_int_sample!(i32, i64);
+impl_biquad_int_sample!(i64, i128);
+
+/// Direct Form 1 state for [`BiquadInt`]: `[x1, x2, y1, y2]`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct DirectForm1Int<T> {
+    /// `[x1, x2, y1, y2]`.
+    pub xy: [T; 4],
+}
+
+impl<T: Copy + Default> Default for DirectForm1Int<T> {
+    fn default() -> Self {
+        Self {
+            xy: [T::default(); 4],
+        }
+    }
+}
+
+impl<T: Copy + Default> DirectForm1Int<T> {
+    /// Create a new zeroed state.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reset the state to zero.
+    pub fn reset(&mut self) {
+        self.xy = [T::default(); 4];
+    }
+}
+
+/// Fixed-point second-order section generic over the integer sample type.
+///
+/// Coefficients `ba = [b0, b1, b2, a1, a2]` are scaled by `2^SHIFT`, the
+/// recurrence runs in the wider [`BiquadIntSample::Wide`] accumulator, and the
+/// output is saturated to `[min, max]`. This closes the `idsp` gap of a biquad
+/// that works over `i8`/`i16`/`i32`/`i64` samples.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct BiquadInt<T: BiquadIntSample, const SHIFT: u32 = 30> {
+    /// Fixed-point coefficients `[b0, b1, b2, a1, a2]`.
+    pub ba: [T; 5],
+    /// Summing-junction offset, in output units.
+    pub u: T,
+    /// Minimum saturation clamp.
+    pub min: T,
+    /// Maximum saturation clamp.
+    pub max: T,
+}
+
+impl<T: BiquadIntSample, const SHIFT: u32> BiquadInt<T, SHIFT> {
+    /// Create a new integer biquad configuration.
+    pub const fn new(ba: [T; 5], min: T, max: T, u: T) -> Self {
+        Self { ba, min, max, u }
+    }
+
+    /// Process a single sample through Direct Form 1.
+    ///
+    /// # Panics
+    /// Fails to compile unless `SHIFT < 32`.
+    #[inline(always)]
+    pub fn process_df1(&self, state: &mut DirectForm1Int<T>, x0: T) -> T {
+        const { assert!(SHIFT < 32, "BiquadInt requires SHIFT < 32") };
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let [x1, x2, y1, y2] = state.xy;
+
+        let mut acc = T::wide_zero();
+        for (c, s) in [(b0, x0), (b1, x1), (b2, x2), (a1, y1), (a2, y2)] {
+            acc = T::wide_add(acc, T::wide_mul(c.widen(), s.widen()));
+        }
+
+        // Scale down, add the offset, then clamp to the configured output range.
+        let scaled = T::narrow(T::wide_shr(acc, SHIFT));
+        let y_raw = T::narrow(T::wide_add(scaled.widen(), self.u.widen()));
+        let y0 = if y_raw < self.min {
+            self.min
+        } else if y_raw > self.max {
+            self.max
+        } else {
+            y_raw
+        };
+
+        state.xy = [x0, x1, y0, y1];
+        y0
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl<T: BiquadIntSample, const SHIFT: u32>
+    crate::pipeline::SplitProcess<T, T, DirectForm1Int<T>> for BiquadInt<T, SHIFT>
+{
+    #[inline(always)]
+    fn process(&self, state: &mut DirectForm1Int<T>, x: T) -> T {
+        self.process_df1(state, x)
+    }
+}
+
 /// Delta-sigma modulator in MASH-(1)^K architecture.
 ///
 /// Converts a 32-bit unsigned input sample `x` into an integer stream with average
 /// value `x / 2^32`, shaping quantization noise up by `K * 20 dB/decade`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Dsm<const K: usize> {
+    /// Accumulator state.
     pub a: [u32; K],
+    /// Carry/coefficient state.
     pub c: [i8; K],
 }
 
@@ -1934,9 +2281,13 @@ where
 /// and low-pass filters both channels to extract amplitude and phase.
 #[derive(Clone, Copy, Debug)]
 pub struct LockinAmplifier {
+    /// Filter i.
     pub filter_i: SinglePoleFilter,
+    /// Filter q.
     pub filter_q: SinglePoleFilter,
+    /// Phase.
     pub phase: i32,
+    /// Phase inc.
     pub phase_inc: i32,
 }
 
@@ -2013,8 +2364,9 @@ impl LockinAmplifier {
 
 /// Arbitrary-order integer lowpass filter with high dynamic range. DC gain is 1.
 ///
-/// Supports order `N = 1` (first-order) and `N = 2` (second-order Butterworth).
-/// The filter saturates cleanly towards the `i32` range.
+/// Supports order `N = 1` (first-order) and `N = 2` (second-order Butterworth);
+/// any other `N` is rejected at compile time. The filter saturates cleanly
+/// towards the `i32` range.
 ///
 /// # Coefficient Calculation
 ///
@@ -2025,6 +2377,19 @@ impl LockinAmplifier {
 /// where `q = 1/sqrt(2)` and `k` is as above.
 ///
 /// Both variants have zeros at Nyquist, optimised for Cortex-M7.
+///
+/// ```
+/// # use embedded_dsp::filtering::IntLowpass;
+/// let mut lp = IntLowpass::<1>::new([674_651_885]);
+/// assert_eq!(lp.process(1 << 24), 2_635_358);
+/// ```
+///
+/// Unsupported orders are a compile error rather than a runtime panic:
+///
+/// ```compile_fail
+/// # use embedded_dsp::filtering::IntLowpass;
+/// let _ = IntLowpass::<3>::new([0, 0, 0]);
+/// ```
 ///
 /// Ported from the `idsp` crate by the Sinara/ARTIQ project.
 #[derive(Clone, Debug)]
@@ -2040,13 +2405,18 @@ where
     [i32; N]: Default,
 {
     fn default() -> Self {
+        const { assert!(N == 1 || N == 2, "IntLowpass supports only N = 1 or N = 2") };
         Self { k: Default::default(), state: [0i64; N] }
     }
 }
 
 impl<const N: usize> IntLowpass<N> {
     /// Create a new filter from gain coefficients.
+    ///
+    /// # Panics
+    /// Fails to compile unless `N` is `1` or `2`.
     pub fn new(k: [i32; N]) -> Self {
+        const { assert!(N == 1 || N == 2, "IntLowpass supports only N = 1 or N = 2") };
         Self { k, state: [0i64; N] }
     }
 
@@ -2056,7 +2426,11 @@ impl<const N: usize> IntLowpass<N> {
     }
 
     /// Process a single sample and return the filtered output.
+    ///
+    /// # Panics
+    /// Fails to compile unless `N` is `1` or `2`.
     pub fn process(&mut self, x: i32) -> i32 {
+        const { assert!(N == 1 || N == 2, "IntLowpass supports only N = 1 or N = 2") };
         if N == 1 {
             let d = x.saturating_sub((self.state[0] >> 32) as i32) as i64
                 * self.k[0] as i64;
@@ -2064,7 +2438,7 @@ impl<const N: usize> IntLowpass<N> {
             let y = (self.state[0] >> 32) as i32;
             self.state[0] += d;
             y
-        } else if N == 2 {
+        } else {
             let mut d = x.saturating_sub((self.state[0] >> 32) as i32) as i64
                 * self.k[0] as i64;
             d += (self.state[1] >> 32) * self.k[1] as i64;
@@ -2074,8 +2448,6 @@ impl<const N: usize> IntLowpass<N> {
             self.state[0] += self.state[1];
             self.state[1] += d;
             y
-        } else {
-            unimplemented!()
         }
     }
 }
@@ -2084,3 +2456,367 @@ impl<const N: usize> IntLowpass<N> {
 pub type IntLowpass1 = IntLowpass<1>;
 /// Second-order integer lowpass (alias for `IntLowpass<2>`).
 pub type IntLowpass2 = IntLowpass<2>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Normal Form Second-Order Section (Rader-Gold / Chamberlain oscillator)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Normal form (Rader-Gold / Chamberlain) second-order IIR section with an
+/// **arbitrary numerator**.
+///
+/// Unlike a standard direct-form biquad, the normal form has **constant pole
+/// resolution** everywhere in the z-plane rather than clustering resolution
+/// near the real axis. This makes it ideal for:
+///
+/// - Precise narrow-band bandpass filters close to DC or Nyquist.
+/// - Quadrature sinusoidal oscillators (the two state variables are
+///   in-phase and 90°-shifted copies of the oscillation).
+/// - Notch filters requiring very high Q.
+///
+/// # Architecture
+///
+/// The two state variables `(u, v)` are updated by a rotation through the
+/// conjugate pole pair:
+///
+/// ```text
+/// u[n] =  p.re * u[n-1] - p.im * v[n-1] + x[n]
+/// v[n] =  p.im * u[n-1] + p.re * v[n-1]
+/// ```
+///
+/// The filtered output is an arbitrary linear combination of the states and
+/// the current input:
+///
+/// ```text
+/// y[n] = c0 * u[n] + c1 * v[n] + c2 * x[n]
+/// ```
+///
+/// With `c` chosen by [`NormalForm::from_ba`] this realizes **exactly**
+/// `H(z) = (b0 + b1*z⁻¹ + b2*z⁻²) / (a0 + a1*z⁻¹ + a2*z⁻²)`, while keeping
+/// the superior pole resolution of the normal form. (This is more general than
+/// the `idsp` `Normal` form, whose numerator is forced to `p.im * z⁻¹ * B(z)`.)
+///
+/// # Example: quadrature NCO
+///
+/// ```rust
+/// # use embedded_dsp::filtering::{NormalForm, NormalFormState};
+/// // 1 kHz oscillator at 48 kHz sample rate
+/// let f = 1000.0_f32 / 48000.0;
+/// let nco = NormalForm::oscillator(f);
+/// let mut state = NormalFormState::default();
+/// // Kick the oscillator with a unit impulse
+/// let (i_out, q_out) = nco.process_quadrature(&mut state, 1.0);
+/// assert!(i_out.abs() > 0.0);
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct NormalForm {
+    /// Output combination coefficients `[c0, c1, c2]`:
+    /// `y = c0 * u + c1 * v + c2 * x`.
+    pub c: [f32; 3],
+    /// Conjugate pole pair: `p.re ± j·p.im`.
+    pub p: Complex<f32>,
+}
+
+/// State for [`NormalForm`]: the two rotating state variables.
+#[derive(Clone, Debug, Default)]
+pub struct NormalFormState {
+    /// Real (in-phase) state variable `u`.
+    pub y_re: f32,
+    /// Imaginary (quadrature) state variable `v`.
+    pub y_im: f32,
+}
+
+impl NormalForm {
+    /// Construct from raw output-combination coefficients `c` and pole `p`.
+    pub fn new(c: [f32; 3], p: Complex<f32>) -> Self {
+        Self { c, p }
+    }
+
+    /// Construct from a standard `[b; a]` biquad coefficient matrix, exactly
+    /// realizing `H(z) = (b0 + b1*z⁻¹ + b2*z⁻²) / (a0 + a1*z⁻¹ + a2*z⁻²)`.
+    ///
+    /// `ba[0]` = `[b0, b1, b2]` numerator coefficients.  
+    /// `ba[1]` = `[a0, a1, a2]` denominator coefficients (a0 usually 1.0).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the poles are not a complex-conjugate pair (i.e. the
+    /// discriminant `a1² - 4*a0*a2` must be negative).
+    pub fn from_ba(ba: &[[f32; 3]; 2]) -> Self {
+        let a0_inv = ba[1][0].recip();
+        let b = [ba[0][0] * a0_inv, ba[0][1] * a0_inv, ba[0][2] * a0_inv];
+        // Roots of a0*z² + a1*z + a2: p = -a1/(2a0) ± sqrt((a1/(2a0))² - a2/a0)
+        let p_re = -0.5 * ba[1][1] * a0_inv;
+        let disc = p_re * p_re - ba[1][2] * a0_inv;
+        assert!(
+            disc < 0.0,
+            "NormalForm::from_ba: poles must be a complex-conjugate pair (use a direct-form biquad for real poles)"
+        );
+        let p_im = (-disc).sqrt();
+        let r2 = p_re * p_re + p_im * p_im;
+
+        // Solve for the output combination that realizes B(z)/A(z).
+        // u = x*(1 - p_re*z⁻¹)/D, v = x*p_im*z⁻¹/D, D = 1 - 2p_re*z⁻¹ + r2*z⁻².
+        // y = c0*u + c1*v + c2*x has numerator
+        // c0 + c2 + (c1*p_im - c0*p_re - 2*c2*p_re)*z⁻¹ + c2*r2*z⁻².
+        let c2 = b[2] / r2;
+        let c0 = b[0] - c2;
+        let c1 = (b[1] + p_re * b[0] + p_re * c2) / p_im;
+        Self {
+            c: [c0, c1, c2],
+            p: Complex::new(p_re, p_im),
+        }
+    }
+
+    /// Construct a pure quadrature sinusoidal oscillator at normalised
+    /// frequency `f` (0 < f < 0.5, where 0.5 is Nyquist).
+    ///
+    /// [`NormalForm::process`] returns the in-phase component (`cos`).
+    /// [`NormalForm::process_quadrature`] returns both in-phase and 90°-shifted
+    /// components. A unit impulse starts the oscillation.
+    ///
+    /// # Example
+    /// ```rust
+    /// # use embedded_dsp::filtering::{NormalForm, NormalFormState};
+    /// let nco = NormalForm::oscillator(0.1); // 10% of sample rate
+    /// let mut s = NormalFormState::default();
+    /// let _ = nco.process_quadrature(&mut s, 1.0); // impulse start
+    /// ```
+    pub fn oscillator(f: f32) -> Self {
+        let theta = 2.0 * core::f32::consts::PI * f;
+        Self {
+            c: [1.0, 0.0, 0.0],
+            p: Complex::new(theta.cos(), theta.sin()),
+        }
+    }
+
+    /// Construct a narrow-band bandpass filter centred at normalised frequency
+    /// `f` with quality factor `q`.
+    ///
+    /// Realizes `H(z) = g*(1 - z⁻²) / (1 - 2*r*cos(θ)*z⁻¹ + r²*z⁻²)` with
+    /// `θ = 2πf`, `r = 1 - πf/q`, and `g = 1 - r` (unity passband gain).
+    pub fn bandpass(f: f32, q: f32) -> Self {
+        let theta = 2.0 * core::f32::consts::PI * f;
+        let r = 1.0 - core::f32::consts::PI * f / q; // pole radius ≈ 1 - π·bw/fs
+        let g = 1.0 - r; // unity passband normalisation
+        let p_re = r * theta.cos();
+        let p_im = r * theta.sin();
+        let r2 = r * r;
+        // from_ba() solution with b = [g, 0, -g]:
+        let c2 = -g / r2;
+        let c0 = g - c2;
+        let c1 = p_re * g * (1.0 - 1.0 / r2) / p_im;
+        Self {
+            c: [c0, c1, c2],
+            p: Complex::new(p_re, p_im),
+        }
+    }
+
+    /// Advance the internal state by one sample and return the two rotating
+    /// state variables `(u, v)`: the in-phase and quadrature components.
+    #[inline]
+    pub fn process_quadrature(&self, state: &mut NormalFormState, x0: f32) -> (f32, f32) {
+        // Normal-form feedback (conjugate pole pair rotation)
+        let u = self.p.re() * state.y_re - self.p.im() * state.y_im + x0;
+        let v = self.p.im() * state.y_re + self.p.re() * state.y_im;
+        state.y_re = u;
+        state.y_im = v;
+        (u, v)
+    }
+
+    /// Process a single sample and return the filtered output `y`.
+    #[inline]
+    pub fn process(&self, state: &mut NormalFormState, x0: f32) -> f32 {
+        let (u, v) = self.process_quadrature(state, x0);
+        self.c[0] * u + self.c[1] * v + self.c[2] * x0
+    }
+
+    /// Reset state to zero.
+    pub fn reset(state: &mut NormalFormState) {
+        *state = NormalFormState::default();
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wave Digital Filters (allpass chain)
+// Ported from the `idsp` crate by the Sinara/ARTIQ project, with a corrected
+// per-stage state update.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Two-port adapter architecture selector.
+///
+/// Each architecture is a nibble in the const generic of [`Wdf`] and encodes
+/// the optimal scaled form for a given allpass coefficient range.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum Tpa {
+    /// Terminate (coefficient 0).
+    Z = 0x0,
+    /// `1 > g > 1/2`: `a = g - 1`.
+    A = 0xA,
+    /// `1/2 >= g > 0`: `a = -g`.
+    B = 0xB,
+    /// Alternative to `B`.
+    B1 = 0xE,
+    /// `g = 0`.
+    X = 0x1,
+    /// `-1/2 <= g < 0`: `a = g`.
+    C = 0xC,
+    /// Alternative to `C`.
+    C1 = 0xF,
+    /// `-1 < g < -1/2`: `a = -(1 + g)`.
+    D = 0xD,
+}
+
+impl From<u8> for Tpa {
+    #[inline]
+    fn from(value: u8) -> Self {
+        match value {
+            0xa => Tpa::A,
+            0xb => Tpa::B,
+            0xe => Tpa::B1,
+            0x1 => Tpa::X,
+            0xc => Tpa::C,
+            0xf => Tpa::C1,
+            0xd => Tpa::D,
+            _ => Tpa::Z,
+        }
+    }
+}
+
+impl Tpa {
+    /// Quantize the allpass coefficient `g` for this architecture.
+    ///
+    /// Returns the Q32.32 fixed-point adapter coefficient, or `None` if `g`
+    /// does not fit the architecture's scaled range.
+    fn quantize(self, g: f64) -> Option<i32> {
+        // Use -0.5 <= a <= 0 instead of the usual positive range so that -0.5
+        // exactly fits the Q32.32 fixed-point range.
+        let a = match self {
+            Self::Z => 0.0,
+            Self::A => g - 1.0,
+            Self::B | Self::B1 => -g,
+            Self::X => 0.0,
+            Self::C | Self::C1 => g,
+            Self::D => -1.0 - g,
+        };
+        (-0.5..=0.0).contains(&a).then_some((a * 4294967296.0) as i32)
+    }
+
+    /// Fixed-point multiply: `(c * a) >> 32` with wrapping (Q32.32 coefficient).
+    #[cfg(feature = "pipeline")]
+    #[inline]
+    fn mul(self, c: i32, a: i32) -> i32 {
+        ((c as i64).wrapping_mul(a as i64) >> 32) as i32
+    }
+
+    /// Two-port adapter wave computation.
+    ///
+    /// Takes `[a1, a2]` (incident wave from the previous stage and the delay
+    /// state) and returns `[b1, b2]`: the output wave to the next stage and
+    /// the new delay state.
+    #[cfg(feature = "pipeline")]
+    #[inline]
+    fn adapt(&self, x: [i32; 2], a: i32) -> [i32; 2] {
+        match self {
+            Tpa::A => {
+                let c = x[1] - x[0];
+                let y = self.mul(c, a).wrapping_add(x[1]);
+                [y.wrapping_add(c), y]
+            }
+            Tpa::B => {
+                let c = x[0] - x[1];
+                let y = self.mul(c, a).wrapping_add(x[1]);
+                [y, y.wrapping_add(c)]
+            }
+            Tpa::B1 => {
+                let c = x[0] - x[1];
+                let y = self.mul(c, a);
+                [y.wrapping_add(x[1]), y.wrapping_add(x[0])]
+            }
+            Tpa::X => [x[1], x[0]],
+            Tpa::C => {
+                let c = x[1] - x[0];
+                let y = self.mul(c, a).wrapping_sub(x[1]);
+                [y, y.wrapping_add(c)]
+            }
+            Tpa::C1 => {
+                let c = x[1] - x[0];
+                let y = self.mul(c, a);
+                [y.wrapping_sub(x[1]), y.wrapping_sub(x[0])]
+            }
+            Tpa::D => {
+                let c = x[0] - x[1];
+                let y = self.mul(c, a).wrapping_sub(x[1]);
+                [y.wrapping_add(c), y]
+            }
+            Tpa::Z => x,
+        }
+    }
+}
+
+/// Wave digital filter: a cascade of `N` first-order allpass sections.
+///
+/// The `M` const generic encodes the two-port adapter architecture, one nibble
+/// per stage (least significant nibble = first stage). All arithmetic is
+/// wrapping 32-bit integer with Q32.32 coefficients — no floating point.
+///
+/// # Ported from
+/// The `idsp` crate by the Sinara/ARTIQ project.
+#[derive(Debug, Clone)]
+pub struct Wdf<const N: usize, const M: u32> {
+    /// Q32.32 adapter coefficients, one per allpass section.
+    pub a: [i32; N],
+}
+
+impl<const N: usize, const M: u32> Default for Wdf<N, M> {
+    fn default() -> Self {
+        Self { a: [0; N] }
+    }
+}
+
+impl<const N: usize, const M: u32> Wdf<N, M> {
+    /// Quantize allpass pole coefficients `g` (one per section, `|g| < 1`)
+    /// using the architecture encoded in `M`.
+    pub fn quantize(g: &[f64; N]) -> Option<Self> {
+        let mut a = [0i32; N];
+        let mut m = M;
+        for (a, g) in a.iter_mut().zip(g) {
+            *a = Tpa::from((m & 0xf) as u8).quantize(*g)?;
+            m >>= 4;
+        }
+        debug_assert_eq!(m, 0);
+        Some(Self { a })
+    }
+}
+
+/// State for [`Wdf`]: one delay element per allpass section.
+#[derive(Clone, Debug)]
+pub struct WdfState<const N: usize> {
+    /// Section delay states.
+    pub z: [i32; N],
+}
+
+impl<const N: usize> Default for WdfState<N> {
+    fn default() -> Self {
+        Self { z: [0; N] }
+    }
+}
+
+#[cfg(feature = "pipeline")]
+impl<const N: usize, const M: u32> crate::pipeline::SplitProcess<i32, i32, WdfState<N>>
+    for Wdf<N, M>
+{
+    #[inline]
+    fn process(&self, state: &mut WdfState<N>, x: i32) -> i32 {
+        let mut x = x;
+        let mut m = M;
+        for (a, z) in self.a.iter().zip(state.z.iter_mut()) {
+            let [y, next] = Tpa::from((m & 0xf) as u8).adapt([x, *z], *a);
+            *z = next; // update this section's delay state
+            x = y;     // output wave feeds the next section
+            m >>= 4;
+        }
+        debug_assert_eq!(m, 0);
+        x
+    }
+}

@@ -16,8 +16,12 @@ pub use fallback::*;
 
 #[cfg(not(feature = "fixed"))]
 mod fallback {
+    /// Conversion between fixed-point values and raw integers (fallback
+    /// used when the `fixed` feature is disabled).
     pub trait FixedNum: Copy {
+        /// To raw fixed.
         fn to_raw_fixed(self, frac: u32, min_val: i64, max_val: i64, saturate: bool) -> i64;
+        /// From raw fixed.
         fn from_raw_fixed(raw: i64, frac: u32) -> Self;
     }
 
@@ -108,24 +112,31 @@ mod fallback {
             #[cfg_attr(feature = "defmt", derive(defmt::Format))]
             #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
             #[cfg_attr(feature = "serde", serde(transparent))]
+            /// Fallback fixed-point type used when the `fixed` feature is off.
             pub struct $name(pub $raw);
 
             impl $name {
+                /// ZERO.
                 pub const ZERO: Self = Self(0);
+                /// MAX.
                 pub const MAX: Self = Self($raw::MAX);
+                /// MIN.
                 pub const MIN: Self = Self($raw::MIN);
 
                 #[inline(always)]
+                /// Creates a value from its raw bit pattern.
                 pub const fn from_bits(bits: $raw) -> Self {
                     Self(bits)
                 }
 
                 #[inline(always)]
+                /// Returns the raw bit pattern.
                 pub const fn to_bits(self) -> $raw {
                     self.0
                 }
 
                 #[inline(always)]
+                /// From num.
                 pub fn from_num<T: FixedNum>(v: T) -> Self {
                     Self(
                         T::to_raw_fixed(v, $frac, $raw::MIN as i64, $raw::MAX as i64, false)
@@ -134,6 +145,7 @@ mod fallback {
                 }
 
                 #[inline(always)]
+                /// Saturating from num.
                 pub fn saturating_from_num<T: FixedNum>(v: T) -> Self {
                     Self(
                         T::to_raw_fixed(v, $frac, $raw::MIN as i64, $raw::MAX as i64, true) as $raw,
@@ -141,68 +153,81 @@ mod fallback {
                 }
 
                 #[inline(always)]
+                /// To num.
                 pub fn to_num<T: FixedNum>(self) -> T {
                     T::from_raw_fixed(self.0 as i64, $frac)
                 }
 
                 #[inline(always)]
+                /// Saturating addition.
                 pub const fn saturating_add(self, rhs: Self) -> Self {
                     Self(self.0.saturating_add(rhs.0))
                 }
 
                 #[inline(always)]
+                /// Saturating subtraction.
                 pub const fn saturating_sub(self, rhs: Self) -> Self {
                     Self(self.0.saturating_sub(rhs.0))
                 }
 
                 #[inline(always)]
+                /// Saturating mul.
                 pub fn saturating_mul(self, rhs: Self) -> Self {
                     let prod = ((self.0 as $wide) * (rhs.0 as $wide)) >> $frac;
                     Self(prod.clamp($raw::MIN as $wide, $raw::MAX as $wide) as $raw)
                 }
 
                 #[inline(always)]
+                /// Saturating negation.
                 pub const fn saturating_neg(self) -> Self {
                     Self(self.0.saturating_neg())
                 }
 
                 #[inline(always)]
+                /// Saturating absolute value.
                 pub const fn saturating_abs(self) -> Self {
                     Self(self.0.saturating_abs())
                 }
 
                 #[inline(always)]
+                /// Wrapping absolute value.
                 pub const fn abs(self) -> Self {
                     Self(self.0.wrapping_abs())
                 }
 
                 #[inline(always)]
+                /// Wrapping addition.
                 pub const fn wrapping_add(self, rhs: Self) -> Self {
                     Self(self.0.wrapping_add(rhs.0))
                 }
 
                 #[inline(always)]
+                /// Wrapping subtraction.
                 pub const fn wrapping_sub(self, rhs: Self) -> Self {
                     Self(self.0.wrapping_sub(rhs.0))
                 }
 
                 #[inline(always)]
+                /// Wrapping negation.
                 pub const fn wrapping_neg(self) -> Self {
                     Self(self.0.wrapping_neg())
                 }
 
                 #[inline(always)]
+                /// Wrapping mul.
                 pub fn wrapping_mul(self, rhs: Self) -> Self {
                     let prod = (self.0 as $wide).wrapping_mul(rhs.0 as $wide);
                     Self((prod >> $frac) as $raw)
                 }
 
                 #[inline(always)]
+                /// Wrapping multiplication by an integer.
                 pub const fn wrapping_mul_int(self, n: i32) -> Self {
                     Self(self.0.wrapping_mul(n as $raw))
                 }
 
                 #[inline(always)]
+                /// Wrapping div.
                 pub fn wrapping_div(self, rhs: Self) -> Self {
                     if rhs.0 == 0 {
                         return Self(0);
@@ -213,6 +238,7 @@ mod fallback {
                 }
 
                 #[inline(always)]
+                /// Wrapping div int.
                 pub fn wrapping_div_int(self, n: i32) -> Self {
                     if n == 0 {
                         return Self(0);
@@ -221,6 +247,7 @@ mod fallback {
                 }
 
                 #[inline(always)]
+                /// Reciprocal.
                 pub fn recip(self) -> Self {
                     if self.0 == 0 {
                         return Self::MAX;
@@ -230,6 +257,7 @@ mod fallback {
                 }
 
                 #[inline(always)]
+                /// Checked div.
                 pub fn checked_div(self, rhs: Self) -> Option<Self> {
                     if rhs.0 == 0 {
                         return None;
@@ -397,8 +425,10 @@ mod fallback {
 #[allow(non_camel_case_types)]
 pub type q63 = i64;
 #[allow(non_camel_case_types)]
+/// Alias for `f32` used by the CMSIS-style API.
 pub type f32_t = f32;
 #[allow(non_camel_case_types)]
+/// Alias for `f64` used by the CMSIS-style API.
 pub type f64_t = f64;
 
 /// Error status returned by functions in `embedded-dsp`.
@@ -428,7 +458,9 @@ pub enum Status {
 #[repr(C)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable))]
 pub struct Complex<T> {
+    /// Real part.
     pub real: T,
+    /// Imaginary part.
     pub imag: T,
 }
 
@@ -438,6 +470,7 @@ unsafe impl<T: bytemuck::Pod> bytemuck::Pod for Complex<T> {}
 
 impl<T> Complex<T> {
     #[inline(always)]
+    /// Creates a new value.
     pub const fn new(real: T, imag: T) -> Self {
         Self { real, imag }
     }
@@ -797,23 +830,35 @@ impl core::fmt::Display for BFloat16 {
 }
 
 impl BFloat16 {
+    /// ZERO.
     pub const ZERO: Self = Self(0);
+    /// NEG ZERO.
     pub const NEG_ZERO: Self = Self(0x8000);
+    /// ONE.
     pub const ONE: Self = Self(0x3F80);
+    /// NEG ONE.
     pub const NEG_ONE: Self = Self(0xBF80);
+    /// NAN.
     pub const NAN: Self = Self(0x7FC0);
+    /// INFINITY.
     pub const INFINITY: Self = Self(0x7F80);
+    /// NEG INFINITY.
     pub const NEG_INFINITY: Self = Self(0xFF80);
+    /// MAX.
     pub const MAX: Self = Self(0x7F7F);
+    /// MIN.
     pub const MIN: Self = Self(0xFF7F);
+    /// MIN POSITIVE.
     pub const MIN_POSITIVE: Self = Self(0x0080);
 
     #[inline]
+    /// Creates a value from its raw bit pattern.
     pub const fn from_bits(bits: u16) -> Self {
         Self(bits)
     }
 
     #[inline]
+    /// Returns the raw bit pattern.
     pub const fn to_bits(self) -> u16 {
         self.0
     }
@@ -841,36 +886,43 @@ impl BFloat16 {
     }
 
     #[inline]
+    /// Is nan.
     pub fn is_nan(self) -> bool {
         (self.0 & 0x7F80) == 0x7F80 && (self.0 & 0x007F) != 0
     }
 
     #[inline]
+    /// Is infinite.
     pub fn is_infinite(self) -> bool {
         (self.0 & 0x7FFF) == 0x7F80
     }
 
     #[inline]
+    /// Is finite.
     pub fn is_finite(self) -> bool {
         (self.0 & 0x7F80) != 0x7F80
     }
 
     #[inline]
+    /// Is zero.
     pub fn is_zero(self) -> bool {
         (self.0 & 0x7FFF) == 0
     }
 
     #[inline]
+    /// Is sign positive.
     pub fn is_sign_positive(self) -> bool {
         (self.0 & 0x8000) == 0
     }
 
     #[inline]
+    /// Is sign negative.
     pub fn is_sign_negative(self) -> bool {
         (self.0 & 0x8000) != 0
     }
 
     #[inline]
+    /// Elementwise absolute value.
     pub fn abs(self) -> Self {
         Self(self.0 & 0x7FFF)
     }
@@ -900,7 +952,9 @@ impl From<BFloat16> for f32 {
 /// Ideal for high-Q resonant IIR biquads, Kalman filters, and integrator loops prone to numerical instability.
 #[derive(Clone, Copy, Default, PartialEq)]
 pub struct FloatFloat {
+    /// High half of the split value.
     pub hi: f32,
+    /// Low half of the split value.
     pub lo: f32,
 }
 
@@ -917,30 +971,37 @@ impl core::fmt::Display for FloatFloat {
 }
 
 impl FloatFloat {
+    /// ZERO.
     pub const ZERO: Self = Self { hi: 0.0, lo: 0.0 };
+    /// ONE.
     pub const ONE: Self = Self { hi: 1.0, lo: 0.0 };
 
     #[inline]
+    /// Creates a new value.
     pub const fn new(hi: f32, lo: f32) -> Self {
         Self { hi, lo }
     }
 
     #[inline]
+    /// From f32 (`f32`).
     pub fn from_f32(val: f32) -> Self {
         Self { hi: val, lo: 0.0 }
     }
 
     #[inline]
+    /// To f32 (`f32`).
     pub fn to_f32(self) -> f32 {
         self.hi + self.lo
     }
 
     #[inline]
+    /// To f64 (`f64`).
     pub fn to_f64(self) -> f64 {
         (self.hi as f64) + (self.lo as f64)
     }
 
     #[inline]
+    /// Elementwise absolute value.
     pub fn abs(self) -> Self {
         if self.hi < 0.0 {
             Self {

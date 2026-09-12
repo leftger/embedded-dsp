@@ -295,8 +295,8 @@ pub fn fast_log2_f32(x: f32) -> f32 {
     }
     let vx = x.to_bits();
     let mx = f32::from_bits((vx & 0x007F_FFFF) | 0x3F00_0000);
-    let y = (vx as f32) * 1.1920928955078125e-7;
-    y - 124.22551499 - 1.498030302 * mx - 1.72587999 / (0.3520887068 + mx)
+    let y = (vx as f32) * 1.192_092_9e-7;
+    y - 124.225_52 - 1.498_030_3 * mx - 1.725_88 / (0.352_088_72 + mx)
 }
 
 /// Fast bit-manipulation natural logarithm `ln(x)`.
@@ -325,7 +325,7 @@ pub fn fast_pow2_f32(p: f32) -> f32 {
     let w = clipp as i32;
     let z = clipp - (w as f32) + offset;
     let scaled = (1u32 << 23) as f32
-        * (clipp + 121.2740575 + 27.7280233 / (4.84252568 - z) - 1.49012907 * z);
+        * (clipp + 121.274_055 + 27.728_024 / (4.842_525_5 - z) - 1.490_129_1 * z);
     f32::from_bits(scaled as u32)
 }
 
@@ -428,9 +428,7 @@ pub fn cossin(mut phase: i32) -> (i32, i32) {
 
     octant ^= octant >> 1;
     if octant & (1 << 29) != 0 {
-        let tmp = cos;
-        cos = sin;
-        sin = tmp;
+        core::mem::swap(&mut cos, &mut sin);
     }
     if octant & (1 << 30) != 0 {
         cos = -cos;
@@ -545,9 +543,7 @@ pub fn atan2_i32(mut y: i32, mut x: i32) -> i32 {
         k ^= u32::MAX >> 1;
     }
     if y > x {
-        let tmp = y;
-        y = x;
-        x = tmp;
+        core::mem::swap(&mut y, &mut x);
         k ^= u32::MAX >> 2;
     }
     let r = atani(divi(y as u32, x as u32));

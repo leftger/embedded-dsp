@@ -50,8 +50,18 @@ fn test_quaternion_coverage() {
         Status::ArgumentError
     );
 
-    let q1 = [0.7071f32, 0.7071, 0.0, 0.0];
-    let q2 = [0.7071f32, 0.0, 0.7071, 0.0];
+    let q1 = [
+        core::f32::consts::FRAC_1_SQRT_2,
+        core::f32::consts::FRAC_1_SQRT_2,
+        0.0,
+        0.0,
+    ];
+    let q2 = [
+        core::f32::consts::FRAC_1_SQRT_2,
+        0.0,
+        core::f32::consts::FRAC_1_SQRT_2,
+        0.0,
+    ];
     let mut q_prod = [0.0f32; 4];
     quaternion_product_f32(&q1, &q2, &mut q_prod);
     assert!(q_prod[0].is_finite());
@@ -123,7 +133,7 @@ fn test_safety_limiter_and_dynamics() {
     assert_eq!(limiter.current_gain(), 1.0);
 
     let limited = limiter.process(1.5);
-    assert!(limited <= 0.9 && limited >= -0.9);
+    assert!((-0.9..=0.9).contains(&limited));
     assert!(limiter.current_gain() < 1.0);
 
     limiter.reset();

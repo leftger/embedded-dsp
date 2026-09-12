@@ -97,7 +97,7 @@ fn test_xorshift32_and_dither() {
     let n = 10000;
     for _ in 0..n {
         let d = rng.tpdf_dither_f32();
-        assert!(d >= -1.0 && d <= 1.0);
+        assert!((-1.0..=1.0).contains(&d));
         dither_sum += d;
     }
     let avg = dither_sum / (n as f32);
@@ -139,7 +139,7 @@ fn prop_biquad_clamp_always_within_bounds(raw_input: i16) -> bool {
     let mut state = DirectForm1::<f32>::new();
 
     let y = clamp.process_df1(&mut state, x);
-    y >= -10.0 && y <= 10.0
+    (-10.0..=10.0).contains(&y)
 }
 
 #[quickcheck]

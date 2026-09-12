@@ -1,5 +1,6 @@
 //! Conversions between the `[w, x, y, z]` quaternion representation used by
-//! [`crate::quaternion`] and `nalgebra`'s [`Quaternion`]/[`UnitQuaternion`].
+//! [`crate::quaternion`] and `nalgebra`'s [`Quaternion`](nalgebra::Quaternion)/
+//! [`UnitQuaternion`](nalgebra::UnitQuaternion).
 //!
 //! `embedded-dsp`'s quaternion functions operate on plain `[f32; 4]` arrays
 //! rather than a `nalgebra` type, so there is no free `From`/`Into`

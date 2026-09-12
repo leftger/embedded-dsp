@@ -84,7 +84,7 @@ pub fn analyze_impulse_response(response: &[f32], settling_threshold: f32) -> Im
     let mut settling_idx = response.len();
     let threshold = settling_threshold.abs();
 
-    for (_idx, &sample) in response.iter().enumerate() {
+    for &sample in response.iter() {
         let abs_val = sample.abs();
         if abs_val > peak {
             peak = abs_val;

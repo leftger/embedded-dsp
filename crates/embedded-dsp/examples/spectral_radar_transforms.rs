@@ -71,11 +71,11 @@ fn main() {
 
     for &sample in &received_signal {
         let sample_i32 = (sample * 1000.0) as i32;
-        if let Some(dec_val) = cic_decimator.process_sample(sample_i32) {
-            if dec_count < decimated_stream.len() {
-                decimated_stream[dec_count] = dec_val;
-                dec_count += 1;
-            }
+        if let Some(dec_val) = cic_decimator.process_sample(sample_i32)
+            && dec_count < decimated_stream.len()
+        {
+            decimated_stream[dec_count] = dec_val;
+            dec_count += 1;
         }
     }
     println!(

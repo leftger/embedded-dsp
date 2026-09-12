@@ -204,6 +204,7 @@ pub struct PeakEnvelopeFollowerQ15 {
 }
 
 impl PeakEnvelopeFollowerQ15 {
+    /// Creates a new instance.
     pub fn new(attack_samples: f32, release_samples: f32) -> Self {
         let attack = 1.0 - single_pole_decay_from_time_constant(attack_samples);
         let release = 1.0 - single_pole_decay_from_time_constant(release_samples);
@@ -215,6 +216,7 @@ impl PeakEnvelopeFollowerQ15 {
     }
 
     #[inline(always)]
+    /// Processes a single input sample.
     pub fn process(&mut self, x: q15) -> q15 {
         let rectified = x.to_bits().unsigned_abs() as i32;
         let env = self.envelope.to_bits() as i32;
@@ -229,6 +231,7 @@ impl PeakEnvelopeFollowerQ15 {
         self.envelope
     }
 
+    /// Resets the internal state.
     pub fn reset(&mut self) {
         self.envelope = q15::ZERO;
     }
@@ -242,6 +245,7 @@ pub struct RmsEnvelopeFollowerQ15 {
 }
 
 impl RmsEnvelopeFollowerQ15 {
+    /// Creates a new instance.
     pub fn new(time_constant_samples: f32) -> Self {
         let c = 1.0 - single_pole_decay_from_time_constant(time_constant_samples);
         Self {
@@ -251,6 +255,7 @@ impl RmsEnvelopeFollowerQ15 {
     }
 
     #[inline(always)]
+    /// Processes a single input sample.
     pub fn process(&mut self, x: q15) -> q15 {
         let inst = ((x.to_bits() as i32 * x.to_bits() as i32) >> 15).clamp(0, 32767);
         let ms = self.mean_sq.to_bits() as i32;
@@ -260,6 +265,7 @@ impl RmsEnvelopeFollowerQ15 {
         q15::from_bits(mag.min(32767) as i16)
     }
 
+    /// Resets the internal state.
     pub fn reset(&mut self) {
         self.mean_sq = q15::ZERO;
     }

@@ -1,10 +1,16 @@
 use core::f32::consts::PI;
-use embedded_dsp::controller::PidBuilder;
+use embedded_dsp::controller::{PidAction, PidBuilder, PidError, PidOrder};
 use embedded_dsp::fast_math::{Unwrapper, atan2_i32, cossin, cossin_f32, fast_atan2_f32};
-use embedded_dsp::filtering::{DirectForm1, Lockin, LockinAmplifier};
-use embedded_dsp::pipeline::SplitProcess;
-use embedded_dsp::resampling::{HbfDec, HbfDecCascade, HbfInt};
-use embedded_dsp::synthesis::{AccuOsc, Sweep};
+use embedded_dsp::filtering::{
+    DirectForm1, Lockin, LockinAmplifier, NormalForm, NormalFormState, Wdf, WdfState,
+};
+use embedded_dsp::pipeline::{SplitInplace, SplitProcess};
+use embedded_dsp::pll::{ClampWrap, IntPll, IntPllState};
+use embedded_dsp::resampling::{
+    EvenSymmetric, HbfDec, HbfDecCascade, HbfInt, HbfIntCascade, OddSymmetric,
+    hbf_dec_response_length, hbf_int_response_length,
+};
+use embedded_dsp::synthesis::{Accu, AccuOsc, Sweep};
 use embedded_dsp::types::Complex;
 
 #[test]
@@ -106,7 +112,7 @@ fn test_half_band_decimator_and_interpolator() {
         -0.02201674,
         0.06357869,
         -0.16627679,
-        0.61979312,
+        0.619_793_1,
     ];
     let mut dec = HbfDec::new(coeffs_dec);
 
@@ -229,4 +235,571 @@ fn test_exponential_sweep_and_osc() {
     for s in samples {
         assert!(s.real != 0 || s.imag != 0);
     }
+}
+
+#[test]
+fn test_normal_form_oscillator_quadrature_and_period() {
+    // Oscillator at 10% of the sample rate -> period of 10 samples.
+    let nco = NormalForm::oscillator(0.1);
+    let mut state = NormalFormState::default();
+
+    // Kick with a unit impulse.
+    let (first_re, first_im) = nco.process_quadrature(&mut state, 1.0);
+    assert!((first_re - 1.0).abs() < 1e-6, "impulse starts at re=1");
+    assert!(first_im.abs() < 1e-6, "impulse starts at im=0");
+
+    let mut first_peak = None;
+    let mut last_peak = None;
+    let mut peak_spacing_ok = true;
+
+    for n in 1..=100 {
+        let (re, im) = nco.process_quadrature(&mut state, 0.0);
+        let amp = (re * re + im * im).sqrt();
+        assert!(
+            (amp - 1.0).abs() < 2e-4,
+            "oscillator amplitude must stay on the unit circle (n={n}, amp={amp})"
+        );
+        if (re - 1.0).abs() < 1e-3 {
+            if let Some(prev) = last_peak {
+                if n - prev != 10 {
+                    peak_spacing_ok = false;
+                }
+            } else {
+                first_peak = Some(n);
+            }
+            last_peak = Some(n);
+        }
+    }
+
+    // Full rotation after 10 samples.
+    assert_eq!(first_peak, Some(10), "cosine peaks again after one period");
+    assert!(peak_spacing_ok, "peaks must repeat every 10 samples");
+}
+
+#[test]
+fn test_normal_form_from_ba_pole_extraction() {
+    // Denominator: (z - (0.5 + 0.5j))(z - (0.5 - 0.5j)) = z^2 - z + 0.5
+    let ba = [[1.0f32, 0.0, 0.0], [1.0, -1.0, 0.5]];
+    let nf = NormalForm::from_ba(&ba);
+    assert!(
+        (nf.p.re() - 0.5).abs() < 1e-5,
+        "p.re was {p_re}",
+        p_re = nf.p.re()
+    );
+    assert!(
+        (nf.p.im() - 0.5).abs() < 1e-5,
+        "p.im was {p_im}",
+        p_im = nf.p.im()
+    );
+
+    // Impulse response must exactly match the biquad transfer function:
+    // H(z) = 1 / (1 - z^-1 + 0.5 z^-2)
+    // h[0] = 1, h[1] = 1, h[2] = 0.5, h[3] = 0, h[4] = -0.25, ...
+    let mut state = NormalFormState::default();
+    let h0 = nf.process(&mut state, 1.0);
+    let h1 = nf.process(&mut state, 0.0);
+    let h2 = nf.process(&mut state, 0.0);
+    let h3 = nf.process(&mut state, 0.0);
+    let h4 = nf.process(&mut state, 0.0);
+    assert!((h0 - 1.0).abs() < 1e-5);
+    assert!((h1 - 1.0).abs() < 1e-5);
+    assert!((h2 - 0.5).abs() < 1e-5);
+    assert!(h3.abs() < 1e-5);
+    assert!((h4 - (-0.25)).abs() < 1e-5);
+}
+
+#[test]
+fn test_normal_form_bandpass_dc_rejection() {
+    // Narrow bandpass at 0.25 Nyquist-normalized with Q = 10.
+    let bp = NormalForm::bandpass(0.25, 10.0);
+    let mut state = NormalFormState::default();
+
+    // Feed a DC signal: numerator (1 - z^-2) guarantees zero DC gain.
+    let mut out = 0.0;
+    for _ in 0..2000 {
+        out = bp.process(&mut state, 1.0);
+    }
+    assert!(out.abs() < 1e-3, "DC must be rejected, got {out}");
+}
+
+#[test]
+fn test_accu_wrapping_and_algebra() {
+    use core::num::Wrapping;
+
+    // Same behavior as the idsp doctest: 127 + 127 wraps to -2 in i8.
+    let mut acc = Accu::new(Wrapping(0i8), Wrapping(127));
+    assert_eq!(acc.next(), Some(Wrapping(127)));
+    assert_eq!(acc.next(), Some(Wrapping(-2)));
+
+    // Scaling: multiply state and step by the same factor.
+    let acc = Accu::new(Wrapping(2i32), Wrapping(3i32));
+    let scaled = acc * Wrapping(4i32);
+    assert_eq!(scaled.state, Wrapping(8));
+    assert_eq!(scaled.step, Wrapping(12));
+
+    // Composition: add and subtract accumulators elementwise.
+    let a = Accu::new(Wrapping(1i32), Wrapping(2i32));
+    let b = Accu::new(Wrapping(3i32), Wrapping(4i32));
+    let sum = a + b;
+    assert_eq!((sum.state, sum.step), (Wrapping(4), Wrapping(6)));
+    let diff = b - a;
+    assert_eq!((diff.state, diff.step), (Wrapping(2), Wrapping(2)));
+}
+
+#[test]
+fn test_linear_phase_fir_impulse_responses() {
+    // Type I (odd symmetric, center = 1): taps [0.5, 1, 0.5]
+    let fir = OddSymmetric([0.5f32]);
+    let mut state = [0.0f32; 8];
+    let x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    let mut y = [0.0f32; 6];
+    fir.block(&mut state, &x, &mut y);
+    assert_eq!(y[..3], [0.5, 1.0, 0.5]);
+    assert_eq!(y[3..], [0.0, 0.0, 0.0]);
+
+    // Type II (even symmetric, no center): taps [0.25, 0.5, 0.5, 0.25]
+    let fir = EvenSymmetric([0.25f32, 0.5]);
+    let mut state = [0.0f32; 8];
+    let mut y = [0.0f32; 5];
+    fir.block(&mut state, &x, &mut y);
+    assert_eq!(y[..4], [0.25, 0.5, 0.5, 0.25]);
+    assert_eq!(y[4], 0.0);
+
+    // In-place path must agree with the out-of-place path.
+    let fir = OddSymmetric([0.5f32]);
+    let mut state = [0.0f32; 8];
+    let mut xy = x;
+    fir.inplace(&mut state, &mut xy);
+    assert_eq!(xy[..3], [0.5, 1.0, 0.5]);
+}
+
+#[test]
+fn test_hbf_response_lengths() {
+    // 140 dB cascade, depth 3 (rate change 8).
+    assert_eq!(hbf_dec_response_length(3), 29);
+    assert_eq!(hbf_int_response_length(3), 234);
+    assert_eq!(hbf_dec_response_length(0), 0);
+    assert_eq!(hbf_int_response_length(0), 0);
+}
+
+#[test]
+fn test_hbf_interpolator_cascade_dc() {
+    // Interpolate a DC signal by 8 and check settled passband gain is unity.
+    let mut cascade = HbfIntCascade::<3>::new();
+    let src = [1.0f32; 64];
+    let mut dst = [0.0f32; 512];
+    cascade.process(&src, &mut dst);
+    // The M=23 first stage needs its full state to fill before settling.
+    assert!(dst[480..512].iter().all(|&y| (y - 1.0).abs() < 1e-3));
+}
+
+#[test]
+fn test_hbf_decimator_cascade_stopband() {
+    // Cascade depth 3: fs_low = fs_high / 8.
+    let mut cascade = HbfDecCascade::<3>::new();
+    let n_low = 64usize;
+    let mut src = [0.0f32; 512];
+    let mut dst = [0.0f32; 64];
+
+    // Passband tone at 0.1 * fs_low: amplitude 1 -> RMS ~0.707 after settling.
+    for i in 0..512 {
+        src[i] = (2.0 * PI * 0.1 / 8.0 * i as f32).sin();
+    }
+    cascade.process(&src, &mut dst);
+    let rms: f32 = dst[32..n_low].iter().map(|&v| v * v).sum::<f32>() / (n_low - 32) as f32;
+    let rms = rms.sqrt();
+    assert!(
+        (rms - 1.0 / 2.0f32.sqrt()).abs() < 0.02,
+        "passband tone RMS should be ~0.707, got {rms}"
+    );
+
+    // Stopband tone at 0.9 * fs_low must be rejected by > 140 dB.
+    for i in 0..512 {
+        src[i] = (2.0 * PI * 0.9 / 8.0 * i as f32).sin();
+    }
+    cascade.reset();
+    cascade.process(&src, &mut dst);
+    let rms: f32 = dst[32..n_low].iter().map(|&v| v * v).sum::<f32>() / (n_low - 32) as f32;
+    let rms = rms.sqrt();
+    assert!(rms < 1e-4, "stopband tone must be rejected, RMS was {rms}");
+}
+
+#[test]
+fn test_wdf_allpass_against_reference() {
+    // Single section, g = 0.25 (Tpa::B). The allpass transfer is
+    // H(z) = (a + z^-1) / (1 + a z^-1) with a = -g = -0.25.
+    let wdf = Wdf::<1, 0xB>::quantize(&[0.25]).expect("g=0.25 fits Tpa::B");
+    let mut state = WdfState::<1>::default();
+
+    // Reference: direct-form allpass y = a*x + x1 - a*y1.
+    let a = -0.25f64;
+    let mut x1 = 0.0f64;
+    let mut y1 = 0.0f64;
+
+    for n in 0..16 {
+        let x = if n == 0 { 1 << 29 } else { 0 };
+        let y_wdf = wdf.process(&mut state, x) as f64 / (1 << 30) as f64;
+        let y_ref = a * (x as f64 / (1 << 30) as f64) + x1 - a * y1;
+        assert!(
+            (y_wdf - y_ref).abs() < 1e-6,
+            "n={n}: wdf={y_wdf}, ref={y_ref}"
+        );
+        x1 = if n == 0 { 0.5 } else { 0.0 };
+        y1 = y_ref;
+    }
+}
+
+#[test]
+fn test_freqz_matches_biquad_response() {
+    use embedded_dsp::filter_analysis::{biquad_frequency_response, freqz};
+    use embedded_dsp::types::Complex;
+
+    // Biquad lowpass coefficients, sign convention y = b*x + a1*y1 + a2*y2.
+    let coeffs = [0.2f32, 0.4, 0.2, 1.2, -0.4];
+    for f in [0.0f32, 0.01, 0.1, 0.25, 0.4] {
+        // freqz uses standard convention a = [1, -a1, -a2].
+        let h = freqz(&[0.2, 0.4, 0.2], &[1.0, -1.2, 0.4], f);
+        let expected = biquad_frequency_response(&coeffs, f);
+        assert!(
+            (h.real - expected.real).abs() < 1e-5 && (h.imag - expected.imag).abs() < 1e-5,
+            "f={f}: freqz={:?}, biquad={:?}",
+            Complex::new(h.real, h.imag),
+            expected
+        );
+    }
+
+    // DC gain of an all-pole filter: H(1) = 1/(1 - 1 + 0.5) = 2.
+    let h = freqz(&[1.0], &[1.0, -1.0, 0.5], 0.0);
+    assert!((h.real - 2.0).abs() < 1e-5, "DC gain was {h}", h = h.real);
+}
+
+#[test]
+fn test_int_pll_convergence() {
+    // Same convergence tests as idsp's `pll::tests`.
+    use core::num::Wrapping as W;
+    use embedded_dsp::synthesis::Accu;
+
+    let p = IntPll::from_bandwidth(5e-2, 4.0);
+    let mut s = IntPllState::default();
+    let a = Accu::<W<i32>>::new(W(0x0), W(0x71f63049));
+    let n = 1 << 9;
+    for (i, x) in a.take(n).enumerate() {
+        let y = p.process(&mut s, x.0);
+        if i > n / 2 {
+            assert!(
+                (a.step.0 + s.frequency()).abs() <= 1,
+                "frequency error at {i}"
+            );
+            assert!((x.0 + y).abs() <= 4, "phase error at {i}");
+        }
+    }
+
+    let p = IntPll::from_bandwidth(8e-5, 4.0);
+    let mut s = IntPllState::default();
+    let a = Accu::<W<i32>>::new(W(0x0), W(0x140_1235));
+    let n = 1 << 18;
+    for (i, x) in a.take(n).enumerate() {
+        let y = p.process(&mut s, x.0);
+        if i > n / 2 {
+            assert!(
+                (a.step.0 + s.frequency()).abs() <= 1 << 16,
+                "narrow frequency error at {i}"
+            );
+            assert!((x.0 + y).abs() <= 1 << 16, "narrow phase error at {i}");
+        }
+    }
+}
+
+#[test]
+fn test_clamp_wrap_semantics() {
+    // Positive-direction wrap clamps to MAX; the clamp is held on non-wrap
+    // samples and released by a wrap in the opposite direction.
+    let mut c = ClampWrap::default();
+    let pos_wrap = 0xcd6d9f69u32 as i32;
+    assert_eq!(c.process(0x71f63049), 0x71f63049); // no wrap
+    assert_eq!(c.process(pos_wrap), i32::MAX); // positive wrap -> MAX
+    assert_eq!(c.process(pos_wrap), i32::MAX); // clamp held on non-wrap
+    assert_eq!(c.process(0x71f63049), 0x71f63049); // opposite wrap releases
+}
+
+#[test]
+fn test_cossin_accuracy_idsp_spec() {
+    // idsp publishes < 4e-6 RMS per-quadrature over 20-bit phase; we measure
+    // the quadrature-magnitude error, which is ~sqrt(2)x larger.
+    const AMPLITUDE: f64 = (1i64 << 31) as f64 - 0.85 * (1i64 << 15) as f64;
+    const PHASE_DEPTH: usize = 20;
+    let mut rms = 0.0f64;
+    let mut max = 0.0f64;
+    for idx in 0..(1 << PHASE_DEPTH) {
+        let phase = idx << (32 - PHASE_DEPTH);
+        let (c, s) = cossin(phase);
+        let (c, s) = (c as f64 / AMPLITUDE, s as f64 / AMPLITUDE);
+        let rad = 2.0 * core::f64::consts::PI * (phase as u32 as f64) / (1u64 << 32) as f64;
+        let (sr, cr) = rad.sin_cos();
+        let e = ((c - cr).powi(2) + (s - sr).powi(2)).sqrt();
+        rms += e * e;
+        max = max.max(e);
+    }
+    rms = (rms / (1 << PHASE_DEPTH) as f64).sqrt();
+    assert!(rms < 6.0e-6, "cossin RMS error {rms:.3e} exceeds idsp spec");
+    assert!(max < 1.2e-5, "cossin max error {max:.3e} exceeds idsp spec");
+}
+
+#[test]
+fn test_atan2_accuracy_idsp_spec() {
+    // idsp publishes ~1.3e-6 rad RMS / 2.3e-6 rad max phase error.
+    // Start at i = 1 to avoid the exact -pi/+pi branch-cut ambiguity.
+    let n = 64_000;
+    let mut rms = 0.0f64;
+    let mut max = 0.0f64;
+    for i in 1..n {
+        let ang = (i as f64 / n as f64) * core::f64::consts::TAU - core::f64::consts::PI;
+        let (sr, cr) = ang.sin_cos();
+        let yi = (sr * (i32::MAX as f64)) as i32;
+        let xi = (cr * (i32::MAX as f64)) as i32;
+        let p = atan2_i32(yi, xi);
+        let e = p as f64 / (i32::MAX as f64) * core::f64::consts::PI - ang;
+        rms += e * e;
+        max = max.max(e.abs());
+    }
+    rms = (rms / (n - 1) as f64).sqrt();
+    assert!(
+        rms < 2.0e-6,
+        "atan2 RMS error {rms:.3e} rad exceeds idsp spec"
+    );
+    assert!(
+        max < 3.0e-6,
+        "atan2 max error {max:.3e} rad exceeds idsp spec"
+    );
+}
+
+#[test]
+fn test_pid_builder_matches_idsp_coefficients() {
+    // idsp's `iir::pid::test::pid` expected coefficients for the same input.
+    let ba = PidBuilder::new()
+        .gain(PidAction::I, 1e-3)
+        .gain(PidAction::P, 1.0)
+        .gain(PidAction::D, 1e2)
+        .limit_i(1e3)
+        .limit_d(1e1)
+        .coefficients(1.0);
+    let want = [9.181_909, -18.272_726, 9.090_908, 1.909_090_8, -0.909_090_8];
+    for (have, want) in ba.iter().zip(want.iter()) {
+        assert!(
+            (have / want - 1.0).abs() < 4.0 * f32::EPSILON,
+            "have {ba:?} != want {want:?}"
+        );
+    }
+}
+
+#[test]
+fn test_pid_builder_units_integration() {
+    // idsp's `iid::pid::test::units`: I-only controller integrates 1.0.
+    let tau = 3e-3f32;
+    let ki = 5e-2f32;
+    let c = PidBuilder::new().ki(ki).build(tau);
+    let mut state = DirectForm1::<f32>::new();
+    for i in 1..10 {
+        let y = c.process_df1(&mut state, 1.0);
+        let want = (i as f32) * tau * ki;
+        assert!(
+            (y / want - 1.0).abs() < 4.0 * f32::EPSILON,
+            "i={i}: have {y} != want {want}"
+        );
+    }
+}
+
+#[test]
+fn test_pid_builder_order_and_validation() {
+    // A pure proportional controller with order P is exactly a gain.
+    let ba = PidBuilder::new()
+        .order(PidOrder::P)
+        .kp(3.0)
+        .coefficients(1.0);
+    assert!((ba[0] - 3.0).abs() < 1e-6);
+    assert_eq!([ba[1], ba[2], ba[3], ba[4]], [0.0, 0.0, 0.0, 0.0]);
+
+    // Validation rejects bad periods, non-finite gains and sign mismatches.
+    assert_eq!(
+        PidBuilder::new().ki(1.0).validate(0.0),
+        Err(PidError::NonPositive("period"))
+    );
+    assert_eq!(
+        PidBuilder::new().kp(f32::INFINITY).validate(1.0),
+        Err(PidError::NonFinite("gain"))
+    );
+    assert_eq!(
+        PidBuilder::new().ki(1.0).limit_i(-1.0).validate(1.0),
+        Err(PidError::SignMismatch("gain/limit"))
+    );
+    assert!(
+        PidBuilder::new()
+            .ki(1.0)
+            .limit_i(1e3)
+            .try_build(1.0)
+            .is_ok()
+    );
+
+    // I² order exercises the double-integrator path (a2 term present).
+    let ba = PidBuilder::new()
+        .order(PidOrder::I2)
+        .ki2(1.0)
+        .limit_i2(10.0)
+        .coefficients(1.0);
+    assert!(ba[4].abs() > 0.0, "I2 order must produce an a2 term");
+}
+
+#[test]
+fn test_int_lowpass_dc_gain_and_nyquist_rejection() {
+    use embedded_dsp::filtering::IntLowpass;
+
+    // Corner frequency at 10% of Nyquist.
+    let k = (core::f64::consts::PI * 0.1 * (1u64 << 31) as f64) as i32;
+    let step = 1i32 << 24;
+
+    // First order: unity DC gain, finite Nyquist rejection.
+    let mut f1 = IntLowpass::<1>::new([k]);
+    let mut y = 0;
+    for _ in 0..200 {
+        y = f1.process(step);
+    }
+    assert!(
+        (y as f64 / step as f64 - 1.0).abs() < 1e-6,
+        "N=1 DC gain {y}"
+    );
+
+    let mut f1 = IntLowpass::<1>::new([k]);
+    let mut peak = 0i32;
+    for i in 0..200 {
+        let x = if i % 2 == 0 { step } else { -step };
+        peak = peak.max(f1.process(x).abs());
+    }
+    assert!(peak < step / 4, "N=1 Nyquist not rejected: {peak}");
+
+    // Second order Butterworth: k = [k_sq >> 32, -k / q], q = 1/sqrt(2).
+    let k_sq = ((k as i64 * k as i64) >> 32) as i32;
+    let q = core::f64::consts::FRAC_1_SQRT_2;
+    let k2 = [k_sq, (-(k as f64) / q) as i32];
+
+    let mut f2 = IntLowpass::<2>::new(k2);
+    let mut y = 0;
+    for _ in 0..200 {
+        y = f2.process(step);
+    }
+    assert!(
+        (y as f64 / step as f64 - 1.0).abs() < 1e-5,
+        "N=2 DC gain {y}"
+    );
+
+    let mut f2 = IntLowpass::<2>::new(k2);
+    let mut peak = 0i32;
+    for i in 0..200 {
+        let x = if i % 2 == 0 { step } else { -step };
+        peak = peak.max(f2.process(x).abs());
+    }
+    assert!(peak < step / 8, "N=2 Nyquist not rejected: {peak}");
+
+    // reset() clears the integrator state.
+    let mut f2 = IntLowpass::<2>::new(k2);
+    for _ in 0..50 {
+        f2.process(step);
+    }
+    f2.reset();
+    assert_eq!(f2.process(0), 0);
+    let mut f1 = IntLowpass::<1>::new([k]);
+    for _ in 0..50 {
+        f1.process(step);
+    }
+    f1.reset();
+    assert_eq!(f1.process(0), 0);
+}
+
+#[test]
+fn test_biquad_fixed_wide_accumulator() {
+    use embedded_dsp::filtering::{BiquadFixed, DirectForm1Wide};
+
+    const SHIFT: u32 = 30;
+    let scale = (1i64 << SHIFT) as f64;
+
+    // Identity biquad passes samples through (idsp's DirectForm1Wide doctest).
+    let identity = BiquadFixed::<SHIFT>::new([1 << SHIFT, 0, 0, 0, 0], i32::MIN, i32::MAX, 0);
+    let mut state = DirectForm1Wide::new();
+    assert_eq!(identity.process_wide(&mut state, 6), 6);
+    assert_eq!(identity.process_wide(&mut state, -7), -7);
+    state.reset();
+    assert_eq!(state, DirectForm1Wide::default());
+
+    // A stable lowpass biquad; the wide recursion must track the f64
+    // reference within one LSB.
+    let (nb, na) = ([0.2929f64, 0.5858, 0.2929], [-0.1716f64, 0.1716]);
+    let ba = [
+        (nb[0] * scale) as i32,
+        (nb[1] * scale) as i32,
+        (nb[2] * scale) as i32,
+        (na[0] * scale) as i32,
+        (na[1] * scale) as i32,
+    ];
+    let filter = BiquadFixed::<SHIFT>::new(ba, i32::MIN, i32::MAX, 0);
+    let mut state = DirectForm1Wide::new();
+    let (mut x1, mut x2, mut y1, mut y2) = (0.0f64, 0.0, 0.0, 0.0);
+    let mut sig: i32 = 12345;
+    let mut max_err = 0.0f64;
+    for _ in 0..500 {
+        sig = sig.wrapping_mul(1_103_515_245).wrapping_add(12345);
+        let x = (sig >> 8) & 0xffff;
+        let y = filter.process_wide(&mut state, x);
+        let y_ref = nb[0] * x as f64 + nb[1] * x1 + nb[2] * x2 + na[0] * y1 + na[1] * y2;
+        x2 = x1;
+        x1 = x as f64;
+        y2 = y1;
+        y1 = y_ref;
+        max_err = max_err.max((y as f64 - y_ref).abs());
+    }
+    assert!(max_err <= 1.0, "wide accumulator error {max_err}");
+}
+
+#[test]
+fn test_biquad_int_generic_widths() {
+    use embedded_dsp::filtering::{BiquadInt, BiquadIntSample, DirectForm1Int};
+
+    fn check_identity<T: BiquadIntSample + Default + core::fmt::Debug, const SHIFT: u32>(
+        one: T,
+        zero: T,
+    ) {
+        // ba = [1.0, 0, 0, 0, 0] passes samples through unchanged.
+        let filter =
+            BiquadInt::<T, SHIFT>::new([one, zero, zero, zero, zero], T::MIN, T::MAX, zero);
+        let mut state = DirectForm1Int::<T>::default();
+        assert_eq!(filter.process_df1(&mut state, one), one);
+        state.reset();
+        assert_eq!(state.xy, [zero; 4]);
+    }
+
+    check_identity::<i8, 6>(1 << 6, 0);
+    check_identity::<i16, 10>(1 << 10, 0);
+    check_identity::<i32, 12>(1 << 12, 0);
+    check_identity::<i64, 20>(1 << 20, 0);
+
+    // i16 leaky integrator: y = 0.25 x + 0.75 y1 (DC gain 1).
+    const SHIFT: u32 = 12;
+    let zero = 0i16;
+    let filter = BiquadInt::<i16, SHIFT>::new(
+        [1 << 10, zero, zero, 3 << 10, zero],
+        i16::MIN,
+        i16::MAX,
+        zero,
+    );
+    let mut state = DirectForm1Int::<i16>::default();
+    let x = 1000i16;
+    let mut y = 0i16;
+    for _ in 0..200 {
+        y = filter.process_df1(&mut state, x);
+    }
+    assert!((y as i32 - x as i32).abs() <= 3, "DC gain off: {y}");
+
+    // Output clamping saturates at the configured limits.
+    let clamp = BiquadInt::<i16, SHIFT>::new([1 << 12, zero, zero, zero, zero], -100, 100, zero);
+    let mut state = DirectForm1Int::<i16>::default();
+    assert_eq!(clamp.process_df1(&mut state, 1000), 100);
+    assert_eq!(clamp.process_df1(&mut state, -1000), -100);
 }

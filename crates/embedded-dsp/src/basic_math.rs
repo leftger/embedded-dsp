@@ -4,6 +4,7 @@ use crate::types::*;
 
 // --- Absolute Value ---
 
+/// Elementwise absolute value (`f32`) into `dst`.
 pub fn abs_f32(src: &[f32], dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -11,6 +12,7 @@ pub fn abs_f32(src: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Elementwise absolute value (`f64`) into `dst`.
 pub fn abs_f64(src: &[f64], dst: &mut [f64]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -18,6 +20,7 @@ pub fn abs_f64(src: &[f64], dst: &mut [f64]) {
     }
 }
 
+/// Elementwise absolute value (`q31`) into `dst`.
 pub fn abs_q31(src: &[q31], dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -25,6 +28,7 @@ pub fn abs_q31(src: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Elementwise absolute value (`q15`) into `dst`.
 pub fn abs_q15(src: &[q15], dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -32,6 +36,7 @@ pub fn abs_q15(src: &[q15], dst: &mut [q15]) {
     }
 }
 
+/// Elementwise absolute value (`q7`) into `dst`.
 pub fn abs_q7(src: &[q7], dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -41,6 +46,7 @@ pub fn abs_q7(src: &[q7], dst: &mut [q7]) {
 
 // --- Vector Addition ---
 
+/// Elementwise addition (`f32`) into `dst`.
 pub fn add_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -48,6 +54,7 @@ pub fn add_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Elementwise addition (`f64`) into `dst`.
 pub fn add_f64(src_a: &[f64], src_b: &[f64], dst: &mut [f64]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -55,6 +62,7 @@ pub fn add_f64(src_a: &[f64], src_b: &[f64], dst: &mut [f64]) {
     }
 }
 
+/// Elementwise addition (`q31`) into `dst`.
 pub fn add_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -62,10 +70,12 @@ pub fn add_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Elementwise addition (`q15`) into `dst`.
 pub fn add_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     crate::intrinsics::simd_add_q15(src_a, src_b, dst);
 }
 
+/// Elementwise addition (`q7`) into `dst`.
 pub fn add_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -75,6 +85,7 @@ pub fn add_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
 
 // --- Vector Subtraction ---
 
+/// Elementwise subtraction (`f32`) into `dst`.
 pub fn sub_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -82,6 +93,7 @@ pub fn sub_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Elementwise subtraction (`f64`) into `dst`.
 pub fn sub_f64(src_a: &[f64], src_b: &[f64], dst: &mut [f64]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -89,6 +101,7 @@ pub fn sub_f64(src_a: &[f64], src_b: &[f64], dst: &mut [f64]) {
     }
 }
 
+/// Elementwise subtraction (`q31`) into `dst`.
 pub fn sub_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -96,10 +109,12 @@ pub fn sub_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Elementwise subtraction (`q15`) into `dst`.
 pub fn sub_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     crate::intrinsics::simd_sub_q15(src_a, src_b, dst);
 }
 
+/// Elementwise subtraction (`q7`) into `dst`.
 pub fn sub_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -109,6 +124,7 @@ pub fn sub_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
 
 // --- Vector Multiplication ---
 
+/// Elementwise multiplication (`f32`) into `dst`.
 pub fn mult_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -116,6 +132,7 @@ pub fn mult_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Elementwise multiplication (`f64`) into `dst`.
 pub fn mult_f64(src_a: &[f64], src_b: &[f64], dst: &mut [f64]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -123,6 +140,7 @@ pub fn mult_f64(src_a: &[f64], src_b: &[f64], dst: &mut [f64]) {
     }
 }
 
+/// Elementwise multiplication (`q31`) into `dst`.
 pub fn mult_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -130,10 +148,12 @@ pub fn mult_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Elementwise multiplication (`q15`) into `dst`.
 pub fn mult_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     crate::intrinsics::simd_mult_q15(src_a, src_b, dst);
 }
 
+/// Elementwise multiplication (`q7`) into `dst`.
 pub fn mult_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -143,6 +163,7 @@ pub fn mult_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
 
 // --- Negate ---
 
+/// Negates each element (`f32`) into `dst`.
 pub fn negate_f32(src: &[f32], dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -150,6 +171,7 @@ pub fn negate_f32(src: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Negates each element (`f64`) into `dst`.
 pub fn negate_f64(src: &[f64], dst: &mut [f64]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -157,6 +179,7 @@ pub fn negate_f64(src: &[f64], dst: &mut [f64]) {
     }
 }
 
+/// Negates each element (`q31`) into `dst`.
 pub fn negate_q31(src: &[q31], dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -164,6 +187,7 @@ pub fn negate_q31(src: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Negates each element (`q15`) into `dst`.
 pub fn negate_q15(src: &[q15], dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -171,6 +195,7 @@ pub fn negate_q15(src: &[q15], dst: &mut [q15]) {
     }
 }
 
+/// Negates each element (`q7`) into `dst`.
 pub fn negate_q7(src: &[q7], dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -180,6 +205,7 @@ pub fn negate_q7(src: &[q7], dst: &mut [q7]) {
 
 // --- Offset ---
 
+/// Adds a constant offset to each element (`f32`) into `dst`.
 pub fn offset_f32(src: &[f32], offset: f32, dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -187,6 +213,7 @@ pub fn offset_f32(src: &[f32], offset: f32, dst: &mut [f32]) {
     }
 }
 
+/// Adds a constant offset to each element (`f64`) into `dst`.
 pub fn offset_f64(src: &[f64], offset: f64, dst: &mut [f64]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -194,6 +221,7 @@ pub fn offset_f64(src: &[f64], offset: f64, dst: &mut [f64]) {
     }
 }
 
+/// Adds a constant offset to each element (`q31`) into `dst`.
 pub fn offset_q31(src: &[q31], offset: q31, dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -201,6 +229,7 @@ pub fn offset_q31(src: &[q31], offset: q31, dst: &mut [q31]) {
     }
 }
 
+/// Adds a constant offset to each element (`q15`) into `dst`.
 pub fn offset_q15(src: &[q15], offset: q15, dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -208,6 +237,7 @@ pub fn offset_q15(src: &[q15], offset: q15, dst: &mut [q15]) {
     }
 }
 
+/// Adds a constant offset to each element (`q7`) into `dst`.
 pub fn offset_q7(src: &[q7], offset: q7, dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -217,6 +247,7 @@ pub fn offset_q7(src: &[q7], offset: q7, dst: &mut [q7]) {
 
 // --- Scale ---
 
+/// Scales each element (`f32`) into `dst`.
 pub fn scale_f32(src: &[f32], scale: f32, dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -224,6 +255,7 @@ pub fn scale_f32(src: &[f32], scale: f32, dst: &mut [f32]) {
     }
 }
 
+/// Scales each element (`f64`) into `dst`.
 pub fn scale_f64(src: &[f64], scale: f64, dst: &mut [f64]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -231,6 +263,7 @@ pub fn scale_f64(src: &[f64], scale: f64, dst: &mut [f64]) {
     }
 }
 
+/// Scales each element (`q31`) into `dst`.
 pub fn scale_q31(src: &[q31], scale_fract: q31, shift: i8, dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     let k_shift = 31 - shift;
@@ -246,6 +279,7 @@ pub fn scale_q31(src: &[q31], scale_fract: q31, shift: i8, dst: &mut [q31]) {
     }
 }
 
+/// Scales each element (`q15`) into `dst`.
 pub fn scale_q15(src: &[q15], scale_fract: q15, shift: i8, dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     let k_shift = 15 - shift;
@@ -261,6 +295,7 @@ pub fn scale_q15(src: &[q15], scale_fract: q15, shift: i8, dst: &mut [q15]) {
     }
 }
 
+/// Scales each element (`q7`) into `dst`.
 pub fn scale_q7(src: &[q7], scale_fract: q7, shift: i8, dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     let k_shift = 7 - shift;
@@ -278,6 +313,7 @@ pub fn scale_q7(src: &[q7], scale_fract: q7, shift: i8, dst: &mut [q7]) {
 
 // --- Shift ---
 
+/// Bit-shifts each element (`q31`) into `dst`.
 pub fn shift_q31(src: &[q31], shift_bits: i8, dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -292,6 +328,7 @@ pub fn shift_q31(src: &[q31], shift_bits: i8, dst: &mut [q31]) {
     }
 }
 
+/// Bit-shifts each element (`q15`) into `dst`.
 pub fn shift_q15(src: &[q15], shift_bits: i8, dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -306,6 +343,7 @@ pub fn shift_q15(src: &[q15], shift_bits: i8, dst: &mut [q15]) {
     }
 }
 
+/// Bit-shifts each element (`q7`) into `dst`.
 pub fn shift_q7(src: &[q7], shift_bits: i8, dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -322,6 +360,7 @@ pub fn shift_q7(src: &[q7], shift_bits: i8, dst: &mut [q7]) {
 
 // --- Dot Product ---
 
+/// Dot product (`f32`).
 pub fn dot_prod_f32(src_a: &[f32], src_b: &[f32]) -> f32 {
     let len = src_a.len().min(src_b.len());
     let mut sum = 0.0f32;
@@ -355,6 +394,7 @@ pub fn dot_prod_f32_compensated(src_a: &[f32], src_b: &[f32]) -> f32 {
     sum + c
 }
 
+/// Dot product (`f64`).
 pub fn dot_prod_f64(src_a: &[f64], src_b: &[f64]) -> f64 {
     let len = src_a.len().min(src_b.len());
     let mut sum = 0.0f64;
@@ -364,6 +404,7 @@ pub fn dot_prod_f64(src_a: &[f64], src_b: &[f64]) -> f64 {
     sum
 }
 
+/// Dot product (`q31`).
 pub fn dot_prod_q31(src_a: &[q31], src_b: &[q31]) -> q63 {
     let len = src_a.len().min(src_b.len());
     let mut sum: q63 = 0;
@@ -395,6 +436,7 @@ pub fn dot_prod_q31_saturated(src_a: &[q31], src_b: &[q31]) -> q31 {
     q31::from_bits(clamped)
 }
 
+/// Dot product (`q15`).
 pub fn dot_prod_q15(src_a: &[q15], src_b: &[q15]) -> q63 {
     crate::intrinsics::simd_dot_prod_q15(src_a, src_b)
 }
@@ -414,6 +456,7 @@ pub fn dot_prod_q15_saturated(src_a: &[q15], src_b: &[q15]) -> q15 {
     q15::from_bits(clamped)
 }
 
+/// Dot product (`q7`).
 pub fn dot_prod_q7(src_a: &[q7], src_b: &[q7]) -> q31 {
     let len = src_a.len().min(src_b.len());
     let mut sum = q31::ZERO;
@@ -742,6 +785,7 @@ pub fn poly_root_f32(coeffs: &[f32], x0: f32, max_iter: usize, tol: f32) -> Resu
 
 // --- Clip ---
 
+/// Clamps each element into the `[low, high]` range (`f32`) into `dst`.
 pub fn clip_f32(src: &[f32], low: f32, high: f32, dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -749,6 +793,7 @@ pub fn clip_f32(src: &[f32], low: f32, high: f32, dst: &mut [f32]) {
     }
 }
 
+/// Clamps each element into the `[low, high]` range (`q31`) into `dst`.
 pub fn clip_q31(src: &[q31], low: q31, high: q31, dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -756,6 +801,7 @@ pub fn clip_q31(src: &[q31], low: q31, high: q31, dst: &mut [q31]) {
     }
 }
 
+/// Clamps each element into the `[low, high]` range (`q15`) into `dst`.
 pub fn clip_q15(src: &[q15], low: q15, high: q15, dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -763,6 +809,7 @@ pub fn clip_q15(src: &[q15], low: q15, high: q15, dst: &mut [q15]) {
     }
 }
 
+/// Clamps each element into the `[low, high]` range (`q7`) into `dst`.
 pub fn clip_q7(src: &[q7], low: q7, high: q7, dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -772,6 +819,7 @@ pub fn clip_q7(src: &[q7], low: q7, high: q7, dst: &mut [q7]) {
 
 // --- Logic Operations ---
 
+/// Bitwise AND of two vectors (`u32`) into `dst`.
 pub fn and_u32(src_a: &[u32], src_b: &[u32], dst: &mut [u32]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -779,6 +827,7 @@ pub fn and_u32(src_a: &[u32], src_b: &[u32], dst: &mut [u32]) {
     }
 }
 
+/// Bitwise AND of two vectors (`u16`) into `dst`.
 pub fn and_u16(src_a: &[u16], src_b: &[u16], dst: &mut [u16]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -786,6 +835,7 @@ pub fn and_u16(src_a: &[u16], src_b: &[u16], dst: &mut [u16]) {
     }
 }
 
+/// Bitwise AND of two vectors (`u8`) into `dst`.
 pub fn and_u8(src_a: &[u8], src_b: &[u8], dst: &mut [u8]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -793,6 +843,7 @@ pub fn and_u8(src_a: &[u8], src_b: &[u8], dst: &mut [u8]) {
     }
 }
 
+/// Bitwise OR of two vectors (`u32`) into `dst`.
 pub fn or_u32(src_a: &[u32], src_b: &[u32], dst: &mut [u32]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -800,6 +851,7 @@ pub fn or_u32(src_a: &[u32], src_b: &[u32], dst: &mut [u32]) {
     }
 }
 
+/// Bitwise OR of two vectors (`u16`) into `dst`.
 pub fn or_u16(src_a: &[u16], src_b: &[u16], dst: &mut [u16]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -807,6 +859,7 @@ pub fn or_u16(src_a: &[u16], src_b: &[u16], dst: &mut [u16]) {
     }
 }
 
+/// Bitwise OR of two vectors (`u8`) into `dst`.
 pub fn or_u8(src_a: &[u8], src_b: &[u8], dst: &mut [u8]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -814,6 +867,7 @@ pub fn or_u8(src_a: &[u8], src_b: &[u8], dst: &mut [u8]) {
     }
 }
 
+/// Bitwise NOT of each element (`u32`) into `dst`.
 pub fn not_u32(src: &[u32], dst: &mut [u32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -821,6 +875,7 @@ pub fn not_u32(src: &[u32], dst: &mut [u32]) {
     }
 }
 
+/// Bitwise NOT of each element (`u16`) into `dst`.
 pub fn not_u16(src: &[u16], dst: &mut [u16]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -828,6 +883,7 @@ pub fn not_u16(src: &[u16], dst: &mut [u16]) {
     }
 }
 
+/// Bitwise NOT of each element (`u8`) into `dst`.
 pub fn not_u8(src: &[u8], dst: &mut [u8]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -835,6 +891,7 @@ pub fn not_u8(src: &[u8], dst: &mut [u8]) {
     }
 }
 
+/// Bitwise XOR of two vectors (`u32`) into `dst`.
 pub fn xor_u32(src_a: &[u32], src_b: &[u32], dst: &mut [u32]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -842,6 +899,7 @@ pub fn xor_u32(src_a: &[u32], src_b: &[u32], dst: &mut [u32]) {
     }
 }
 
+/// Bitwise XOR of two vectors (`u16`) into `dst`.
 pub fn xor_u16(src_a: &[u16], src_b: &[u16], dst: &mut [u16]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {
@@ -849,6 +907,7 @@ pub fn xor_u16(src_a: &[u16], src_b: &[u16], dst: &mut [u16]) {
     }
 }
 
+/// Bitwise XOR of two vectors (`u8`) into `dst`.
 pub fn xor_u8(src_a: &[u8], src_b: &[u8], dst: &mut [u8]) {
     let len = src_a.len().min(src_b.len()).min(dst.len());
     for i in 0..len {

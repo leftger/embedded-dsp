@@ -853,7 +853,7 @@ fn test_additional_coverage_branches() {
     // Iter 2: p(1.41666) = 0.00694. If tol = 1e-3: p < tol * 10 (0.01) triggers Ok after loop!
     let quad = [-2.0f32, 0.0, 1.0];
     let root_near = poly_root_f32(&quad, 1.0, 2, 1e-3).unwrap();
-    assert!((root_near - 1.4142).abs() < 0.01);
+    assert!((root_near - core::f32::consts::SQRT_2).abs() < 0.01);
 
     // 4. Wavelet length limits (m > 1024)
     let h_daub = [0.4829629f32, 0.8365163, 0.22414386, -0.12940952];

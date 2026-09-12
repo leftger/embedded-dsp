@@ -2,16 +2,27 @@
 
 /// Floating-point math trait providing `sin`, `cos`, `sqrt`, `ln`, `exp`, `atan2`, `powf`, `tanh`, `abs`.
 pub trait FloatMath: Sized {
+    /// Elementwise absolute value.
     fn abs(self) -> Self;
+    /// Sin.
     fn sin(self) -> Self;
+    /// Cos.
     fn cos(self) -> Self;
+    /// Tan.
     fn tan(self) -> Self;
+    /// Sqrt.
     fn sqrt(self) -> Self;
+    /// Ln.
     fn ln(self) -> Self;
+    /// Log10.
     fn log10(self) -> Self;
+    /// Exp.
     fn exp(self) -> Self;
+    /// Atan2.
     fn atan2(self, x: Self) -> Self;
+    /// Powf.
     fn powf(self, n: Self) -> Self;
+    /// Tanh.
     fn tanh(self) -> Self;
 }
 
@@ -418,7 +429,7 @@ pub fn isqrt_u32(n: u32) -> u32 {
         return n;
     }
     let mut x = n;
-    let mut y = (x + 1) / 2;
+    let mut y = x.div_ceil(2);
     while y < x {
         x = y;
         y = x.saturating_add(n / x) / 2;
@@ -433,7 +444,7 @@ pub fn isqrt_u64(n: u64) -> u64 {
         return n;
     }
     let mut x = n;
-    let mut y = (x + 1) / 2;
+    let mut y = x.div_ceil(2);
     while y < x {
         x = y;
         y = x.saturating_add(n / x) / 2;
