@@ -31,10 +31,17 @@ if [[ ! -f "$workflow" ]]; then
 fi
 
 # ── Configuration mirrored from the workflow ────────────────────────────────
-# MSRV is read from the workflow's `env:` block so the two cannot drift apart.
+# MSRV and the coverage floor are read from the workflow's `env:` block so the
+# two cannot drift apart.
 MSRV="$(sed -n 's/^[[:space:]]*MSRV:[[:space:]]*"\?\([0-9.]*\)"\?[[:space:]]*$/\1/p' "$workflow" | head -1)"
 if [[ -z "$MSRV" ]]; then
   echo "error: could not read MSRV from $workflow" >&2
+  exit 1
+fi
+
+COVERAGE_MIN="$(sed -n 's/^[[:space:]]*COVERAGE_MIN:[[:space:]]*"\?\([0-9.]*\)"\?[[:space:]]*$/\1/p' "$workflow" | head -1)"
+if [[ -z "$COVERAGE_MIN" ]]; then
+  echo "error: could not read COVERAGE_MIN from $workflow" >&2
   exit 1
 fi
 
@@ -232,7 +239,24 @@ job_coverage() {
   "${CARGO[@]}" llvm-cov --no-report -p embedded-dsp --all-features || return 1
   "${CARGO[@]}" llvm-cov --no-report -p embedded-dsp \
     --no-default-features --features full,libm || return 1
-  "${CARGO[@]}" llvm-cov report --summary-only | tail -n 12
+
+  local summary pct
+  summary="$("${CARGO[@]}" llvm-cov report --summary-only)" || return 1
+  echo "$summary" | tail -n 12
+
+  # Same floor as the workflow's "Enforce coverage floor" step.
+  pct="$(echo "$summary" | awk '$1 == "TOTAL" { gsub(/%/, "", $10); print $10 }')"
+  if [[ -z "$pct" ]]; then
+    echo "could not read the coverage total" >&2
+    return 1
+  fi
+  echo "library line coverage: ${pct}% (floor: ${COVERAGE_MIN}%)"
+  awk -v pct="$pct" -v min="$COVERAGE_MIN" 'BEGIN {
+    if (pct + 0 < min + 0) {
+      printf "coverage %.2f%% is below the %.2f%% floor\n", pct, min
+      exit 1
+    }
+  }'
 }
 
 job_bench() {

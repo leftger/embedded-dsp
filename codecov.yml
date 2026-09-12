@@ -17,12 +17,19 @@ coverage:
   status:
     project:
       default:
-        # Enforce the library floor rather than the previous `auto` (which only
+        # Target the library floor rather than the previous `auto` (which only
         # compared against the base commit and allowed a 1% dip every time).
-        # `threshold` is the permitted shortfall, so this fails below 94.5%.
-        # The half-point of slack absorbs runner-level noise: coverage-mapping
-        # differences between llvm-cov builds make #[inline(always)] functions
-        # report as unexecuted on CI, which costs ~0.3 points versus a local run.
+        # `threshold` is the permitted shortfall, so this reports failure below
+        # 94.5%. The half-point of slack absorbs runner-level noise:
+        # coverage-mapping differences between llvm-cov builds make
+        # #[inline(always)] functions report as unexecuted on CI, which costs
+        # ~0.3 points versus an identical local run.
+        #
+        # NOTE: this is currently advisory only. The Codecov GitHub App is not
+        # installed on this repository, so no codecov/* status check is posted
+        # and a drop cannot block a merge. The enforcing gate is the "Enforce
+        # coverage floor" step in .github/workflows/ci.yml, driven by the
+        # COVERAGE_MIN env var; keep the two values in sync.
         #
         # Ceiling note: ~92 lines (transform.rs twiddle tables, fast_math.rs
         # CORDIC table, lut.rs) are `const fn`s evaluated only at compile time,
