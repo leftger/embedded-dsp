@@ -2,8 +2,11 @@ use core::f32::consts::PI;
 use embedded_dsp::controller::PidBuilder;
 use embedded_dsp::fast_math::{Unwrapper, atan2_i32, cossin, cossin_f32, fast_atan2_f32};
 use embedded_dsp::filtering::{DirectForm1, Lockin, LockinAmplifier, NormalForm, NormalFormState};
-use embedded_dsp::pipeline::SplitProcess;
-use embedded_dsp::resampling::{HbfDec, HbfDecCascade, HbfInt};
+use embedded_dsp::pipeline::{SplitInplace, SplitProcess};
+use embedded_dsp::resampling::{
+    EvenSymmetric, HbfDec, HbfDecCascade, HbfInt, HbfIntCascade, OddSymmetric,
+    hbf_dec_response_length, hbf_int_response_length,
+};
 use embedded_dsp::synthesis::{Accu, AccuOsc, Sweep};
 use embedded_dsp::types::Complex;
 
@@ -338,4 +341,82 @@ fn test_accu_wrapping_and_algebra() {
     assert_eq!((sum.state, sum.step), (Wrapping(4), Wrapping(6)));
     let diff = b - a;
     assert_eq!((diff.state, diff.step), (Wrapping(2), Wrapping(2)));
+}
+
+#[test]
+fn test_linear_phase_fir_impulse_responses() {
+    // Type I (odd symmetric, center = 1): taps [0.5, 1, 0.5]
+    let fir = OddSymmetric([0.5f32]);
+    let mut state = [0.0f32; 8];
+    let x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    let mut y = [0.0f32; 6];
+    fir.block(&mut state, &x, &mut y);
+    assert_eq!(y[..3], [0.5, 1.0, 0.5]);
+    assert_eq!(y[3..], [0.0, 0.0, 0.0]);
+
+    // Type II (even symmetric, no center): taps [0.25, 0.5, 0.5, 0.25]
+    let fir = EvenSymmetric([0.25f32, 0.5]);
+    let mut state = [0.0f32; 8];
+    let mut y = [0.0f32; 5];
+    fir.block(&mut state, &x, &mut y);
+    assert_eq!(y[..4], [0.25, 0.5, 0.5, 0.25]);
+    assert_eq!(y[4], 0.0);
+
+    // In-place path must agree with the out-of-place path.
+    let fir = OddSymmetric([0.5f32]);
+    let mut state = [0.0f32; 8];
+    let mut xy = x;
+    fir.inplace(&mut state, &mut xy);
+    assert_eq!(xy[..3], [0.5, 1.0, 0.5]);
+}
+
+#[test]
+fn test_hbf_response_lengths() {
+    // 140 dB cascade, depth 3 (rate change 8).
+    assert_eq!(hbf_dec_response_length(3), 29);
+    assert_eq!(hbf_int_response_length(3), 234);
+    assert_eq!(hbf_dec_response_length(0), 0);
+    assert_eq!(hbf_int_response_length(0), 0);
+}
+
+#[test]
+fn test_hbf_interpolator_cascade_dc() {
+    // Interpolate a DC signal by 8 and check settled passband gain is unity.
+    let mut cascade = HbfIntCascade::<3>::new();
+    let src = [1.0f32; 64];
+    let mut dst = [0.0f32; 512];
+    cascade.process(&src, &mut dst);
+    // The M=23 first stage needs its full state to fill before settling.
+    assert!(dst[480..512].iter().all(|&y| (y - 1.0).abs() < 1e-3));
+}
+
+#[test]
+fn test_hbf_decimator_cascade_stopband() {
+    // Cascade depth 3: fs_low = fs_high / 8.
+    let mut cascade = HbfDecCascade::<3>::new();
+    let n_low = 64usize;
+    let mut src = [0.0f32; 512];
+    let mut dst = [0.0f32; 64];
+
+    // Passband tone at 0.1 * fs_low: amplitude 1 -> RMS ~0.707 after settling.
+    for i in 0..512 {
+        src[i] = (2.0 * PI * 0.1 / 8.0 * i as f32).sin();
+    }
+    cascade.process(&src, &mut dst);
+    let rms: f32 = dst[32..n_low].iter().map(|&v| v * v).sum::<f32>() / (n_low - 32) as f32;
+    let rms = rms.sqrt();
+    assert!(
+        (rms - 1.0 / 2.0f32.sqrt()).abs() < 0.02,
+        "passband tone RMS should be ~0.707, got {rms}"
+    );
+
+    // Stopband tone at 0.9 * fs_low must be rejected by > 140 dB.
+    for i in 0..512 {
+        src[i] = (2.0 * PI * 0.9 / 8.0 * i as f32).sin();
+    }
+    cascade.reset();
+    cascade.process(&src, &mut dst);
+    let rms: f32 = dst[32..n_low].iter().map(|&v| v * v).sum::<f32>() / (n_low - 32) as f32;
+    let rms = rms.sqrt();
+    assert!(rms < 1e-4, "stopband tone must be rejected, RMS was {rms}");
 }

@@ -481,53 +481,262 @@ pub fn spectral_interpolate_2x_f32(src: &[f32], dst: &mut [f32]) -> Status {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Half-Band FIR Decimation & Interpolation Filters (HbfDec & HbfInt)
+// Half-Band FIR Decimation & Interpolation Filters
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Optimal known-good half-band filter coefficients for power-of-2 rate change cascades.
+/// Internal linear-phase FIR convolution with `M` one-sided taps.
 ///
-/// Stage 0 (highest rate, transition width 0.47 fs) to Stage 4 (relaxed narrow transition).
-pub const HBF_CASCADE_COEFFS: [&[f32]; 5] = [
-    // Stage 0: 6 symmetric taps (23-tap filter)
-    &[
-        -0.00086943, 0.00577837, -0.02201674, 0.06357869, -0.16627679, 0.61979312,
-    ],
-    // Stage 1: 3 symmetric taps (11-tap filter)
-    &[
-        0.01414651, -0.10439639, 0.59026742,
-    ],
-    // Stage 2: 3 symmetric taps (11-tap filter)
-    &[
-        0.01227974, -0.09930782, 0.58702834,
-    ],
-    // Stage 3: 2 symmetric taps (7-tap filter)
-    &[
-        -0.06291796, 0.5629161,
-    ],
-    // Stage 4: 2 symmetric taps (7-tap filter)
-    &[
-        -0.0625, 0.5625,
-    ],
-];
+/// The full impulse response is `2*M + ODD` taps long:
+/// `[c0, ..., c_{M-1}, (center), ±c_{M-1}, ..., ±c0]` where the center tap is
+/// `1` for [`OddSymmetric`], `0` for [`OddAntiSymmetric`] and absent for the
+/// even-length [`EvenSymmetric`]/[`EvenAntiSymmetric`] types.
+#[inline]
+fn fir_convolve<C: Copy, T, const M: usize, const ODD: bool, const SYM: bool>(
+    c: &[C; M],
+    x: &[T],
+    out: &mut [T],
+) where
+    T: Copy
+        + Default
+        + core::ops::Add<Output = T>
+        + core::ops::Sub<Output = T>
+        + core::ops::Mul<C, Output = T>,
+{
+    let win = 2 * M + ODD as usize;
+    for (i, y) in out.iter_mut().enumerate() {
+        let mut acc = T::default();
+        for k in 0..M {
+            let old = x[i + k];
+            let new = x[i + win - 1 - k];
+            let pair = if SYM { new + old } else { new - old };
+            acc = acc + pair * c[k];
+        }
+        if ODD && SYM {
+            acc = acc + x[i + M];
+        }
+        *y = acc;
+    }
+}
+
+macro_rules! linear_phase_fir {
+    ($name:ident, $odd:literal, $sym:literal, $doc:literal) => {
+        #[doc = $doc]
+        #[derive(Clone, Copy, Debug, Default)]
+        #[repr(transparent)]
+        pub struct $name<C>(pub C);
+
+        impl<C, const M: usize> $name<[C; M]> {
+            /// Response length: number of taps minus one.
+            pub const LEN: usize = 2 * M - 1 + $odd as usize;
+        }
+
+        impl<C: Copy, T, const M: usize, const N: usize> crate::pipeline::SplitProcess<T, T, [T; N]>
+            for $name<[C; M]>
+        where
+            T: Copy
+                + Default
+                + core::ops::Sub<Output = T>
+                + core::ops::Add<Output = T>
+                + core::ops::Mul<C, Output = T>,
+        {
+            fn process(&self, state: &mut [T; N], x: T) -> T {
+                let mut y = T::default();
+                self.block(state, core::slice::from_ref(&x), core::slice::from_mut(&mut y));
+                y
+            }
+
+            fn block(&self, state: &mut [T; N], x: &[T], y: &mut [T]) {
+                const { assert!(N > 2 * M - 1 + $odd as usize) };
+                let chunk = N - (2 * M - 1 + $odd as usize);
+                for (x, y) in x.chunks(chunk).zip(y.chunks_mut(chunk)) {
+                    state[Self::LEN..Self::LEN + x.len()].copy_from_slice(x);
+                    fir_convolve::<C, T, M, $odd, $sym>(&self.0, state, y);
+                    state.copy_within(x.len()..x.len() + Self::LEN, 0);
+                }
+            }
+        }
+
+        impl<C: Copy, T, const M: usize, const N: usize> crate::pipeline::SplitInplace<T, [T; N]>
+            for $name<[C; M]>
+        where
+            T: Copy
+                + Default
+                + core::ops::Sub<Output = T>
+                + core::ops::Add<Output = T>
+                + core::ops::Mul<C, Output = T>,
+        {
+            fn inplace(&self, state: &mut [T; N], xy: &mut [T]) {
+                const { assert!(N > 2 * M - 1 + $odd as usize) };
+                let chunk = N - (2 * M - 1 + $odd as usize);
+                for xy in xy.chunks_mut(chunk) {
+                    state[Self::LEN..Self::LEN + xy.len()].copy_from_slice(xy);
+                    fir_convolve::<C, T, M, $odd, $sym>(&self.0, state, xy);
+                    state.copy_within(xy.len()..xy.len() + Self::LEN, 0);
+                }
+            }
+        }
+    };
+}
+
+// Type I: odd length, symmetric, unity center tap.
+linear_phase_fir!(
+    OddSymmetric,
+    true,
+    true,
+    "Linear-phase FIR, type I: odd length, symmetric, unity center tap."
+);
+// Type II: even length, symmetric, no center tap.
+linear_phase_fir!(
+    EvenSymmetric,
+    false,
+    true,
+    "Linear-phase FIR, type II: even length, symmetric, no center tap."
+);
+// Type III: odd length, antisymmetric, zero center tap.
+linear_phase_fir!(
+    OddAntiSymmetric,
+    true,
+    false,
+    "Linear-phase FIR, type III: odd length, antisymmetric, zero center tap."
+);
+// Type IV: even length, antisymmetric, no center tap.
+linear_phase_fir!(
+    EvenAntiSymmetric,
+    false,
+    false,
+    "Linear-phase FIR, type IV: even length, antisymmetric, no center tap."
+);
+
+/// One-sided taps of the 140 dB half-band cascade.
+///
+/// Index `0` is the **lowest** rate stage (most taps, narrowest transition);
+/// index `4` is the **highest** rate stage. Obtained with
+/// `signal.remez(2*n, bands=(0, .4, .5, .5), desired=(1, 0), fs=1)`.
+/// Stopband attenuation > 140 dB (f32 dynamic range limited), passband
+/// ripple < 0.2 µB, rate changes up to 2⁵ = 32.
+#[allow(clippy::excessive_precision)]
+pub const HBF_TAPS: (
+    EvenSymmetric<[f32; 23]>,
+    EvenSymmetric<[f32; 10]>,
+    EvenSymmetric<[f32; 5]>,
+    EvenSymmetric<[f32; 4]>,
+    EvenSymmetric<[f32; 3]>,
+) = (
+    EvenSymmetric([
+        7.60375795e-07,
+        -3.77494111e-06,
+        1.26458559e-05,
+        -3.43188253e-05,
+        8.10687478e-05,
+        -1.72971467e-04,
+        3.40845059e-04,
+        -6.29522864e-04,
+        1.10128831e-03,
+        -1.83933299e-03,
+        2.95124926e-03,
+        -4.57290964e-03,
+        6.87374176e-03,
+        -1.00656257e-02,
+        1.44199840e-02,
+        -2.03025100e-02,
+        2.82462332e-02,
+        -3.91128509e-02,
+        5.44795658e-02,
+        -7.77002672e-02,
+        1.17523452e-01,
+        -2.06185388e-01,
+        6.34588695e-01,
+    ]),
+    EvenSymmetric([
+        -1.12811343e-05,
+        1.12724671e-04,
+        -6.07439343e-04,
+        2.31904511e-03,
+        -7.00322950e-03,
+        1.78225473e-02,
+        -4.01209836e-02,
+        8.43315989e-02,
+        -1.83189521e-01,
+        6.26346521e-01,
+    ]),
+    EvenSymmetric([
+        0.0007686,
+        -0.00768669,
+        0.0386536,
+        -0.14002434,
+        0.60828885,
+    ]),
+    EvenSymmetric([-0.00261331, 0.02476858, -0.12112638, 0.59897111]),
+    EvenSymmetric([0.01186105, -0.09808109, 0.58622005]),
+);
+
+/// One-sided taps of the 98 dB half-band cascade.
+///
+/// Same ordering and properties as [`HBF_TAPS`]: > 98 dB stopband attenuation
+/// (> 16 bit), < 0.001 dB passband ripple, 0.4 passband, rate changes up to 32.
+#[allow(clippy::excessive_precision)]
+pub const HBF_TAPS_98: (
+    EvenSymmetric<[f32; 15]>,
+    EvenSymmetric<[f32; 6]>,
+    EvenSymmetric<[f32; 3]>,
+    EvenSymmetric<[f32; 3]>,
+    EvenSymmetric<[f32; 2]>,
+) = (
+    EvenSymmetric([
+        7.02144012e-05,
+        -2.43279582e-04,
+        6.35026936e-04,
+        -1.39782541e-03,
+        2.74613582e-03,
+        -4.96403839e-03,
+        8.41806912e-03,
+        -1.35827601e-02,
+        2.11004053e-02,
+        -3.19267647e-02,
+        4.77024289e-02,
+        -7.18014345e-02,
+        1.12942004e-01,
+        -2.03279594e-01,
+        6.33592923e-01,
+    ]),
+    EvenSymmetric([
+        -0.00086943,
+        0.00577837,
+        -0.02201674,
+        0.06357869,
+        -0.16627679,
+        0.61979312,
+    ]),
+    EvenSymmetric([0.01414651, -0.10439639, 0.59026742]),
+    EvenSymmetric([0.01227974, -0.09930782, 0.58702834]),
+    EvenSymmetric([-0.06291796, 0.5629161]),
+);
+
+/// Passband width of the half-band cascades in units of the lowest sample rate.
+pub const HBF_PASSBAND: f32 = 0.4;
+
+/// Heuristically good cascade block size.
+pub const HBF_CASCADE_BLOCK: usize = 1 << 5;
 
 /// Single-stage half-band decimation filter (decimate by 2).
 ///
-/// Exploits the half-band symmetry property (all even taps except center are zero)
-/// to reduce multiplications by ~75% compared to a conventional direct-form FIR filter.
-/// `M` is the number of symmetric tap pairs; effective filter tap length is `4*M - 1`.
+/// Exploits the half-band symmetry property (all even taps except the center are
+/// zero) to reduce multiplications by ~75% compared to a conventional direct-form
+/// FIR filter. `M` is the number of one-sided symmetric taps; the effective filter
+/// tap length is `4*M - 1`. Per-stage DC gain is unity.
 #[derive(Clone, Debug)]
 pub struct HbfDec<const M: usize> {
     coeffs: [f32; M],
-    state: [f32; 32],
+    state: [f32; 96],
 }
 
 impl<const M: usize> HbfDec<M> {
     /// Create a new half-band decimator from symmetric tap coefficients.
     pub const fn new(coeffs: [f32; M]) -> Self {
-        assert!(M <= 8, "M must be <= 8 for 32-element state");
+        assert!(M <= 23, "M must be <= 23 for the built-in 96-sample state");
         Self {
             coeffs,
-            state: [0.0; 32],
+            state: [0.0; 96],
         }
     }
 
@@ -544,16 +753,14 @@ impl<const M: usize> HbfDec<M> {
         let state_len = 4 * M;
 
         for i in 0..n_out {
-            // Shift state by 2 samples and ingest 2 new input samples
+            // Shift state by 2 samples and ingest 2 new input samples.
             self.state.copy_within(2..state_len, 0);
             self.state[state_len - 2] = src[2 * i];
             self.state[state_len - 1] = src[2 * i + 1];
 
-            // Center tap and odd symmetric taps
+            // Unity center tap plus folded symmetric odd taps.
             let center = self.state[2 * M - 1];
             let mut acc = center;
-
-            // Fold symmetric pairs before multiplication: h[k] * (x[2k] + x[4M - 2 - 2k])
             for k in 0..M {
                 let s_left = self.state[2 * k];
                 let s_right = self.state[4 * M - 2 - 2 * k];
@@ -567,21 +774,21 @@ impl<const M: usize> HbfDec<M> {
 
 /// Single-stage half-band interpolation filter (interpolate by 2).
 ///
-/// Upsamples input by inserting zeros and filtering with symmetric half-band coefficients.
-/// `dst.len()` must be twice `src.len()`.
+/// Upsamples input by inserting zeros and filtering with symmetric half-band
+/// coefficients. `dst.len()` must be twice `src.len()`. Per-stage DC gain is unity.
 #[derive(Clone, Debug)]
 pub struct HbfInt<const M: usize> {
     coeffs: [f32; M],
-    state: [f32; 32],
+    state: [f32; 48],
 }
 
 impl<const M: usize> HbfInt<M> {
     /// Create a new half-band interpolator from symmetric tap coefficients.
     pub const fn new(coeffs: [f32; M]) -> Self {
-        assert!(M <= 16, "M must be <= 16 for 32-element state");
+        assert!(M <= 23, "M must be <= 23 for the built-in 48-sample state");
         Self {
             coeffs,
-            state: [0.0; 32],
+            state: [0.0; 48],
         }
     }
 
@@ -596,14 +803,14 @@ impl<const M: usize> HbfInt<M> {
         let state_len = 2 * M;
 
         for i in 0..n_in {
-            // Shift state by 1 and insert new sample
+            // Shift state by 1 and insert new sample.
             self.state.copy_within(1..state_len, 0);
             self.state[state_len - 1] = src[i];
 
-            // Even output sample: passes through direct center sample
+            // Even output sample: direct center path.
             dst[2 * i] = self.state[M];
 
-            // Odd output sample: filtered interpolation tap sum
+            // Odd output sample: filtered interpolation tap sum.
             let mut acc = 0.0f32;
             for k in 0..M {
                 let s_left = self.state[k];
@@ -615,17 +822,75 @@ impl<const M: usize> HbfInt<M> {
     }
 }
 
-/// Multi-stage cascaded half-band decimation filter.
+/// Effective impulse response length (in low-rate samples) of a [`HbfDecCascade`]
+/// with `depth` stages and the 140 dB [`HBF_TAPS`].
+pub const fn hbf_dec_response_length(depth: usize) -> usize {
+    assert!(depth <= 5);
+    let mut n = 0;
+    if depth > 4 {
+        n /= 2;
+        n += HBF_TAPS.4.0.len();
+    }
+    if depth > 3 {
+        n /= 2;
+        n += HBF_TAPS.3.0.len();
+    }
+    if depth > 2 {
+        n /= 2;
+        n += HBF_TAPS.2.0.len();
+    }
+    if depth > 1 {
+        n /= 2;
+        n += HBF_TAPS.1.0.len();
+    }
+    if depth > 0 {
+        n /= 2;
+        n += HBF_TAPS.0.0.len();
+    }
+    n
+}
+
+/// Effective impulse response length (in low-rate samples) of a [`HbfIntCascade`]
+/// with `depth` stages and the 140 dB [`HBF_TAPS`].
+pub const fn hbf_int_response_length(depth: usize) -> usize {
+    assert!(depth <= 5);
+    let mut n = 0;
+    if depth > 0 {
+        n += HBF_TAPS.0.0.len();
+        n *= 2;
+    }
+    if depth > 1 {
+        n += HBF_TAPS.1.0.len();
+        n *= 2;
+    }
+    if depth > 2 {
+        n += HBF_TAPS.2.0.len();
+        n *= 2;
+    }
+    if depth > 3 {
+        n += HBF_TAPS.3.0.len();
+        n *= 2;
+    }
+    if depth > 4 {
+        n += HBF_TAPS.4.0.len();
+        n *= 2;
+    }
+    n
+}
+
+/// Multi-stage cascaded half-band decimation filter (140 dB taps).
 ///
-/// Decimates by `2^STAGES` (e.g. STAGES=1 => 2x, STAGES=2 => 4x, STAGES=3 => 8x, STAGES=4 => 16x, STAGES=5 => 32x)
-/// using optimal staged coefficients with progressively relaxed transition bands.
+/// Decimates by `2^STAGES` (STAGES = 1..=5 → 2x..32x) using optimal staged
+/// coefficients: the highest-rate stage has the fewest taps and each lower-rate
+/// stage uses progressively more taps. Processes arbitrarily long blocks with
+/// fixed-size stack scratch buffers.
 #[derive(Clone, Debug)]
 pub struct HbfDecCascade<const STAGES: usize> {
-    stage0: HbfDec<6>,
-    stage1: HbfDec<3>,
-    stage2: HbfDec<3>,
-    stage3: HbfDec<2>,
-    stage4: HbfDec<2>,
+    stage0: HbfDec<3>,  // highest rate
+    stage1: HbfDec<4>,
+    stage2: HbfDec<5>,
+    stage3: HbfDec<10>,
+    stage4: HbfDec<23>, // lowest rate
 }
 
 impl<const STAGES: usize> Default for HbfDecCascade<STAGES> {
@@ -639,21 +904,11 @@ impl<const STAGES: usize> HbfDecCascade<STAGES> {
     pub fn new() -> Self {
         const { assert!(STAGES >= 1 && STAGES <= 5, "STAGES must be between 1 and 5") };
         Self {
-            stage0: HbfDec::new([
-                -0.00086943, 0.00577837, -0.02201674, 0.06357869, -0.16627679, 0.61979312,
-            ]),
-            stage1: HbfDec::new([
-                0.01414651, -0.10439639, 0.59026742,
-            ]),
-            stage2: HbfDec::new([
-                0.01227974, -0.09930782, 0.58702834,
-            ]),
-            stage3: HbfDec::new([
-                -0.06291796, 0.5629161,
-            ]),
-            stage4: HbfDec::new([
-                -0.0625, 0.5625,
-            ]),
+            stage0: HbfDec::new(HBF_TAPS.4.0),
+            stage1: HbfDec::new(HBF_TAPS.3.0),
+            stage2: HbfDec::new(HBF_TAPS.2.0),
+            stage3: HbfDec::new(HBF_TAPS.1.0),
+            stage4: HbfDec::new(HBF_TAPS.0.0),
         }
     }
 
@@ -668,49 +923,156 @@ impl<const STAGES: usize> HbfDecCascade<STAGES> {
 
     /// Decimate input slice `src` into `dst`. `src.len()` must be `(1 << STAGES) * dst.len()`.
     pub fn process(&mut self, src: &[f32], dst: &mut [f32]) {
-        let dec_factor = 1 << STAGES;
-        let n_out = dst.len().min(src.len() / dec_factor);
-        if n_out == 0 {
-            return;
+        let dec = 1 << STAGES;
+        let n_out = dst.len().min(src.len() / dec);
+        const CHUNK: usize = 64; // low-rate outputs per pass
+        let mut b0 = [0.0f32; 1024]; // after stage 0 (16 * CHUNK)
+        let mut b1 = [0.0f32; 512];
+        let mut b2 = [0.0f32; 256];
+        let mut b3 = [0.0f32; 128];
+        let mut b4 = [0.0f32; 64];
+
+        for (i_out, out_chunk) in dst[..n_out].chunks_mut(CHUNK).enumerate() {
+            let chunk = out_chunk.len();
+            let len1 = chunk * (1 << (STAGES - 1));
+            let base = i_out * CHUNK * dec;
+            self.stage0.process(&src[base..base + len1 * 2], &mut b0[..len1]);
+            if STAGES == 1 {
+                out_chunk.copy_from_slice(&b0[..chunk]);
+                continue;
+            }
+
+            let len2 = chunk * (1 << (STAGES - 2));
+            self.stage1.process(&b0[..len1], &mut b1[..len2]);
+            if STAGES == 2 {
+                out_chunk.copy_from_slice(&b1[..chunk]);
+                continue;
+            }
+
+            let len3 = chunk * (1 << (STAGES - 3));
+            self.stage2.process(&b1[..len2], &mut b2[..len3]);
+            if STAGES == 3 {
+                out_chunk.copy_from_slice(&b2[..chunk]);
+                continue;
+            }
+
+            let len4 = chunk * (1 << (STAGES - 4));
+            self.stage3.process(&b2[..len3], &mut b3[..len4]);
+            if STAGES == 4 {
+                out_chunk.copy_from_slice(&b3[..chunk]);
+                continue;
+            }
+
+            self.stage4.process(&b3[..len4], &mut b4[..chunk]);
+            out_chunk.copy_from_slice(&b4[..chunk]);
         }
-
-        // Ping-pong scratch buffers on stack (up to 1024 samples)
-        let mut buf_a = [0.0f32; 1024];
-        let mut buf_b = [0.0f32; 1024];
-
-        let len1 = n_out * (1 << (STAGES - 1));
-        self.stage0.process(&src[..len1 * 2], &mut buf_a[..len1]);
-
-        if STAGES == 1 {
-            dst[..n_out].copy_from_slice(&buf_a[..n_out]);
-            return;
-        }
-
-        let len2 = n_out * (1 << (STAGES - 2));
-        self.stage1.process(&buf_a[..len1], &mut buf_b[..len2]);
-
-        if STAGES == 2 {
-            dst[..n_out].copy_from_slice(&buf_b[..n_out]);
-            return;
-        }
-
-        let len3 = n_out * (1 << (STAGES - 3));
-        self.stage2.process(&buf_b[..len2], &mut buf_a[..len3]);
-
-        if STAGES == 3 {
-            dst[..n_out].copy_from_slice(&buf_a[..n_out]);
-            return;
-        }
-
-        let len4 = n_out * (1 << (STAGES - 4));
-        self.stage3.process(&buf_a[..len3], &mut buf_b[..len4]);
-
-        if STAGES == 4 {
-            dst[..n_out].copy_from_slice(&buf_b[..n_out]);
-            return;
-        }
-
-        self.stage4.process(&buf_b[..len4], &mut dst[..n_out]);
     }
 }
+
+/// Multi-stage cascaded half-band interpolation filter (140 dB taps).
+///
+/// Interpolates by `2^STAGES` (STAGES = 1..=5 → 2x..32x). The lowest-rate stage
+/// runs first with the most taps; the highest-rate stage runs last with the fewest.
+#[derive(Clone, Debug)]
+pub struct HbfIntCascade<const STAGES: usize> {
+    stage0: HbfInt<23>, // lowest rate
+    stage1: HbfInt<10>,
+    stage2: HbfInt<5>,
+    stage3: HbfInt<4>,
+    stage4: HbfInt<3>,  // highest rate
+}
+
+impl<const STAGES: usize> Default for HbfIntCascade<STAGES> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const STAGES: usize> HbfIntCascade<STAGES> {
+    /// Create a new pre-tuned multi-stage half-band interpolation cascade.
+    pub fn new() -> Self {
+        const { assert!(STAGES >= 1 && STAGES <= 5, "STAGES must be between 1 and 5") };
+        Self {
+            stage0: HbfInt::new(HBF_TAPS.0.0),
+            stage1: HbfInt::new(HBF_TAPS.1.0),
+            stage2: HbfInt::new(HBF_TAPS.2.0),
+            stage3: HbfInt::new(HBF_TAPS.3.0),
+            stage4: HbfInt::new(HBF_TAPS.4.0),
+        }
+    }
+
+    /// Reset all cascade stages.
+    pub fn reset(&mut self) {
+        self.stage0.reset();
+        self.stage1.reset();
+        self.stage2.reset();
+        self.stage3.reset();
+        self.stage4.reset();
+    }
+
+    /// Interpolate input slice `src` into `dst`. `dst.len()` must be `(1 << STAGES) * src.len()`.
+    pub fn process(&mut self, src: &[f32], dst: &mut [f32]) {
+        let int = 1 << STAGES;
+        let n_in = src.len().min(dst.len() / int);
+        const CHUNK: usize = 64; // low-rate inputs per pass
+        let mut b0 = [0.0f32; 128];   // after stage 0 (2 * CHUNK)
+        let mut b1 = [0.0f32; 256];
+        let mut b2 = [0.0f32; 512];
+        let mut b3 = [0.0f32; 1024];
+        let mut b4 = [0.0f32; 2048];  // after stage 4 (32 * CHUNK)
+
+        for (i_in, in_chunk) in src[..n_in].chunks(CHUNK).enumerate() {
+            let chunk = in_chunk.len();
+            let base = i_in * CHUNK * int;
+            self.stage0.process(in_chunk, &mut b0[..chunk * 2]);
+            if STAGES == 1 {
+                dst[base..base + chunk * 2].copy_from_slice(&b0[..chunk * 2]);
+                continue;
+            }
+
+            self.stage1.process(&b0[..chunk * 2], &mut b1[..chunk * 4]);
+            if STAGES == 2 {
+                dst[base..base + chunk * 4].copy_from_slice(&b1[..chunk * 4]);
+                continue;
+            }
+
+            self.stage2.process(&b1[..chunk * 4], &mut b2[..chunk * 8]);
+            if STAGES == 3 {
+                dst[base..base + chunk * 8].copy_from_slice(&b2[..chunk * 8]);
+                continue;
+            }
+
+            self.stage3.process(&b2[..chunk * 8], &mut b3[..chunk * 16]);
+            if STAGES == 4 {
+                dst[base..base + chunk * 16].copy_from_slice(&b3[..chunk * 16]);
+                continue;
+            }
+
+            self.stage4.process(&b3[..chunk * 16], &mut b4[..chunk * 32]);
+            dst[base..base + chunk * 32].copy_from_slice(&b4[..chunk * 32]);
+        }
+    }
+}
+
+/// Single-stage half-band decimator (rate change 2).
+pub type HbfDec2 = HbfDecCascade<1>;
+/// Half-band decimator cascade, rate change 4.
+pub type HbfDec4 = HbfDecCascade<2>;
+/// Half-band decimator cascade, rate change 8.
+pub type HbfDec8 = HbfDecCascade<3>;
+/// Half-band decimator cascade, rate change 16.
+pub type HbfDec16 = HbfDecCascade<4>;
+/// Half-band decimator cascade, rate change 32.
+pub type HbfDec32 = HbfDecCascade<5>;
+
+/// Single-stage half-band interpolator (rate change 2).
+pub type HbfInt2 = HbfIntCascade<1>;
+/// Half-band interpolator cascade, rate change 4.
+pub type HbfInt4 = HbfIntCascade<2>;
+/// Half-band interpolator cascade, rate change 8.
+pub type HbfInt8 = HbfIntCascade<3>;
+/// Half-band interpolator cascade, rate change 16.
+pub type HbfInt16 = HbfIntCascade<4>;
+/// Half-band interpolator cascade, rate change 32.
+pub type HbfInt32 = HbfIntCascade<5>;
 
