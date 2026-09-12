@@ -279,7 +279,7 @@ pub fn inv_park_q15(d: q15, q: q15, sin_t: q15, cos_t: q15, p_alpha: &mut q15, p
 use crate::filtering::{Biquad, BiquadClamp};
 
 /// Five possible PID-style actions of a biquad SOS controller.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub enum PidAction {
     /// Double integrator (-40 dB/decade)
@@ -294,15 +294,58 @@ pub enum PidAction {
     D2 = 4,
 }
 
+/// Feedback-term order: the lowest-order action included in the controller.
+///
+/// The builder uses three consecutive actions `order ..= order + 2`; gains for
+/// actions outside that window are ignored.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum PidOrder {
+    /// Double integrator (lowest order): uses `I², I, P`.
+    I2 = 0,
+    /// Single integrator (default): uses `I, P, D`.
+    #[default]
+    I = 1,
+    /// Proportional only: uses `P, D, D²`.
+    P = 2,
+}
+
+/// Errors returned by [`PidBuilder::validate`] and [`PidBuilder::try_build`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum PidError {
+    /// A parameter is NaN or infinite.
+    NonFinite(&'static str),
+    /// A period or gain limit is not strictly positive.
+    NonPositive(&'static str),
+    /// A gain and its limit have opposite signs.
+    SignMismatch(&'static str),
+    /// The output minimum exceeds the maximum.
+    InvertedRange(&'static str),
+}
+
 /// Precision PI²D² biquad controller builder with gain limits and anti-windup clamping.
 ///
-/// Translates classical analog/continuous frequency-domain specifications into
-/// a discrete second-order section (SOS) [`BiquadClamp`] with bilinear transform,
-/// high-frequency derivative roll-off clamping (preventing derivative noise explosion),
-/// and summing-junction anti-windup limits.
+/// Synthesizes a discrete second-order section (SOS) [`BiquadClamp`] from up to
+/// five controller actions `[I², I, P, D, D²]`. This is a faithful port of the
+/// `idsp` PI²D² builder: gains are accurate in the low-frequency limit and
+/// integral/derivative actions are warped towards Nyquist. Per-action gain
+/// limits roll off `I`/`D`/`D²` at their respective band edges, which keeps
+/// sensor noise from being amplified into actuator chatter.
+///
+/// ```rust
+/// # use embedded_dsp::controller::PidBuilder;
+/// let c = PidBuilder::new()
+///     .kp(1.0).ki(1e-3).kd(1e2)
+///     .limit_i(1e3).limit_d(1e1)
+///     .build(1.0);
+/// // The denominator carries an integrator pole.
+/// assert!(c.coeff.ba[3] != 0.0);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct PidBuilder {
+    order: PidOrder,
     gains: [f32; 5],
     limits: [f32; 5],
     min_clamp: f32,
@@ -320,12 +363,31 @@ impl PidBuilder {
     /// Create a new builder with zero gains and default unbounded limits.
     pub const fn new() -> Self {
         Self {
+            order: PidOrder::I,
             gains: [0.0; 5],
             limits: [f32::INFINITY; 5],
             min_clamp: -f32::INFINITY,
             max_clamp: f32::INFINITY,
             offset: 0.0,
         }
+    }
+
+    /// Select the feedback-term order (which three actions are used).
+    pub const fn order(mut self, order: PidOrder) -> Self {
+        self.order = order;
+        self
+    }
+
+    /// Set the gain for an arbitrary action.
+    pub const fn gain(mut self, action: PidAction, gain: f32) -> Self {
+        self.gains[action as usize] = gain;
+        self
+    }
+
+    /// Set the gain limit for an arbitrary action.
+    pub const fn limit(mut self, action: PidAction, limit: f32) -> Self {
+        self.limits[action as usize] = limit;
+        self
     }
 
     /// Set proportional gain `Kp`.
@@ -358,7 +420,19 @@ impl PidBuilder {
         self
     }
 
-    /// Set maximum high-frequency gain limit for derivative `D` action.
+    /// Set the low-frequency gain limit for the integral `I` action.
+    pub const fn limit_i(mut self, max_i_gain: f32) -> Self {
+        self.limits[PidAction::I as usize] = max_i_gain;
+        self
+    }
+
+    /// Set the low-frequency gain limit for the double-integral `I²` action.
+    pub const fn limit_i2(mut self, max_i2_gain: f32) -> Self {
+        self.limits[PidAction::I2 as usize] = max_i2_gain;
+        self
+    }
+
+    /// Set the high-frequency gain limit for the derivative `D` action.
     ///
     /// Essential in practical motion/optical control to prevent amplifying
     /// high-frequency sensor quantization noise into motor chatter.
@@ -367,9 +441,9 @@ impl PidBuilder {
         self
     }
 
-    /// Set low-frequency gain limit for integral `I` action.
-    pub const fn limit_i(mut self, max_i_gain: f32) -> Self {
-        self.limits[PidAction::I as usize] = max_i_gain;
+    /// Set the high-frequency gain limit for the double-derivative `D²` action.
+    pub const fn limit_d2(mut self, max_d2_gain: f32) -> Self {
+        self.limits[PidAction::D2 as usize] = max_d2_gain;
         self
     }
 
@@ -386,59 +460,121 @@ impl PidBuilder {
         self
     }
 
-    /// Synthesize biquad coefficients for a given sampling period `ts` (in seconds).
-    ///
-    /// Applies bilinear transform with pre-warping to compute normalized
-    /// coefficients `[b0, b1, b2, a1, a2]` such that `a0 = 1`.
-    pub fn build(&self, ts: f32) -> BiquadClamp<f32> {
-        assert!(ts > 0.0, "Sampling period ts must be positive");
+    /// Check whether the parametrization is valid for the given sample period.
+    pub fn validate(&self, ts: f32) -> Result<(), PidError> {
+        if !ts.is_finite() {
+            return Err(PidError::NonFinite("period"));
+        }
+        if ts <= 0.0 {
+            return Err(PidError::NonPositive("period"));
+        }
+        if self.gains.iter().any(|g| !g.is_finite()) {
+            return Err(PidError::NonFinite("gain"));
+        }
+        if self.limits.iter().any(|l| l.is_nan()) {
+            return Err(PidError::NonFinite("limit"));
+        }
+        for action in [PidAction::I2, PidAction::I, PidAction::D, PidAction::D2] {
+            let gain = self.gains[action as usize];
+            let limit = self.limits[action as usize];
+            if limit.is_finite() {
+                if limit == 0.0 {
+                    return Err(PidError::NonPositive("limit"));
+                }
+                if gain != 0.0 && gain.signum() != limit.signum() {
+                    return Err(PidError::SignMismatch("gain/limit"));
+                }
+            }
+        }
+        if self.min_clamp > self.max_clamp {
+            return Err(PidError::InvertedRange("output_limits"));
+        }
+        Ok(())
+    }
 
-        let tau_d = if self.limits[PidAction::D as usize].is_finite() && self.limits[PidAction::D as usize] > 0.0 {
-            self.gains[PidAction::D as usize] / self.limits[PidAction::D as usize]
-        } else {
-            0.0
+    /// Validate and then build.
+    pub fn try_build(&self, ts: f32) -> Result<BiquadClamp<f32>, PidError> {
+        self.validate(ts)?;
+        Ok(self.build(ts))
+    }
+
+    /// Compute the normalized SOS coefficients `[b0, b1, b2, a1, a2]` (`a0 = 1`).
+    ///
+    /// Direct port of idsp's PI²D² coefficient synthesis: the three actions
+    /// starting at [`PidOrder`] are mapped through difference kernels and
+    /// normalized by the summed gain limits.
+    pub fn coefficients(&self, ts: f32) -> [f32; 5] {
+        let order = self.order as i32;
+        // z starts at period^(-order) and is multiplied by the period each step.
+        let mut z = match order {
+            0 => 1.0,
+            1 => 1.0 / ts,
+            _ => 1.0 / (ts * ts),
         };
 
-        let kp = self.gains[PidAction::P as usize];
-        let ki = self.gains[PidAction::I as usize];
-        let kd = self.gains[PidAction::D as usize];
-
-        let c = 2.0 / ts;
-        let c2 = c * c;
-
-        let num2 = kp * tau_d + kd;
-        let num1 = kp + ki * tau_d;
-        let num0 = ki;
-
-        let den2 = tau_d;
-        let den1 = 1.0f32;
-
-        let b0_raw = num2 * c2 + num1 * c + num0;
-        let b1_raw = -2.0 * num2 * c2 + 2.0 * num0;
-        let b2_raw = num2 * c2 - num1 * c + num0;
-
-        let a0_raw = den2 * c2 + den1 * c;
-        let a1_raw = -2.0 * den2 * c2;
-        let a2_raw = den2 * c2 - den1 * c;
-
-        if ki == 0.0 && kd == 0.0 && self.gains[PidAction::I2 as usize] == 0.0 && self.gains[PidAction::D2 as usize] == 0.0 {
-            return BiquadClamp::new(
-                Biquad::new(kp, 0.0, 0.0, 0.0, 0.0),
-                self.min_clamp,
-                self.max_clamp,
-                self.offset,
-            );
+        // Gain/limit triples for actions `order..=order+2`, paired with gl in
+        // reverse so that gl[0] receives the lowest-order action.
+        let mut gl = [[0.0f32; 2]; 3];
+        for (gl, (i, (gain, limit))) in gl
+            .iter_mut()
+            .zip(
+                self.gains
+                    .iter()
+                    .zip(self.limits.iter())
+                    .enumerate()
+                    .skip(self.order as usize),
+            )
+            .rev()
+        {
+            gl[0] = *gain * z;
+            gl[1] = if i == PidAction::P as usize {
+                1.0
+            } else {
+                gl[0] / *limit
+            };
+            z *= ts;
         }
 
-        let a0_inv = 1.0 / a0_raw;
-        let b0 = b0_raw * a0_inv;
-        let b1 = b1_raw * a0_inv;
-        let b2 = b2_raw * a0_inv;
-        let a1 = -a1_raw * a0_inv;
-        let a2 = -a2_raw * a0_inv;
+        // Normalization by the summed gain limits.
+        let a0i = 1.0 / (gl[0][1] + gl[1][1] + gl[2][1]);
 
+        // Difference kernels for the three selected actions.
+        const KERNELS: [[i32; 3]; 3] = [[1, 0, 0], [1, -1, 0], [1, -2, 1]];
+
+        let mut ba = [[0.0f32; 2]; 3];
+        for (gli, ki) in gl.into_iter().zip(KERNELS) {
+            let gli = [gli[0] * a0i, gli[1] * a0i];
+            for (baj, kij) in ba.iter_mut().zip(ki) {
+                if kij > 0 {
+                    for _ in 0..kij {
+                        baj[0] += gli[0];
+                        baj[1] -= gli[1];
+                    }
+                } else {
+                    for _ in 0..-kij {
+                        baj[0] -= gli[0];
+                        baj[1] += gli[1];
+                    }
+                }
+            }
+        }
+
+        [ba[0][0], ba[1][0], ba[2][0], ba[1][1], ba[2][1]]
+    }
+
+    /// Synthesize a clamped biquad controller for the given sampling period
+    /// `ts` (in seconds).
+    ///
+    /// # Panics
+    /// Panics if `ts` is not finite and positive.
+    pub fn build(&self, ts: f32) -> BiquadClamp<f32> {
+        assert!(
+            ts > 0.0 && ts.is_finite(),
+            "Sampling period ts must be finite and positive"
+        );
+        let ba = self.coefficients(ts);
         BiquadClamp::new(
-            Biquad::new(b0, b1, b2, a1, a2),
+            Biquad::new(ba[0], ba[1], ba[2], ba[3], ba[4]),
             self.min_clamp,
             self.max_clamp,
             self.offset,

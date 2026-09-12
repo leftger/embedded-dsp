@@ -1,5 +1,5 @@
 use core::f32::consts::PI;
-use embedded_dsp::controller::PidBuilder;
+use embedded_dsp::controller::{PidAction, PidBuilder, PidError, PidOrder};
 use embedded_dsp::fast_math::{Unwrapper, atan2_i32, cossin, cossin_f32, fast_atan2_f32};
 use embedded_dsp::filtering::{
     DirectForm1, Lockin, LockinAmplifier, NormalForm, NormalFormState, Wdf, WdfState,
@@ -571,4 +571,80 @@ fn test_atan2_accuracy_idsp_spec() {
         max < 3.0e-6,
         "atan2 max error {max:.3e} rad exceeds idsp spec"
     );
+}
+
+#[test]
+fn test_pid_builder_matches_idsp_coefficients() {
+    // idsp's `iir::pid::test::pid` expected coefficients for the same input.
+    let ba = PidBuilder::new()
+        .gain(PidAction::I, 1e-3)
+        .gain(PidAction::P, 1.0)
+        .gain(PidAction::D, 1e2)
+        .limit_i(1e3)
+        .limit_d(1e1)
+        .coefficients(1.0);
+    let want = [9.181_909, -18.272_726, 9.090_908, 1.909_090_8, -0.909_090_8];
+    for (have, want) in ba.iter().zip(want.iter()) {
+        assert!(
+            (have / want - 1.0).abs() < 4.0 * f32::EPSILON,
+            "have {ba:?} != want {want:?}"
+        );
+    }
+}
+
+#[test]
+fn test_pid_builder_units_integration() {
+    // idsp's `iid::pid::test::units`: I-only controller integrates 1.0.
+    let tau = 3e-3f32;
+    let ki = 5e-2f32;
+    let c = PidBuilder::new().ki(ki).build(tau);
+    let mut state = DirectForm1::<f32>::new();
+    for i in 1..10 {
+        let y = c.process_df1(&mut state, 1.0);
+        let want = (i as f32) * tau * ki;
+        assert!(
+            (y / want - 1.0).abs() < 4.0 * f32::EPSILON,
+            "i={i}: have {y} != want {want}"
+        );
+    }
+}
+
+#[test]
+fn test_pid_builder_order_and_validation() {
+    // A pure proportional controller with order P is exactly a gain.
+    let ba = PidBuilder::new()
+        .order(PidOrder::P)
+        .kp(3.0)
+        .coefficients(1.0);
+    assert!((ba[0] - 3.0).abs() < 1e-6);
+    assert_eq!([ba[1], ba[2], ba[3], ba[4]], [0.0, 0.0, 0.0, 0.0]);
+
+    // Validation rejects bad periods, non-finite gains and sign mismatches.
+    assert_eq!(
+        PidBuilder::new().ki(1.0).validate(0.0),
+        Err(PidError::NonPositive("period"))
+    );
+    assert_eq!(
+        PidBuilder::new().kp(f32::INFINITY).validate(1.0),
+        Err(PidError::NonFinite("gain"))
+    );
+    assert_eq!(
+        PidBuilder::new().ki(1.0).limit_i(-1.0).validate(1.0),
+        Err(PidError::SignMismatch("gain/limit"))
+    );
+    assert!(
+        PidBuilder::new()
+            .ki(1.0)
+            .limit_i(1e3)
+            .try_build(1.0)
+            .is_ok()
+    );
+
+    // I² order exercises the double-integrator path (a2 term present).
+    let ba = PidBuilder::new()
+        .order(PidOrder::I2)
+        .ki2(1.0)
+        .limit_i2(10.0)
+        .coefficients(1.0);
+    assert!(ba[4].abs() > 0.0, "I2 order must produce an a2 term");
 }
