@@ -192,14 +192,14 @@ pub fn pid_q15(instance: &mut PidInstanceQ15, in_val: q15) -> q15 {
 /// Forward Clarke transform for f32: 3-phase (ia, ib) -> 2-phase (alpha, beta).
 pub fn clarke_f32(ia: f32, ib: f32, p_alpha: &mut f32, p_beta: &mut f32) {
     *p_alpha = ia;
-    let inv_sqrt_3 = 0.57735026919f32; // 1 / sqrt(3)
+    let inv_sqrt_3 = 0.577_350_26_f32; // 1 / sqrt(3)
     *p_beta = (ia + 2.0 * ib) * inv_sqrt_3;
 }
 
 /// Inverse Clarke transform for f32: 2-phase (alpha, beta) -> 3-phase (ia, ib).
 pub fn inv_clarke_f32(alpha: f32, beta: f32, p_ia: &mut f32, p_ib: &mut f32) {
     *p_ia = alpha;
-    let sqrt_3_div_2 = 0.86602540378f32; // sqrt(3) / 2
+    let sqrt_3_div_2 = 0.866_025_4_f32; // sqrt(3) / 2
     *p_ib = -0.5 * alpha + sqrt_3_div_2 * beta;
 }
 

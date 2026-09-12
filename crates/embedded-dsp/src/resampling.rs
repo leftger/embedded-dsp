@@ -260,7 +260,7 @@ where
     {
         // Integrators run at high rate
         let x = self.integrators.iter_mut().fold(x, |acc, i| {
-            *i = *i + acc;
+            *i += acc;
             *i
         });
         if let Some(index) = self.index.checked_sub(1) {
@@ -332,7 +332,7 @@ pub fn polyphase_interpolate_q15(
     dst: &mut [q15],
 ) -> usize {
     let l = interpolation_factor;
-    if l == 0 || coeffs.is_empty() || src.is_empty() || coeffs.len() % l != 0 {
+    if l == 0 || coeffs.is_empty() || src.is_empty() || !coeffs.len().is_multiple_of(l) {
         return 0;
     }
     let taps_per_phase = coeffs.len() / l;
@@ -617,7 +617,7 @@ linear_phase_fir!(
 /// `signal.remez(2*n, bands=(0, .4, .5, .5), desired=(1, 0), fs=1)`.
 /// Stopband attenuation > 140 dB (f32 dynamic range limited), passband
 /// ripple < 0.2 µB, rate changes up to 2⁵ = 32.
-#[allow(clippy::excessive_precision)]
+#[allow(clippy::excessive_precision, clippy::type_complexity)]
 pub const HBF_TAPS: (
     EvenSymmetric<[f32; 23]>,
     EvenSymmetric<[f32; 10]>,
@@ -677,7 +677,7 @@ pub const HBF_TAPS: (
 ///
 /// Same ordering and properties as [`HBF_TAPS`]: > 98 dB stopband attenuation
 /// (> 16 bit), < 0.001 dB passband ripple, 0.4 passband, rate changes up to 32.
-#[allow(clippy::excessive_precision)]
+#[allow(clippy::excessive_precision, clippy::type_complexity)]
 pub const HBF_TAPS_98: (
     EvenSymmetric<[f32; 15]>,
     EvenSymmetric<[f32; 6]>,

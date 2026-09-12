@@ -85,8 +85,44 @@ jobs:
           components: clippy
           targets: thumbv7em-none-eabihf
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets --all-features -- -W clippy::all
-      - run: cargo clippy -p embedded-dsp --no-default-features --features full,libm --target thumbv7em-none-eabihf -- -W clippy::all
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo clippy -p embedded-dsp --no-default-features --features full,libm --target thumbv7em-none-eabihf -- -D warnings
+
+  feature-matrix:
+    name: Feature matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+      - uses: Swatinem/rust-cache@v2
+      - name: Each module feature builds standalone
+        run: |
+          for feature in \
+            basic-math complex-math filtering controller cordic distance dither dsm \
+            fast-math filter-analysis filter-design fixed-point interpolation kalman lut \
+            matrix pipeline pll psd quaternion resampling spatial statistics snapshot \
+            synthesis validation support transform window companding const-generics \
+            audio beamforming; do
+            echo "::group::libm,$feature"
+            cargo check -p embedded-dsp --no-default-features --features "libm,$feature" --target thumbv7em-none-eabihf
+            echo "::endgroup::"
+          done
+      - name: Representative feature subsets (tests)
+        run: |
+          for features in \
+            "libm,basic-math" \
+            "libm,filtering" \
+            "libm,filtering,pipeline" \
+            "libm,complex-math,distance,interpolation,statistics" \
+            "libm,matrix,support,window,fast-math" \
+            "libm,controller,fast-math,filter-analysis,filtering,pipeline,pll,resampling,synthesis" \
+            "full,libm"; do
+            echo "::group::$features"
+            cargo test -p embedded-dsp --no-default-features --features "$features"
+            echo "::endgroup::"
+          done
 
   test:
     name: Test
@@ -101,6 +137,17 @@ jobs:
         run: cargo test --workspace --all-targets --all-features
       - name: Run tests (no-default-features + libm + full)
         run: cargo test -p embedded-dsp --no-default-features --features full,libm
+
+  semver:
+    name: Semver checks
+    runs-on: ubuntu-latest
+    # Informational: compares the public API against the latest crates.io release.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
 
   docs:
     name: Docs check
@@ -185,11 +232,13 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Run native DSP benchmarks
+      - name: Run native DSP benchmarks and check baseline
         run: |
           echo "### ⏱️ Native DSP Benchmarks" >> "$GITHUB_STEP_SUMMARY"
           echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          cargo bench -p embedded-dsp --bench dsp_benchmarks | tee -a "$GITHUB_STEP_SUMMARY"
+          cargo bench -p embedded-dsp --bench dsp_benchmarks -- \
+            --check-baseline "$GITHUB_WORKSPACE/crates/embedded-dsp/benches/dsp_baseline.txt" \
+            --max-regression 3.0 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
   embedded-bench:

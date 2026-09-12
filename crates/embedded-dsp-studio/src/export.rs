@@ -137,7 +137,7 @@ pub fn parse_csv(csv_text: &str) -> Result<Vec<f32>, &'static str> {
 pub fn save_or_download_file(filename: &str, #[allow(unused_variables)] mime: &str, data: &[u8]) {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let ext = filename.split('.').last().unwrap_or("*");
+        let ext = filename.split('.').next_back().unwrap_or("*");
         if let Some(path) = rfd::FileDialog::new()
             .set_file_name(filename)
             .add_filter(ext, &[ext])

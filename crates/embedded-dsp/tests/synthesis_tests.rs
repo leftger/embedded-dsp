@@ -39,8 +39,8 @@ fn test_white_and_pink_noise_generators() {
 
         assert!(w.is_finite());
         assert!(p.is_finite());
-        assert!(w >= -1.0 && w <= 1.0);
-        assert!(p >= -1.0 && p <= 1.0);
+        assert!((-1.0..=1.0).contains(&w));
+        assert!((-1.0..=1.0).contains(&p));
     }
 }
 
@@ -58,7 +58,7 @@ fn test_chirp_sweep_linear_and_exponential() {
 
         assert!(l.is_finite());
         assert!(e.is_finite());
-        assert!(l >= -1.0 && l <= 1.0);
-        assert!(e >= -1.0 && e <= 1.0);
+        assert!((-1.0..=1.0).contains(&l));
+        assert!((-1.0..=1.0).contains(&e));
     }
 }

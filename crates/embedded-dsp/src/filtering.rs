@@ -797,7 +797,7 @@ pub fn conv_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
 
     for n in 0..out_len {
         let mut acc: i64 = 0;
-        let k_min = if n >= len_b - 1 { n - (len_b - 1) } else { 0 };
+        let k_min = n.saturating_sub(len_b - 1);
         let k_max = n.min(len_a - 1);
         for k in k_min..=k_max {
             acc += (src_a[k].to_bits() as i64 * src_b[n - k].to_bits() as i64) >> 31;
@@ -813,7 +813,7 @@ pub fn conv_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
 
     for n in 0..out_len {
         let mut acc: i32 = 0;
-        let k_min = if n >= len_b - 1 { n - (len_b - 1) } else { 0 };
+        let k_min = n.saturating_sub(len_b - 1);
         let k_max = n.min(len_a - 1);
         for k in k_min..=k_max {
             acc += (src_a[k].to_bits() as i32 * src_b[n - k].to_bits() as i32) >> 15;
@@ -829,7 +829,7 @@ pub fn conv_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
 
     for n in 0..out_len {
         let mut acc: i32 = 0;
-        let k_min = if n >= len_b - 1 { n - (len_b - 1) } else { 0 };
+        let k_min = n.saturating_sub(len_b - 1);
         let k_max = n.min(len_a - 1);
         for k in k_min..=k_max {
             acc += (src_a[k].to_bits() as i32 * src_b[n - k].to_bits() as i32) >> 7;
@@ -915,7 +915,7 @@ pub fn median_filter_1d_f32(
     if n == 0 || dst.len() < n {
         return Status::LengthError;
     }
-    if window_len == 0 || window_len % 2 == 0 || window_len > 63 {
+    if window_len == 0 || window_len.is_multiple_of(2) || window_len > 63 {
         return Status::ArgumentError;
     }
 
@@ -961,7 +961,7 @@ pub fn median_filter_1d_q15(
     if n == 0 || dst.len() < n {
         return Status::LengthError;
     }
-    if window_len == 0 || window_len % 2 == 0 || window_len > 63 {
+    if window_len == 0 || window_len.is_multiple_of(2) || window_len > 63 {
         return Status::ArgumentError;
     }
 
@@ -1006,7 +1006,7 @@ pub fn median_filter_1d_q31(
     if n == 0 || dst.len() < n {
         return Status::LengthError;
     }
-    if window_len == 0 || window_len % 2 == 0 || window_len > 63 {
+    if window_len == 0 || window_len.is_multiple_of(2) || window_len > 63 {
         return Status::ArgumentError;
     }
 
@@ -1387,7 +1387,7 @@ impl<const N: usize> RecursiveMovingAverage<N> {
         };
         self.sum += x - oldest;
         self.history.push(x);
-        if self.history.len() == 0 {
+        if self.history.is_empty() {
             0.0
         } else {
             self.sum / self.history.len() as f32
@@ -1432,7 +1432,7 @@ impl<const N: usize> RecursiveMovingAverageQ15<N> {
         };
         self.sum += x.to_bits() as i32 - oldest.to_bits() as i32;
         self.history.push(x);
-        if self.history.len() == 0 {
+        if self.history.is_empty() {
             q15::ZERO
         } else {
             q15::from_bits(

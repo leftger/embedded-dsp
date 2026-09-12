@@ -47,7 +47,7 @@ impl KalmanFilter1D {
     pub fn update(&mut self, z: f32) -> f32 {
         let k = self.p / (self.p + self.r);
         self.x += k * (z - self.x);
-        self.p = (1.0 - k) * self.p;
+        self.p *= 1.0 - k;
         self.x
     }
 }

@@ -1,0 +1,15 @@
+# embedded-dsp benchmark baseline (throughput, higher is better)
+# name	value
+atan2_i32	85835731.0114
+biquad_fixed_noise_shaped	256934006.5004
+cfft_bfp_q15	76195.3817
+cfft_f32	223274.2907
+cfft_q15	86461.9444
+cordic_sin_cos_q15	32800292.1413
+cossin_i32	229128144.4974
+dot_prod_q15	1329.3570
+fir_q15	36674540.3514
+int_pll	145774082.2428
+lut_sin_cos_q15	66814326.3279
+pid_q31	243045850.5997
+q31_mult	655.1027

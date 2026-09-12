@@ -418,7 +418,7 @@ pub fn isqrt_u32(n: u32) -> u32 {
         return n;
     }
     let mut x = n;
-    let mut y = (x + 1) / 2;
+    let mut y = x.div_ceil(2);
     while y < x {
         x = y;
         y = x.saturating_add(n / x) / 2;
@@ -433,7 +433,7 @@ pub fn isqrt_u64(n: u64) -> u64 {
         return n;
     }
     let mut x = n;
-    let mut y = (x + 1) / 2;
+    let mut y = x.div_ceil(2);
     while y < x {
         x = y;
         y = x.saturating_add(n / x) / 2;

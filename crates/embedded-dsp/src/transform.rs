@@ -211,7 +211,7 @@ fn sat_q31(v: i64) -> q31 {
 ///
 /// `n` must be a power of two in `2..=512`. `data` is interleaved `[re, im, ...]`.
 pub fn cfft_q31(data: &mut [q31], n: usize, ifft_flag: u8, bit_reverse_flag: u8) {
-    if n < 2 || n > TWIDDLE_N || (n & (n - 1)) != 0 || data.len() < 2 * n {
+    if !(2..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || data.len() < 2 * n {
         return;
     }
 
@@ -260,7 +260,7 @@ pub fn cfft_q31(data: &mut [q31], n: usize, ifft_flag: u8, bit_reverse_flag: u8)
 /// Same scaling as [`cfft_q31`]: about `1/n` per forward or inverse transform.
 /// `n` must be a power of two in `2..=512`.
 pub fn cfft_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag: u8) {
-    if n < 2 || n > TWIDDLE_N || (n & (n - 1)) != 0 || data.len() < 2 * n {
+    if !(2..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || data.len() < 2 * n {
         return;
     }
 
@@ -311,7 +311,7 @@ pub fn cfft_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag: u8)
 /// Returns the total scale count `scale_count: u16` (the block exponent).
 /// The true mathematical frequency amplitude is `output[k] * 2^{scale_count}`.
 pub fn cfft_bfp_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag: u8) -> u16 {
-    if n < 2 || n > TWIDDLE_N || (n & (n - 1)) != 0 || data.len() < 2 * n {
+    if !(2..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || data.len() < 2 * n {
         return 0;
     }
 
@@ -378,7 +378,7 @@ pub fn cfft_bfp_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag:
 ///
 /// Dynamically scales only when overflow is imminent, returning total `scale_count`.
 pub fn cfft_bfp_q31(data: &mut [q31], n: usize, ifft_flag: u8, bit_reverse_flag: u8) -> u16 {
-    if n < 2 || n > TWIDDLE_N || (n & (n - 1)) != 0 || data.len() < 2 * n {
+    if !(2..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || data.len() < 2 * n {
         return 0;
     }
 
@@ -674,7 +674,7 @@ fn packed_irfft_q31(src: &[q31], dst: &mut [q31], n: usize) {
 }
 
 fn rfft_q_can_pack(len: usize, ifft_flag: u8) -> bool {
-    ifft_flag == 0 && len >= 4 && len <= TWIDDLE_N && (len & (len - 1)) == 0
+    ifft_flag == 0 && (4..=TWIDDLE_N).contains(&len) && (len & (len - 1)) == 0
 }
 
 /// Real FFT for Q31 fixed-point.
@@ -739,7 +739,7 @@ pub fn rfft_q15(src: &[q15], dst: &mut [q15], n: usize, ifft_flag: u8) {
 /// `dst` receives `n` real samples. Combined with a forward transform,
 /// `irfft(rfft(x)) ≈ x / n` (same convention as [`cfft_q31`]).
 pub fn irfft_q31(src: &[q31], dst: &mut [q31], n: usize) {
-    if n < 4 || n > TWIDDLE_N || (n & (n - 1)) != 0 || src.len() < 2 * n || dst.len() < n {
+    if !(4..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || src.len() < 2 * n || dst.len() < n {
         return;
     }
     packed_irfft_q31(&src[..2 * n], dst, n);
@@ -749,7 +749,7 @@ pub fn irfft_q31(src: &[q31], dst: &mut [q31], n: usize) {
 /// `dst` receives `n` real samples. Combined with a forward transform,
 /// `irfft(rfft(x)) ≈ x / n` (same convention as [`cfft_q15`]).
 pub fn irfft_q15(src: &[q15], dst: &mut [q15], n: usize) {
-    if n < 4 || n > TWIDDLE_N || (n & (n - 1)) != 0 || src.len() < 2 * n || dst.len() < n {
+    if !(4..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || src.len() < 2 * n || dst.len() < n {
         return;
     }
     packed_irfft_q15(&src[..2 * n], dst, n);
@@ -986,7 +986,7 @@ pub const DAUBECHIES_4: [f32; 4] = [0.482_962_9, 0.836_516_3, 0.224_143_87, -0.1
 #[inline(always)]
 fn wavelet_high_pass_tap(h: &[f32], k: usize) -> f32 {
     let v = h[h.len() - 1 - k];
-    if k % 2 == 0 { v } else { -v }
+    if k.is_multiple_of(2) { v } else { -v }
 }
 
 /// Performs one level of a fast wavelet transform step on the first `m` elements of `data`,
@@ -997,7 +997,7 @@ fn wavelet_high_pass_tap(h: &[f32], k: usize) -> f32 {
 /// `m` must be a power of 2; `h.len()` must be even and `<= m`.
 pub fn wavelet_step_f32(data: &mut [f32], m: usize, h: &[f32]) -> Status {
     let taps = h.len();
-    if m < 2 || (m & (m - 1)) != 0 || taps == 0 || taps % 2 != 0 || taps > m || data.len() < m {
+    if m < 2 || (m & (m - 1)) != 0 || taps == 0 || !taps.is_multiple_of(2) || taps > m || data.len() < m {
         return Status::ArgumentError;
     }
     if m > 1024 {
@@ -1031,7 +1031,7 @@ pub fn wavelet_step_f32(data: &mut [f32], m: usize, h: &[f32]) -> Status {
 /// `m` must be a power of 2; `h.len()` must be even and `<= m`.
 pub fn inverse_wavelet_step_f32(data: &mut [f32], m: usize, h: &[f32]) -> Status {
     let taps = h.len();
-    if m < 2 || (m & (m - 1)) != 0 || taps == 0 || taps % 2 != 0 || taps > m || data.len() < m {
+    if m < 2 || (m & (m - 1)) != 0 || taps == 0 || !taps.is_multiple_of(2) || taps > m || data.len() < m {
         return Status::ArgumentError;
     }
     if m > 1024 {

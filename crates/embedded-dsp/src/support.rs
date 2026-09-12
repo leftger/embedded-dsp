@@ -275,7 +275,7 @@ pub fn gaussian_noise_f32(dst: &mut [f32], mean: f32, std_dev: f32, seed: &mut u
 /// Stores `coeff / 2^{post_shift} * 2^{15}` so values with magnitude `>= 1` fit in Q15.
 /// [`crate::filtering::BiquadCascadeInstanceQ15`].
 pub fn biquad_coeffs_f32_to_q15(src: &[f32], dst: &mut [q15], post_shift: u8) -> Status {
-    if src.len() != dst.len() || src.is_empty() || src.len() % 5 != 0 {
+    if src.len() != dst.len() || src.is_empty() || !src.len().is_multiple_of(5) {
         return Status::LengthError;
     }
     let post_scale = (1u32 << post_shift.min(14)) as f32;
@@ -287,7 +287,7 @@ pub fn biquad_coeffs_f32_to_q15(src: &[f32], dst: &mut [q15], post_shift: u8) ->
 
 /// Quantize f32 biquad SOS coeffs to Q31 (`coeff / 2^{post_shift} * 2^{31}`).
 pub fn biquad_coeffs_f32_to_q31(src: &[f32], dst: &mut [q31], post_shift: u8) -> Status {
-    if src.len() != dst.len() || src.is_empty() || src.len() % 5 != 0 {
+    if src.len() != dst.len() || src.is_empty() || !src.len().is_multiple_of(5) {
         return Status::LengthError;
     }
     let post_scale = (1u32 << post_shift.min(14)) as f32;

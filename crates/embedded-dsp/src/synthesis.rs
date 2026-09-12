@@ -192,7 +192,7 @@ impl KellettPinkNoise {
 
         self.b0 = 0.99886 * self.b0 + white * 0.0555179;
         self.b1 = 0.99332 * self.b1 + white * 0.0750759;
-        self.b2 = 0.96900 * self.b2 + white * 0.1538520;
+        self.b2 = 0.96900 * self.b2 + white * 0.153_852;
         self.b3 = 0.86650 * self.b3 + white * 0.3104856;
         self.b4 = 0.55000 * self.b4 + white * 0.5329522;
         self.b5 = -0.7616 * self.b5 - white * 0.0168980;

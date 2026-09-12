@@ -392,7 +392,7 @@ use crate::types::Status;
 /// `out_taps`: Destination slice for filter coefficients. Length $M$ must be odd and $\ge 3$.
 pub fn fir_windowed_sinc_lowpass(fc_norm: f32, out_taps: &mut [f32]) -> Status {
     let m = out_taps.len();
-    if m < 3 || m % 2 == 0 || fc_norm <= 0.0 || fc_norm >= 0.5 {
+    if m < 3 || m.is_multiple_of(2) || fc_norm <= 0.0 || fc_norm >= 0.5 {
         return Status::ArgumentError;
     }
 
@@ -457,7 +457,7 @@ pub fn fir_windowed_sinc_bandpass(
     out_taps: &mut [f32],
 ) -> Status {
     let m = out_taps.len();
-    if m < 3 || m % 2 == 0 || f_low_norm <= 0.0 || f_high_norm >= 0.5 || f_low_norm >= f_high_norm {
+    if m < 3 || m.is_multiple_of(2) || f_low_norm <= 0.0 || f_high_norm >= 0.5 || f_low_norm >= f_high_norm {
         return Status::ArgumentError;
     }
 
@@ -510,7 +510,7 @@ pub fn fir_windowed_sinc_bandstop(
     out_taps: &mut [f32],
 ) -> Status {
     let m = out_taps.len();
-    if m < 3 || m % 2 == 0 || f_low_norm <= 0.0 || f_high_norm >= 0.5 || f_low_norm >= f_high_norm {
+    if m < 3 || m.is_multiple_of(2) || f_low_norm <= 0.0 || f_high_norm >= 0.5 || f_low_norm >= f_high_norm {
         return Status::ArgumentError;
     }
 
@@ -552,7 +552,7 @@ pub fn fir_custom_frequency_sampling(
     out_taps: &mut [f32],
 ) -> Status {
     let m = out_taps.len();
-    if m < 3 || m % 2 == 0 {
+    if m < 3 || m.is_multiple_of(2) {
         return Status::ArgumentError;
     }
     if fft_len < 2 || (fft_len & (fft_len - 1)) != 0 || fft_len > 512 || fft_len < m {
@@ -617,7 +617,7 @@ pub fn biquad_quantize_and_scale_q15(
     out_q15: &mut [q15],
     strategy: ScalingStrategy,
 ) -> Result<u8, Status> {
-    if sos_f32.len() != out_q15.len() || sos_f32.is_empty() || sos_f32.len() % 5 != 0 {
+    if sos_f32.len() != out_q15.len() || sos_f32.is_empty() || !sos_f32.len().is_multiple_of(5) {
         return Err(Status::LengthError);
     }
 
@@ -690,7 +690,7 @@ pub fn biquad_quantize_and_scale_q31(
     out_q31: &mut [q31],
     strategy: ScalingStrategy,
 ) -> Result<u8, Status> {
-    if sos_f32.len() != out_q31.len() || sos_f32.is_empty() || sos_f32.len() % 5 != 0 {
+    if sos_f32.len() != out_q31.len() || sos_f32.is_empty() || !sos_f32.len().is_multiple_of(5) {
         return Err(Status::LengthError);
     }
 

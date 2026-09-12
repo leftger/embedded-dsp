@@ -453,11 +453,10 @@ pub fn polynomial_least_squares_fit(
     if n == 0 || y.len() != n || out_coeffs.len() < m || n < m {
         return Status::LengthError;
     }
-    if let Some(w) = weights {
-        if w.len() != n {
+    if let Some(w) = weights
+        && w.len() != n {
             return Status::LengthError;
         }
-    }
     if degree > 15 {
         return Status::ArgumentError; // Limit for stack-allocated matrix
     }

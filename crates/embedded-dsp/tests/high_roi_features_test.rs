@@ -112,7 +112,7 @@ fn test_half_band_decimator_and_interpolator() {
         -0.02201674,
         0.06357869,
         -0.16627679,
-        0.61979312,
+        0.619_793_1,
     ];
     let mut dec = HbfDec::new(coeffs_dec);
 
@@ -531,7 +531,7 @@ fn test_cossin_accuracy_idsp_spec() {
     let mut rms = 0.0f64;
     let mut max = 0.0f64;
     for idx in 0..(1 << PHASE_DEPTH) {
-        let phase = (idx << (32 - PHASE_DEPTH)) as i32;
+        let phase = idx << (32 - PHASE_DEPTH);
         let (c, s) = cossin(phase);
         let (c, s) = (c as f64 / AMPLITUDE, s as f64 / AMPLITUDE);
         let rad = 2.0 * core::f64::consts::PI * (phase as u32 as f64) / (1u64 << 32) as f64;

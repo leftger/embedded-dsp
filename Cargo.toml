@@ -17,6 +17,13 @@ readme = "README.md"
 [workspace.lints.rust]
 unsafe_code = "deny"
 
+[workspace.lints.clippy]
+# The DSP kernels are written as index loops over parallel arrays; many index
+# several slices at once or use the index arithmetically, where the iterator
+# form is less clear rather than more. Allow this one stylistic lint repo-wide
+# so that `clippy::all` can be denied in CI without blanket noise.
+needless_range_loop = "allow"
+
 [workspace.dependencies]
 embedded-dsp = { path = "crates/embedded-dsp", version = "0.5.1", default-features = false }
 fixed = { version = "1.31.0", default-features = false }

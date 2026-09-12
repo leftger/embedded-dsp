@@ -55,21 +55,11 @@ impl Iterator for XorShift32 {
 /// let mut u = Uniform::default();
 /// let _: u8 = u.sample();
 /// ```
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct Uniform {
     prng: XorShift32,
     cache: u32,
     idx: u8,
-}
-
-impl Default for Uniform {
-    fn default() -> Self {
-        Self {
-            prng: XorShift32::default(),
-            cache: 0,
-            idx: 0,
-        }
-    }
 }
 
 impl Uniform {

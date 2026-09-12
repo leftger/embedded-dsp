@@ -240,7 +240,7 @@ pub fn biquad_quantization_snr_db(
     post_shift: u8,
     num_points: usize,
 ) -> f32 {
-    if sos_f32.len() != sos_q15.len() || sos_f32.is_empty() || sos_f32.len() % 5 != 0 {
+    if sos_f32.len() != sos_q15.len() || sos_f32.is_empty() || !sos_f32.len().is_multiple_of(5) {
         return 0.0;
     }
 

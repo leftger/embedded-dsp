@@ -647,11 +647,11 @@ fn test_filter_design_coeffs() {
     assert!(bp_skirt[0] > 0.0);
     assert_eq!(bp_skirt[1], 0.0);
 
-    let ls = biquad_lowshelf_coeffs(200.0, 48000.0, 0.7071, 6.0);
+    let ls = biquad_lowshelf_coeffs(200.0, 48000.0, core::f32::consts::FRAC_1_SQRT_2, 6.0);
     assert_eq!(ls.len(), 5);
     assert!(ls[0] > 0.0);
 
-    let hs = biquad_highshelf_coeffs(8000.0, 48000.0, 0.7071, -6.0);
+    let hs = biquad_highshelf_coeffs(8000.0, 48000.0, core::f32::consts::FRAC_1_SQRT_2, -6.0);
     assert_eq!(hs.len(), 5);
     assert!(hs[0] > 0.0);
 
@@ -1512,7 +1512,7 @@ fn test_chebyshev_biquad_stage_matches_book_debug_values() {
     // Data Set 1 from Steven W. Smith, "The Scientist and Engineer's Guide to DSP", Table 20-6
     // (low-pass, no ripple, 4-pole filter, pole-pair 1).
     let stage1 = chebyshev_biquad_stage(0.1, false, 0.0, 4, 1);
-    let expected1 = [0.061885f32, 0.123770, 0.061885, 1.048600, -0.296140];
+    let expected1 = [0.061885f32, 0.123770, 0.061885, 1.048_6, -0.296140];
     for (got, want) in stage1.iter().zip(expected1.iter()) {
         assert!(
             (got - want).abs() < 1e-4,
@@ -1522,7 +1522,7 @@ fn test_chebyshev_biquad_stage_matches_book_debug_values() {
 
     // Data Set 2 from Table 20-6 (high-pass, 10% ripple, 4-pole filter, pole-pair 2).
     let stage2 = chebyshev_biquad_stage(0.1, true, 10.0, 4, 2);
-    let expected2 = [0.922920f32, -1.845840, 0.922920, 1.446913, -0.836654];
+    let expected2 = [0.922920f32, -1.845_84, 0.922920, 1.446913, -0.836654];
     for (got, want) in stage2.iter().zip(expected2.iter()) {
         assert!(
             (got - want).abs() < 1e-3,
