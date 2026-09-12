@@ -6,12 +6,16 @@ use crate::types::*;
 
 /// Instance structure for the floating-point FIR filter.
 pub struct FirInstanceF32<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a [f32],
+    /// Filter state buffer.
     pub state: &'a mut [f32],
 }
 
 impl<'a> FirInstanceF32<'a> {
+    /// Initializes the instance.
     pub fn init(num_taps: u16, coeffs: &'a [f32], state: &'a mut [f32]) -> Self {
         state.fill(0.0);
         Self {
@@ -22,6 +26,7 @@ impl<'a> FirInstanceF32<'a> {
     }
 }
 
+/// FIR filtering (`f32`) into `dst`.
 pub fn fir_f32(instance: &mut FirInstanceF32, src: &[f32], dst: &mut [f32]) {
     let num_taps = instance.num_taps as usize;
     let block_size = src.len().min(dst.len());
@@ -44,12 +49,16 @@ pub fn fir_f32(instance: &mut FirInstanceF32, src: &[f32], dst: &mut [f32]) {
 
 /// Instance structure for the Q31 FIR filter.
 pub struct FirInstanceQ31<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a [q31],
+    /// Filter state buffer.
     pub state: &'a mut [q31],
 }
 
 impl<'a> FirInstanceQ31<'a> {
+    /// Initializes the instance.
     pub fn init(num_taps: u16, coeffs: &'a [q31], state: &'a mut [q31]) -> Self {
         state.fill(q31::ZERO);
         Self {
@@ -60,6 +69,7 @@ impl<'a> FirInstanceQ31<'a> {
     }
 }
 
+/// FIR filtering (`q31`) into `dst`.
 pub fn fir_q31(instance: &mut FirInstanceQ31, src: &[q31], dst: &mut [q31]) {
     let num_taps = instance.num_taps as usize;
     let block_size = src.len().min(dst.len());
@@ -80,12 +90,16 @@ pub fn fir_q31(instance: &mut FirInstanceQ31, src: &[q31], dst: &mut [q31]) {
 
 /// Instance structure for the Q15 FIR filter.
 pub struct FirInstanceQ15<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a [q15],
+    /// Filter state buffer.
     pub state: &'a mut [q15],
 }
 
 impl<'a> FirInstanceQ15<'a> {
+    /// Initializes the instance.
     pub fn init(num_taps: u16, coeffs: &'a [q15], state: &'a mut [q15]) -> Self {
         state.fill(q15::ZERO);
         Self {
@@ -96,6 +110,7 @@ impl<'a> FirInstanceQ15<'a> {
     }
 }
 
+/// FIR filtering (`q15`) into `dst`.
 pub fn fir_q15(instance: &mut FirInstanceQ15, src: &[q15], dst: &mut [q15]) {
     let num_taps = instance.num_taps as usize;
     let block_size = src.len().min(dst.len());
@@ -118,12 +133,16 @@ pub fn fir_q15(instance: &mut FirInstanceQ15, src: &[q15], dst: &mut [q15]) {
 
 /// Instance structure for the floating-point Biquad Cascade Direct Form I filter.
 pub struct BiquadCascadeInstanceF32<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [f32],    // 5 * num_stages: [b0, b1, b2, a1, a2]
+    /// Filter state buffer.
     pub state: &'a mut [f32], // 4 * num_stages: [x[n-1], x[n-2], y[n-1], y[n-2]]
 }
 
 impl<'a> BiquadCascadeInstanceF32<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [f32], state: &'a mut [f32]) -> Self {
         state.fill(0.0);
         Self {
@@ -134,6 +153,7 @@ impl<'a> BiquadCascadeInstanceF32<'a> {
     }
 }
 
+/// Biquad cascade, Direct Form I (`f32`).
 pub fn biquad_cascade_df1_f32(
     instance: &mut BiquadCascadeInstanceF32,
     src: &[f32],
@@ -177,12 +197,16 @@ pub fn biquad_cascade_df1_f32(
 /// Same SOS layout `[b0, b1, b2, a1, a2]` as [`BiquadCascadeInstanceF32`].
 /// State is two delays per stage (`[s1, s2, ...]`).
 pub struct BiquadCascadeDf2tInstanceF32<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [f32],
+    /// Filter state buffer.
     pub state: &'a mut [f32],
 }
 
 impl<'a> BiquadCascadeDf2tInstanceF32<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [f32], state: &'a mut [f32]) -> Self {
         state.fill(0.0);
         Self {
@@ -193,6 +217,7 @@ impl<'a> BiquadCascadeDf2tInstanceF32<'a> {
     }
 }
 
+/// Biquad cascade, transposed Direct Form II (`f32`).
 pub fn biquad_cascade_df2t_f32(
     instance: &mut BiquadCascadeDf2tInstanceF32,
     src: &[f32],
@@ -228,13 +253,18 @@ pub fn biquad_cascade_df2t_f32(
 /// `post_shift` extra headroom in stored coeffs (`coeff_f32 / 2^{post_shift}` in Q15);
 /// the MAC is shifted `15 - post_shift` (CMSIS-style).
 pub struct BiquadCascadeInstanceQ15<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Output right-shift.
     pub post_shift: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [q15],
+    /// Filter state buffer.
     pub state: &'a mut [q15],
 }
 
 impl<'a> BiquadCascadeInstanceQ15<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [q15], state: &'a mut [q15], post_shift: u8) -> Self {
         state.fill(q15::ZERO);
         Self {
@@ -246,6 +276,7 @@ impl<'a> BiquadCascadeInstanceQ15<'a> {
     }
 }
 
+/// Biquad cascade, Direct Form I (`q15`).
 pub fn biquad_cascade_df1_q15(
     instance: &mut BiquadCascadeInstanceQ15,
     src: &[q15],
@@ -285,13 +316,18 @@ pub fn biquad_cascade_df1_q15(
 
 /// Instance structure for the Q31 Biquad Cascade Direct Form I filter.
 pub struct BiquadCascadeInstanceQ31<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Output right-shift.
     pub post_shift: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [q31],
+    /// Filter state buffer.
     pub state: &'a mut [q31],
 }
 
 impl<'a> BiquadCascadeInstanceQ31<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [q31], state: &'a mut [q31], post_shift: u8) -> Self {
         state.fill(q31::ZERO);
         Self {
@@ -303,6 +339,7 @@ impl<'a> BiquadCascadeInstanceQ31<'a> {
     }
 }
 
+/// Biquad cascade, Direct Form I (`q31`).
 pub fn biquad_cascade_df1_q31(
     instance: &mut BiquadCascadeInstanceQ31,
     src: &[q31],
@@ -346,13 +383,18 @@ pub fn biquad_cascade_df1_q31(
 /// [`BiquadCascadeInstanceQ15`]. State is two delays per stage (`[s1, s2, ...]`),
 /// which is better-conditioned for high-Q poles than Direct Form I.
 pub struct BiquadCascadeDf2tInstanceQ15<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Output right-shift.
     pub post_shift: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [q15],
+    /// Filter state buffer.
     pub state: &'a mut [q15],
 }
 
 impl<'a> BiquadCascadeDf2tInstanceQ15<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [q15], state: &'a mut [q15], post_shift: u8) -> Self {
         state.fill(q15::ZERO);
         Self {
@@ -364,6 +406,7 @@ impl<'a> BiquadCascadeDf2tInstanceQ15<'a> {
     }
 }
 
+/// Biquad cascade, transposed Direct Form II (`q15`).
 pub fn biquad_cascade_df2t_q15(
     instance: &mut BiquadCascadeDf2tInstanceQ15,
     src: &[q15],
@@ -402,13 +445,18 @@ pub fn biquad_cascade_df2t_q15(
 
 /// Instance structure for the Q31 Biquad Cascade Transposed Direct Form II filter.
 pub struct BiquadCascadeDf2tInstanceQ31<'a> {
+    /// Number of biquad stages.
     pub num_stages: u8,
+    /// Output right-shift.
     pub post_shift: u8,
+    /// Filter coefficients.
     pub coeffs: &'a [q31],
+    /// Filter state buffer.
     pub state: &'a mut [q31],
 }
 
 impl<'a> BiquadCascadeDf2tInstanceQ31<'a> {
+    /// Initializes the instance.
     pub fn init(num_stages: u8, coeffs: &'a [q31], state: &'a mut [q31], post_shift: u8) -> Self {
         state.fill(q31::ZERO);
         Self {
@@ -420,6 +468,7 @@ impl<'a> BiquadCascadeDf2tInstanceQ31<'a> {
     }
 }
 
+/// Biquad cascade, transposed Direct Form II (`q31`).
 pub fn biquad_cascade_df2t_q31(
     instance: &mut BiquadCascadeDf2tInstanceQ31,
     src: &[q31],
@@ -460,13 +509,18 @@ pub fn biquad_cascade_df2t_q31(
 
 /// Instance structure for the floating-point LMS adaptive filter.
 pub struct LmsInstanceF32<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a mut [f32],
+    /// Filter state buffer.
     pub state: &'a mut [f32],
+    /// Adaptation step size.
     pub mu: f32,
 }
 
 impl<'a> LmsInstanceF32<'a> {
+    /// Initializes the instance.
     pub fn init(num_taps: u16, coeffs: &'a mut [f32], state: &'a mut [f32], mu: f32) -> Self {
         state.fill(0.0);
         coeffs.fill(0.0);
@@ -479,6 +533,7 @@ impl<'a> LmsInstanceF32<'a> {
     }
 }
 
+/// LMS adaptive filtering (`f32`).
 pub fn lms_f32(
     instance: &mut LmsInstanceF32,
     src: &[f32],
@@ -555,14 +610,20 @@ pub fn lms_leaky_f32(
 
 /// Normalized LMS instance (`eps` floors the power denominator).
 pub struct NlmsInstanceF32<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a mut [f32],
+    /// Filter state buffer.
     pub state: &'a mut [f32],
+    /// Adaptation step size.
     pub mu: f32,
+    /// Regularization epsilon.
     pub eps: f32,
 }
 
 impl<'a> NlmsInstanceF32<'a> {
+    /// Initializes the instance.
     pub fn init(
         num_taps: u16,
         coeffs: &'a mut [f32],
@@ -622,13 +683,18 @@ pub fn nlms_f32(
 
 /// Q15 LMS adaptive filter.
 pub struct LmsInstanceQ15<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a mut [q15],
+    /// Filter state buffer.
     pub state: &'a mut [q15],
+    /// Adaptation step size.
     pub mu: q15,
 }
 
 impl<'a> LmsInstanceQ15<'a> {
+    /// Initializes the instance.
     pub fn init(num_taps: u16, coeffs: &'a mut [q15], state: &'a mut [q15], mu: q15) -> Self {
         state.fill(q15::ZERO);
         coeffs.fill(q15::ZERO);
@@ -681,6 +747,7 @@ fn lms_q15_inner(
     }
 }
 
+/// LMS adaptive filtering (`q15`).
 pub fn lms_q15(
     instance: &mut LmsInstanceQ15,
     src: &[q15],
@@ -705,14 +772,20 @@ pub fn lms_leaky_q15(
 
 /// Q15 NLMS instance.
 pub struct NlmsInstanceQ15<'a> {
+    /// Number of filter taps.
     pub num_taps: u16,
+    /// Filter coefficients.
     pub coeffs: &'a mut [q15],
+    /// Filter state buffer.
     pub state: &'a mut [q15],
+    /// Adaptation step size.
     pub mu: q15,
+    /// Regularization epsilon.
     pub eps: q15,
 }
 
 impl<'a> NlmsInstanceQ15<'a> {
+    /// Initializes the instance.
     pub fn init(
         num_taps: u16,
         coeffs: &'a mut [q15],
@@ -732,6 +805,7 @@ impl<'a> NlmsInstanceQ15<'a> {
     }
 }
 
+/// Normalized LMS adaptive filtering (`q15`).
 pub fn nlms_q15(
     instance: &mut NlmsInstanceQ15,
     src: &[q15],
@@ -775,6 +849,7 @@ pub fn nlms_q15(
 
 // --- Convolution ---
 
+/// Convolution (`f32`) into `dst`.
 pub fn conv_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -790,6 +865,7 @@ pub fn conv_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Convolution (`q31`) into `dst`.
 pub fn conv_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -806,6 +882,7 @@ pub fn conv_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Convolution (`q15`) into `dst`.
 pub fn conv_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -822,6 +899,7 @@ pub fn conv_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     }
 }
 
+/// Convolution (`q7`) into `dst`.
 pub fn conv_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -840,6 +918,7 @@ pub fn conv_q7(src_a: &[q7], src_b: &[q7], dst: &mut [q7]) {
 
 // --- Correlation ---
 
+/// Correlation (`f32`) into `dst`.
 pub fn correlate_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -858,6 +937,7 @@ pub fn correlate_f32(src_a: &[f32], src_b: &[f32], dst: &mut [f32]) {
     }
 }
 
+/// Correlation (`q31`) into `dst`.
 pub fn correlate_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -875,6 +955,7 @@ pub fn correlate_q31(src_a: &[q31], src_b: &[q31], dst: &mut [q31]) {
     }
 }
 
+/// Correlation (`q15`) into `dst`.
 pub fn correlate_q15(src_a: &[q15], src_b: &[q15], dst: &mut [q15]) {
     let len_a = src_a.len();
     let len_b = src_b.len();
@@ -1346,10 +1427,12 @@ impl DcBlockerQ15 {
     }
 
     #[inline(always)]
+    /// Processes a single input sample.
     pub fn process(&mut self, x: q15) -> q15 {
         self.inner.process(x)
     }
 
+    /// Resets the internal state.
     pub fn reset(&mut self) {
         self.inner.reset();
     }
@@ -1416,6 +1499,7 @@ pub struct RecursiveMovingAverageQ15<const N: usize> {
 }
 
 impl<const N: usize> RecursiveMovingAverageQ15<N> {
+    /// Creates a new instance.
     pub const fn new() -> Self {
         Self {
             history: CircularBuffer::new(q15::ZERO),
@@ -1424,6 +1508,7 @@ impl<const N: usize> RecursiveMovingAverageQ15<N> {
     }
 
     #[inline(always)]
+    /// Processes a single input sample.
     pub fn process(&mut self, x: q15) -> q15 {
         let oldest = if self.history.is_full() {
             self.history.oldest().unwrap_or(q15::ZERO)
@@ -1442,6 +1527,7 @@ impl<const N: usize> RecursiveMovingAverageQ15<N> {
         }
     }
 
+    /// Resets the internal state.
     pub fn reset(&mut self) {
         self.history.clear(q15::ZERO);
         self.sum = 0;
@@ -1463,6 +1549,7 @@ impl<const N: usize> Default for RecursiveMovingAverageQ15<N> {
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable))]
 pub struct DirectForm1<T> {
+    /// Input/output history.
     pub xy: [T; 4],
 }
 
@@ -1493,6 +1580,7 @@ impl<T: Default + Copy> DirectForm1<T> {
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable))]
 pub struct DirectForm2Transposed<T> {
+    /// S.
     pub s: [T; 2],
 }
 
@@ -1526,6 +1614,7 @@ impl<T: Default + Copy> DirectForm2Transposed<T> {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Biquad<T> {
+    /// Second-order-section coefficients `[b0, b1, b2, a1, a2]`.
     pub ba: [T; 5],
 }
 
@@ -1589,6 +1678,7 @@ impl Biquad<f64> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct BiquadClamp<T> {
+    /// Coeff.
     pub coeff: Biquad<T>,
     /// Summing junction offset (setpoint)
     pub u: T,
@@ -1720,7 +1810,9 @@ impl crate::pipeline::SplitProcess<f64, f64, DirectForm2Transposed<f64>> for Biq
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable))]
 pub struct DirectForm1NoiseShaped {
+    /// Input/output history.
     pub xy: [i32; 4],
+    /// Quantization error feedback accumulator.
     pub err: i32,
 }
 
@@ -2049,7 +2141,9 @@ impl<T: BiquadIntSample, const SHIFT: u32>
 /// value `x / 2^32`, shaping quantization noise up by `K * 20 dB/decade`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Dsm<const K: usize> {
+    /// Accumulator state.
     pub a: [u32; K],
+    /// Carry/coefficient state.
     pub c: [i8; K],
 }
 
@@ -2187,9 +2281,13 @@ where
 /// and low-pass filters both channels to extract amplitude and phase.
 #[derive(Clone, Copy, Debug)]
 pub struct LockinAmplifier {
+    /// Filter i.
     pub filter_i: SinglePoleFilter,
+    /// Filter q.
     pub filter_q: SinglePoleFilter,
+    /// Phase.
     pub phase: i32,
+    /// Phase inc.
     pub phase_inc: i32,
 }
 

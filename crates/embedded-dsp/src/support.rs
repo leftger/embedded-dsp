@@ -4,44 +4,53 @@ use crate::types::*;
 
 // --- Copy & Fill ---
 
+/// Copies elements (`f32`) into `dst`.
 pub fn copy_f32(src: &[f32], dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     dst[..len].copy_from_slice(&src[..len]);
 }
 
+/// Copies elements (`q31`) into `dst`.
 pub fn copy_q31(src: &[q31], dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     dst[..len].copy_from_slice(&src[..len]);
 }
 
+/// Copies elements (`q15`) into `dst`.
 pub fn copy_q15(src: &[q15], dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     dst[..len].copy_from_slice(&src[..len]);
 }
 
+/// Copies elements (`q7`) into `dst`.
 pub fn copy_q7(src: &[q7], dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     dst[..len].copy_from_slice(&src[..len]);
 }
 
+/// Fills the destination with a constant (`f32`) into `dst`.
 pub fn fill_f32(value: f32, dst: &mut [f32]) {
     dst.fill(value);
 }
 
+/// Fills the destination with a constant (`q31`) into `dst`.
 pub fn fill_q31(value: q31, dst: &mut [q31]) {
     dst.fill(value);
 }
 
+/// Fills the destination with a constant (`q15`) into `dst`.
 pub fn fill_q15(value: q15, dst: &mut [q15]) {
     dst.fill(value);
 }
 
+/// Fills the destination with a constant (`q7`) into `dst`.
 pub fn fill_q7(value: q7, dst: &mut [q7]) {
     dst.fill(value);
 }
 
 // --- Type Conversions ---
 
+/// Converts `q7` to `q15`.
 pub fn q7_to_q15(src: &[q7], dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -49,6 +58,7 @@ pub fn q7_to_q15(src: &[q7], dst: &mut [q15]) {
     }
 }
 
+/// Converts `q7` to `q31`.
 pub fn q7_to_q31(src: &[q7], dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -56,6 +66,7 @@ pub fn q7_to_q31(src: &[q7], dst: &mut [q31]) {
     }
 }
 
+/// Converts `q7` to `f32`.
 pub fn q7_to_f32(src: &[q7], dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -63,6 +74,7 @@ pub fn q7_to_f32(src: &[q7], dst: &mut [f32]) {
     }
 }
 
+/// Converts `q15` to `q7`.
 pub fn q15_to_q7(src: &[q15], dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -70,6 +82,7 @@ pub fn q15_to_q7(src: &[q15], dst: &mut [q7]) {
     }
 }
 
+/// Converts `q15` to `q31`.
 pub fn q15_to_q31(src: &[q15], dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -77,6 +90,7 @@ pub fn q15_to_q31(src: &[q15], dst: &mut [q31]) {
     }
 }
 
+/// Converts `q15` to `f32`.
 pub fn q15_to_f32(src: &[q15], dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -84,6 +98,7 @@ pub fn q15_to_f32(src: &[q15], dst: &mut [f32]) {
     }
 }
 
+/// Converts `q31` to `q7`.
 pub fn q31_to_q7(src: &[q31], dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -91,6 +106,7 @@ pub fn q31_to_q7(src: &[q31], dst: &mut [q7]) {
     }
 }
 
+/// Converts `q31` to `q15`.
 pub fn q31_to_q15(src: &[q31], dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -98,6 +114,7 @@ pub fn q31_to_q15(src: &[q31], dst: &mut [q15]) {
     }
 }
 
+/// Converts `q31` to `f32`.
 pub fn q31_to_f32(src: &[q31], dst: &mut [f32]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -105,6 +122,7 @@ pub fn q31_to_f32(src: &[q31], dst: &mut [f32]) {
     }
 }
 
+/// Converts `f32` to `q7`.
 pub fn f32_to_q7(src: &[f32], dst: &mut [q7]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -112,6 +130,7 @@ pub fn f32_to_q7(src: &[f32], dst: &mut [q7]) {
     }
 }
 
+/// Converts `f32` to `q15`.
 pub fn f32_to_q15(src: &[f32], dst: &mut [q15]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -133,6 +152,7 @@ pub fn fir_taps_f32_to_q15(src: &[f32], dst: &mut [q15]) -> Status {
     Status::Success
 }
 
+/// Converts `f32` to `q31`.
 pub fn f32_to_q31(src: &[f32], dst: &mut [q31]) {
     let len = src.len().min(dst.len());
     for i in 0..len {
@@ -213,10 +233,12 @@ use crate::math::FloatMath;
 /// Simple deterministic zero-allocation 64-bit XorShift Pseudo-Random Number Generator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct XorShift64 {
+    /// Filter state buffer.
     pub state: u64,
 }
 
 impl XorShift64 {
+    /// Creates a new instance.
     pub const fn new(seed: u64) -> Self {
         Self {
             state: if seed == 0 { 0x853c49e6748fea9b } else { seed },
@@ -224,6 +246,7 @@ impl XorShift64 {
     }
 
     #[inline]
+    /// Next u64.
     pub fn next_u64(&mut self) -> u64 {
         let mut x = self.state;
         x ^= x << 13;
@@ -234,6 +257,7 @@ impl XorShift64 {
     }
 
     #[inline]
+    /// Next f32 (`f32`).
     pub fn next_f32(&mut self) -> f32 {
         // Generates uniform float in (0, 1]
         let val = (self.next_u64() >> 40) as u32;

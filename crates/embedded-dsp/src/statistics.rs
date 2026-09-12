@@ -6,6 +6,7 @@ use crate::types::*;
 
 // --- Mean ---
 
+/// Mean (`f32`).
 pub fn mean_f32(src: &[f32], result: &mut f32) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -41,6 +42,7 @@ pub fn mean_f32_compensated(src: &[f32], result: &mut f32) -> Status {
     Status::Success
 }
 
+/// Mean (`f64`).
 pub fn mean_f64(src: &[f64], result: &mut f64) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -53,6 +55,7 @@ pub fn mean_f64(src: &[f64], result: &mut f64) -> Status {
     Status::Success
 }
 
+/// Mean (`q31`).
 pub fn mean_q31(src: &[q31], result: &mut q31) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -65,6 +68,7 @@ pub fn mean_q31(src: &[q31], result: &mut q31) -> Status {
     Status::Success
 }
 
+/// Mean (`q15`).
 pub fn mean_q15(src: &[q15], result: &mut q15) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -77,6 +81,7 @@ pub fn mean_q15(src: &[q15], result: &mut q15) -> Status {
     Status::Success
 }
 
+/// Mean (`q7`).
 pub fn mean_q7(src: &[q7], result: &mut q7) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -91,6 +96,7 @@ pub fn mean_q7(src: &[q7], result: &mut q7) -> Status {
 
 // --- Variance ---
 
+/// Variance (`f32`).
 pub fn var_f32(src: &[f32], result: &mut f32) -> Status {
     if src.len() <= 1 {
         return Status::LengthError;
@@ -106,6 +112,7 @@ pub fn var_f32(src: &[f32], result: &mut f32) -> Status {
     Status::Success
 }
 
+/// Variance (`f64`).
 pub fn var_f64(src: &[f64], result: &mut f64) -> Status {
     if src.len() <= 1 {
         return Status::LengthError;
@@ -121,6 +128,7 @@ pub fn var_f64(src: &[f64], result: &mut f64) -> Status {
     Status::Success
 }
 
+/// Variance (`q31`).
 pub fn var_q31(src: &[q31], result: &mut q31) -> Status {
     if src.len() <= 1 {
         return Status::LengthError;
@@ -138,6 +146,7 @@ pub fn var_q31(src: &[q31], result: &mut q31) -> Status {
     Status::Success
 }
 
+/// Variance (`q15`).
 pub fn var_q15(src: &[q15], result: &mut q15) -> Status {
     if src.len() <= 1 {
         return Status::LengthError;
@@ -155,6 +164,7 @@ pub fn var_q15(src: &[q15], result: &mut q15) -> Status {
     Status::Success
 }
 
+/// Variance (`q7`).
 pub fn var_q7(src: &[q7], result: &mut q7) -> Status {
     if src.len() <= 1 {
         return Status::LengthError;
@@ -173,6 +183,7 @@ pub fn var_q7(src: &[q7], result: &mut q7) -> Status {
 
 // --- Standard Deviation ---
 
+/// Standard deviation (`f32`).
 pub fn std_f32(src: &[f32], result: &mut f32) -> Status {
     let mut v = 0.0f32;
     let status = var_f32(src, &mut v);
@@ -182,6 +193,7 @@ pub fn std_f32(src: &[f32], result: &mut f32) -> Status {
     status
 }
 
+/// Standard deviation (`f64`).
 pub fn std_f64(src: &[f64], result: &mut f64) -> Status {
     let mut v = 0.0f64;
     let status = var_f64(src, &mut v);
@@ -191,6 +203,7 @@ pub fn std_f64(src: &[f64], result: &mut f64) -> Status {
     status
 }
 
+/// Standard deviation (`q31`).
 pub fn std_q31(src: &[q31], result: &mut q31) -> Status {
     let mut v = q31::ZERO;
     let status = var_q31(src, &mut v);
@@ -200,6 +213,7 @@ pub fn std_q31(src: &[q31], result: &mut q31) -> Status {
     status
 }
 
+/// Standard deviation (`q15`).
 pub fn std_q15(src: &[q15], result: &mut q15) -> Status {
     let mut v = q15::ZERO;
     let status = var_q15(src, &mut v);
@@ -209,6 +223,7 @@ pub fn std_q15(src: &[q15], result: &mut q15) -> Status {
     status
 }
 
+/// Standard deviation (`q7`).
 pub fn std_q7(src: &[q7], result: &mut q7) -> Status {
     let mut v = q7::ZERO;
     let status = var_q7(src, &mut v);
@@ -221,6 +236,7 @@ pub fn std_q7(src: &[q7], result: &mut q7) -> Status {
 
 // --- RMS ---
 
+/// Root mean square (`f32`).
 pub fn rms_f32(src: &[f32], result: &mut f32) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -233,6 +249,7 @@ pub fn rms_f32(src: &[f32], result: &mut f32) -> Status {
     Status::Success
 }
 
+/// Root mean square (`q31`).
 pub fn rms_q31(src: &[q31], result: &mut q31) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -247,6 +264,7 @@ pub fn rms_q31(src: &[q31], result: &mut q31) -> Status {
     Status::Success
 }
 
+/// Root mean square (`q15`).
 pub fn rms_q15(src: &[q15], result: &mut q15) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -263,6 +281,7 @@ pub fn rms_q15(src: &[q15], result: &mut q15) -> Status {
 
 // --- Power ---
 
+/// Power (`f32`).
 pub fn power_f32(src: &[f32], result: &mut f32) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -275,6 +294,7 @@ pub fn power_f32(src: &[f32], result: &mut f32) -> Status {
     Status::Success
 }
 
+/// Power (`q31`).
 pub fn power_q31(src: &[q31], result: &mut q63) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -288,6 +308,7 @@ pub fn power_q31(src: &[q31], result: &mut q63) -> Status {
     Status::Success
 }
 
+/// Power (`q15`).
 pub fn power_q15(src: &[q15], result: &mut q63) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -301,6 +322,7 @@ pub fn power_q15(src: &[q15], result: &mut q63) -> Status {
     Status::Success
 }
 
+/// Power (`q7`).
 pub fn power_q7(src: &[q7], result: &mut q31) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -316,6 +338,7 @@ pub fn power_q7(src: &[q7], result: &mut q31) -> Status {
 
 // --- Min & Max ---
 
+/// Minimum (`f32`).
 pub fn min_f32(src: &[f32], result: &mut f32, index: &mut usize) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -333,6 +356,7 @@ pub fn min_f32(src: &[f32], result: &mut f32, index: &mut usize) -> Status {
     Status::Success
 }
 
+/// Maximum (`f32`).
 pub fn max_f32(src: &[f32], result: &mut f32, index: &mut usize) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -350,6 +374,7 @@ pub fn max_f32(src: &[f32], result: &mut f32, index: &mut usize) -> Status {
     Status::Success
 }
 
+/// Minimum (`q31`).
 pub fn min_q31(src: &[q31], result: &mut q31, index: &mut usize) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -367,6 +392,7 @@ pub fn min_q31(src: &[q31], result: &mut q31, index: &mut usize) -> Status {
     Status::Success
 }
 
+/// Maximum (`q31`).
 pub fn max_q31(src: &[q31], result: &mut q31, index: &mut usize) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -384,6 +410,7 @@ pub fn max_q31(src: &[q31], result: &mut q31, index: &mut usize) -> Status {
     Status::Success
 }
 
+/// Minimum (`q15`).
 pub fn min_q15(src: &[q15], result: &mut q15, index: &mut usize) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -401,6 +428,7 @@ pub fn min_q15(src: &[q15], result: &mut q15, index: &mut usize) -> Status {
     Status::Success
 }
 
+/// Maximum (`q15`).
 pub fn max_q15(src: &[q15], result: &mut q15, index: &mut usize) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -418,6 +446,7 @@ pub fn max_q15(src: &[q15], result: &mut q15, index: &mut usize) -> Status {
     Status::Success
 }
 
+/// Minimum (`q7`).
 pub fn min_q7(src: &[q7], result: &mut q7, index: &mut usize) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -435,6 +464,7 @@ pub fn min_q7(src: &[q7], result: &mut q7, index: &mut usize) -> Status {
     Status::Success
 }
 
+/// Maximum (`q7`).
 pub fn max_q7(src: &[q7], result: &mut q7, index: &mut usize) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -454,6 +484,7 @@ pub fn max_q7(src: &[q7], result: &mut q7, index: &mut usize) -> Status {
 
 // --- Absmax & Absmin ---
 
+/// Maximum absolute value (`f32`).
 pub fn absmax_f32(src: &[f32], result: &mut f32, index: &mut usize) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -472,6 +503,7 @@ pub fn absmax_f32(src: &[f32], result: &mut f32, index: &mut usize) -> Status {
     Status::Success
 }
 
+/// Minimum absolute value (`f32`).
 pub fn absmin_f32(src: &[f32], result: &mut f32, index: &mut usize) -> Status {
     if src.is_empty() {
         return Status::LengthError;
@@ -492,6 +524,7 @@ pub fn absmin_f32(src: &[f32], result: &mut f32, index: &mut usize) -> Status {
 
 // --- Entropy, KL Divergence, LogSumExp ---
 
+/// Entropy (`f32`).
 pub fn entropy_f32(src: &[f32]) -> f32 {
     let mut ent = 0.0f32;
     for &p in src {
@@ -502,6 +535,7 @@ pub fn entropy_f32(src: &[f32]) -> f32 {
     ent
 }
 
+/// Kullback-Leibler divergence (`f32`).
 pub fn kullback_leibler_f32(p: &[f32], q: &[f32]) -> f32 {
     let len = p.len().min(q.len());
     let mut kl = 0.0f32;
@@ -513,6 +547,7 @@ pub fn kullback_leibler_f32(p: &[f32], q: &[f32]) -> f32 {
     kl
 }
 
+/// Log-sum-exp (`f32`).
 pub fn logsumexp_f32(src: &[f32]) -> f32 {
     if src.is_empty() {
         return 0.0;

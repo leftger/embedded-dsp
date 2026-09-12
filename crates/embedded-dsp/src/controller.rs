@@ -9,16 +9,24 @@ use crate::types::*;
 /// Instance structure for the floating-point PID Control.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PidInstanceF32 {
+    /// PID coefficient `a0`.
     pub a0: f32,
+    /// PID coefficient `a1`.
     pub a1: f32,
+    /// PID coefficient `a2`.
     pub a2: f32,
+    /// Filter state buffer.
     pub state: [f32; 3],
+    /// Proportional gain.
     pub kp: f32,
+    /// Integral gain.
     pub ki: f32,
+    /// Derivative gain.
     pub kd: f32,
 }
 
 impl PidInstanceF32 {
+    /// Creates a new instance.
     pub fn new(kp: f32, ki: f32, kd: f32) -> Self {
         let mut pid = Self {
             a0: 0.0,
@@ -33,6 +41,7 @@ impl PidInstanceF32 {
         pid
     }
 
+    /// Initializes the instance.
     pub fn init(&mut self, reset_state_flag: i32) {
         self.a0 = self.kp + self.ki + self.kd;
         self.a1 = -self.kp - 2.0 * self.kd;
@@ -42,10 +51,12 @@ impl PidInstanceF32 {
         }
     }
 
+    /// Resets the internal state.
     pub fn reset(&mut self) {
         self.state = [0.0; 3];
     }
 
+    /// Processes a single input sample.
     pub fn process(&mut self, in_val: f32) -> f32 {
         let out =
             self.state[2] + self.a0 * in_val + self.a1 * self.state[0] + self.a2 * self.state[1];
@@ -56,6 +67,7 @@ impl PidInstanceF32 {
     }
 }
 
+/// PID control update (`f32`).
 pub fn pid_f32(instance: &mut PidInstanceF32, in_val: f32) -> f32 {
     instance.process(in_val)
 }
@@ -63,17 +75,26 @@ pub fn pid_f32(instance: &mut PidInstanceF32, in_val: f32) -> f32 {
 // --- PID Controller (Q31) ---
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// PID controller instance.
 pub struct PidInstanceQ31 {
+    /// PID coefficient `a0`.
     pub a0: q31,
+    /// PID coefficient `a1`.
     pub a1: q31,
+    /// PID coefficient `a2`.
     pub a2: q31,
+    /// Filter state buffer.
     pub state: [q31; 3],
+    /// Proportional gain.
     pub kp: q31,
+    /// Integral gain.
     pub ki: q31,
+    /// Derivative gain.
     pub kd: q31,
 }
 
 impl PidInstanceQ31 {
+    /// Creates a new instance.
     pub fn new(kp: q31, ki: q31, kd: q31) -> Self {
         let mut pid = Self {
             a0: q31::ZERO,
@@ -88,6 +109,7 @@ impl PidInstanceQ31 {
         pid
     }
 
+    /// Initializes the instance.
     pub fn init(&mut self, reset_state_flag: i32) {
         self.a0 = self.kp.saturating_add(self.ki).saturating_add(self.kd);
         self.a1 = (-self.kp).saturating_sub(self.kd.wrapping_mul_int(2));
@@ -97,6 +119,7 @@ impl PidInstanceQ31 {
         }
     }
 
+    /// Resets the internal state.
     pub fn reset(&mut self) {
         self.state = [q31::ZERO; 3];
     }
@@ -121,6 +144,7 @@ impl PidInstanceQ31 {
     }
 }
 
+/// PID control update (`q31`).
 pub fn pid_q31(instance: &mut PidInstanceQ31, in_val: q31) -> q31 {
     instance.process(in_val)
 }
@@ -128,17 +152,26 @@ pub fn pid_q31(instance: &mut PidInstanceQ31, in_val: q31) -> q31 {
 // --- PID Controller (Q15) ---
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// PID controller instance.
 pub struct PidInstanceQ15 {
+    /// PID coefficient `a0`.
     pub a0: q15,
+    /// PID coefficient `a1`.
     pub a1: q15,
+    /// PID coefficient `a2`.
     pub a2: q15,
+    /// Filter state buffer.
     pub state: [q15; 3],
+    /// Proportional gain.
     pub kp: q15,
+    /// Integral gain.
     pub ki: q15,
+    /// Derivative gain.
     pub kd: q15,
 }
 
 impl PidInstanceQ15 {
+    /// Creates a new instance.
     pub fn new(kp: q15, ki: q15, kd: q15) -> Self {
         let mut pid = Self {
             a0: q15::ZERO,
@@ -153,6 +186,7 @@ impl PidInstanceQ15 {
         pid
     }
 
+    /// Initializes the instance.
     pub fn init(&mut self, reset_state_flag: i32) {
         self.a0 = self.kp.saturating_add(self.ki).saturating_add(self.kd);
         self.a1 = (-self.kp).saturating_sub(self.kd.wrapping_mul_int(2));
@@ -162,6 +196,7 @@ impl PidInstanceQ15 {
         }
     }
 
+    /// Resets the internal state.
     pub fn reset(&mut self) {
         self.state = [q15::ZERO; 3];
     }
@@ -183,6 +218,7 @@ impl PidInstanceQ15 {
     }
 }
 
+/// PID control update (`q15`).
 pub fn pid_q15(instance: &mut PidInstanceQ15, in_val: q15) -> q15 {
     instance.process(in_val)
 }

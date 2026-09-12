@@ -1188,8 +1188,11 @@ pub fn hilbert_fir_design_f32(dst_coeffs: &mut [f32]) -> Status {
 /// in-phase signal `I[n] = x[n - M]` to generate the true analytic signal
 /// `z[n] = I[n] + j Q[n]` with zero heap allocations.
 pub struct HilbertTransformF32<'a> {
+    /// Number of filter taps.
     pub num_taps: usize,
+    /// Filter coefficients.
     pub coeffs: &'a [f32],
+    /// Filter state buffer.
     pub state: &'a mut [f32],
 }
 
@@ -1279,8 +1282,11 @@ impl<'a> HilbertTransformF32<'a> {
 
 /// Stateful FIR Hilbert Transformer for Q15 fixed-point arithmetic.
 pub struct HilbertTransformQ15<'a> {
+    /// Number of filter taps.
     pub num_taps: usize,
+    /// Filter coefficients.
     pub coeffs: &'a [q15],
+    /// Filter state buffer.
     pub state: &'a mut [q15],
 }
 

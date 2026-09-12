@@ -5,12 +5,16 @@ use crate::types::*;
 /// Matrix structure wrapping a slice of data in row-major order.
 #[derive(Debug, Clone, Copy)]
 pub struct MatrixInstance<'a, T> {
+    /// Number of rows.
     pub num_rows: u16,
+    /// Number of columns.
     pub num_cols: u16,
+    /// Element data.
     pub data: &'a [T],
 }
 
 impl<'a, T> MatrixInstance<'a, T> {
+    /// Creates a new instance.
     pub fn new(num_rows: u16, num_cols: u16, data: &'a [T]) -> Self {
         Self {
             num_rows,
@@ -23,12 +27,16 @@ impl<'a, T> MatrixInstance<'a, T> {
 /// Mutable Matrix structure wrapping a mutable slice of data in row-major order.
 #[derive(Debug)]
 pub struct MatrixInstanceMut<'a, T> {
+    /// Number of rows.
     pub num_rows: u16,
+    /// Number of columns.
     pub num_cols: u16,
+    /// Element data.
     pub data: &'a mut [T],
 }
 
 impl<'a, T> MatrixInstanceMut<'a, T> {
+    /// Creates a new instance.
     pub fn new(num_rows: u16, num_cols: u16, data: &'a mut [T]) -> Self {
         Self {
             num_rows,
@@ -40,6 +48,7 @@ impl<'a, T> MatrixInstanceMut<'a, T> {
 
 // --- Matrix Addition ---
 
+/// Matrix addition (`f32`).
 pub fn mat_add_f32(
     a: &MatrixInstance<f32>,
     b: &MatrixInstance<f32>,
@@ -62,6 +71,7 @@ pub fn mat_add_f32(
     Status::Success
 }
 
+/// Matrix addition (`q31`).
 pub fn mat_add_q31(
     a: &MatrixInstance<q31>,
     b: &MatrixInstance<q31>,
@@ -84,6 +94,7 @@ pub fn mat_add_q31(
     Status::Success
 }
 
+/// Matrix addition (`q15`).
 pub fn mat_add_q15(
     a: &MatrixInstance<q15>,
     b: &MatrixInstance<q15>,
@@ -108,6 +119,7 @@ pub fn mat_add_q15(
 
 // --- Matrix Subtraction ---
 
+/// Matrix subtraction (`f32`).
 pub fn mat_sub_f32(
     a: &MatrixInstance<f32>,
     b: &MatrixInstance<f32>,
@@ -130,6 +142,7 @@ pub fn mat_sub_f32(
     Status::Success
 }
 
+/// Matrix subtraction (`q31`).
 pub fn mat_sub_q31(
     a: &MatrixInstance<q31>,
     b: &MatrixInstance<q31>,
@@ -152,6 +165,7 @@ pub fn mat_sub_q31(
     Status::Success
 }
 
+/// Matrix subtraction (`q15`).
 pub fn mat_sub_q15(
     a: &MatrixInstance<q15>,
     b: &MatrixInstance<q15>,
@@ -176,6 +190,7 @@ pub fn mat_sub_q15(
 
 // --- Matrix Multiplication ---
 
+/// Matrix multiplication (`f32`).
 pub fn mat_mult_f32(
     a: &MatrixInstance<f32>,
     b: &MatrixInstance<f32>,
@@ -200,6 +215,7 @@ pub fn mat_mult_f32(
     Status::Success
 }
 
+/// Matrix multiplication (`q31`).
 pub fn mat_mult_q31(
     a: &MatrixInstance<q31>,
     b: &MatrixInstance<q31>,
@@ -228,6 +244,7 @@ pub fn mat_mult_q31(
     Status::Success
 }
 
+/// Matrix multiplication (`q15`).
 pub fn mat_mult_q15(
     a: &MatrixInstance<q15>,
     b: &MatrixInstance<q15>,
@@ -257,6 +274,7 @@ pub fn mat_mult_q15(
 
 // --- Matrix Scale ---
 
+/// Matrix scaling (`f32`).
 pub fn mat_scale_f32(
     src: &MatrixInstance<f32>,
     scale: f32,
@@ -272,6 +290,7 @@ pub fn mat_scale_f32(
     Status::Success
 }
 
+/// Matrix scaling (`q31`).
 pub fn mat_scale_q31(
     src: &MatrixInstance<q31>,
     scale_fract: q31,
@@ -291,6 +310,7 @@ pub fn mat_scale_q31(
     Status::Success
 }
 
+/// Matrix scaling (`q15`).
 pub fn mat_scale_q15(
     src: &MatrixInstance<q15>,
     scale_fract: q15,
@@ -312,6 +332,7 @@ pub fn mat_scale_q15(
 
 // --- Matrix Transpose ---
 
+/// Matrix transpose (`f32`).
 pub fn mat_trans_f32(src: &MatrixInstance<f32>, out: &mut MatrixInstanceMut<f32>) -> Status {
     if src.num_rows != out.num_cols || src.num_cols != out.num_rows {
         return Status::SizeMismatch;
@@ -327,6 +348,7 @@ pub fn mat_trans_f32(src: &MatrixInstance<f32>, out: &mut MatrixInstanceMut<f32>
     Status::Success
 }
 
+/// Matrix transpose (`q31`).
 pub fn mat_trans_q31(src: &MatrixInstance<q31>, out: &mut MatrixInstanceMut<q31>) -> Status {
     if src.num_rows != out.num_cols || src.num_cols != out.num_rows {
         return Status::SizeMismatch;
@@ -342,6 +364,7 @@ pub fn mat_trans_q31(src: &MatrixInstance<q31>, out: &mut MatrixInstanceMut<q31>
     Status::Success
 }
 
+/// Matrix transpose (`q15`).
 pub fn mat_trans_q15(src: &MatrixInstance<q15>, out: &mut MatrixInstanceMut<q15>) -> Status {
     if src.num_rows != out.num_cols || src.num_cols != out.num_rows {
         return Status::SizeMismatch;
@@ -359,6 +382,7 @@ pub fn mat_trans_q15(src: &MatrixInstance<q15>, out: &mut MatrixInstanceMut<q15>
 
 // --- Matrix Inverse (f32 Gauss-Jordan Elimination with partial pivoting) ---
 
+/// Matrix inverse (`f32`).
 pub fn mat_inverse_f32(src: &MatrixInstance<f32>, out: &mut MatrixInstanceMut<f32>) -> Status {
     if src.num_rows != src.num_cols || out.num_rows != out.num_cols || src.num_rows != out.num_rows
     {

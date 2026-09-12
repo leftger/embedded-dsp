@@ -107,12 +107,15 @@ pub trait SplitInplace<X: Copy, S: ?Sized = ()>: SplitProcess<X, X, S> {
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Split<C, S> {
+    /// Node configuration.
     pub config: C,
+    /// Filter state buffer.
     pub state: S,
 }
 
 impl<C, S> Split<C, S> {
     #[inline(always)]
+    /// Creates a new instance.
     pub const fn new(config: C, state: S) -> Self {
         Self { config, state }
     }
@@ -165,11 +168,13 @@ pub struct Lanes<C>(pub C);
 
 impl<C> Lanes<C> {
     #[inline(always)]
+    /// Creates a new instance.
     pub const fn new(config: C) -> Self {
         Self(config)
     }
 
     #[inline(always)]
+    /// Into inner.
     pub fn into_inner(self) -> C {
         self.0
     }
@@ -192,6 +197,7 @@ pub struct Pair<C0, C1>(pub C0, pub C1);
 
 impl<C0, C1> Pair<C0, C1> {
     #[inline(always)]
+    /// Creates a new instance.
     pub const fn new(branch0: C0, branch1: C1) -> Self {
         Self(branch0, branch1)
     }
@@ -257,7 +263,9 @@ impl<X: Copy, S: ?Sized> SplitInplace<X, S> for Identity {}
 /// A sequential composition of two DSP nodes `A` and `B` with zero runtime overhead.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Chain<A, B> {
+    /// First.
     pub first: A,
+    /// Second.
     pub second: B,
 }
 
@@ -288,11 +296,13 @@ impl<T: Copy, A: Inplace<T>, B: Inplace<T>> Inplace<T> for Chain<A, B> {
 /// Linear gain scaling node.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Gain<T> {
+    /// Gain.
     pub gain: T,
 }
 
 impl<T> Gain<T> {
     #[inline(always)]
+    /// Creates a new instance.
     pub const fn new(gain: T) -> Self {
         Self { gain }
     }
@@ -332,12 +342,15 @@ impl DspNode<i32> for Gain<i32> {
 /// Hard saturation limiter node clamping between `[min, max]`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Limiter<T> {
+    /// Minimum saturation clamp.
     pub min: T,
+    /// Maximum saturation clamp.
     pub max: T,
 }
 
 impl<T> Limiter<T> {
     #[inline(always)]
+    /// Creates a new instance.
     pub const fn new(min: T, max: T) -> Self {
         Self { min, max }
     }

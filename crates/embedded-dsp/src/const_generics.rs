@@ -14,6 +14,7 @@ use crate::types::q15;
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FirFilter<const TAPS: usize> {
+    /// Filter coefficients.
     pub coeffs: [f32; TAPS],
     state: [f32; TAPS],
 }
@@ -47,7 +48,9 @@ impl<const TAPS: usize> FirFilter<TAPS> {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct BiquadCascade<const COEFFS_LEN: usize, const STATE_LEN: usize> {
+    /// Filter coefficients.
     pub coeffs: [f32; COEFFS_LEN],
+    /// Filter state buffer.
     pub state: [f32; STATE_LEN],
     num_stages: u8,
 }
@@ -83,11 +86,13 @@ impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascade<COEFFS_LEN, 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FirFilterQ15<const TAPS: usize> {
+    /// Filter coefficients.
     pub coeffs: [q15; TAPS],
     state: [q15; TAPS],
 }
 
 impl<const TAPS: usize> FirFilterQ15<TAPS> {
+    /// Creates a new instance.
     pub fn new(coeffs: [q15; TAPS]) -> Self {
         Self {
             coeffs,
@@ -95,6 +100,7 @@ impl<const TAPS: usize> FirFilterQ15<TAPS> {
         }
     }
 
+    /// Processes a single input sample.
     pub fn process(&mut self, src: &[q15], dst: &mut [q15]) {
         let mut instance = FirInstanceQ15 {
             num_taps: TAPS as u16,
@@ -104,6 +110,7 @@ impl<const TAPS: usize> FirFilterQ15<TAPS> {
         fir_q15(&mut instance, src, dst);
     }
 
+    /// Resets the internal state.
     pub fn reset(&mut self) {
         self.state.fill(q15::ZERO);
     }
@@ -113,13 +120,16 @@ impl<const TAPS: usize> FirFilterQ15<TAPS> {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct BiquadCascadeQ15<const COEFFS_LEN: usize, const STATE_LEN: usize> {
+    /// Filter coefficients.
     pub coeffs: [q15; COEFFS_LEN],
+    /// Filter state buffer.
     pub state: [q15; STATE_LEN],
     num_stages: u8,
     post_shift: u8,
 }
 
 impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascadeQ15<COEFFS_LEN, STATE_LEN> {
+    /// Creates a new instance.
     pub fn new(coeffs: [q15; COEFFS_LEN], post_shift: u8) -> Self {
         let num_stages = (COEFFS_LEN / 5) as u8;
         Self {
@@ -130,6 +140,7 @@ impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascadeQ15<COEFFS_LE
         }
     }
 
+    /// Processes a single input sample.
     pub fn process(&mut self, src: &[q15], dst: &mut [q15]) {
         let mut instance = BiquadCascadeInstanceQ15 {
             num_stages: self.num_stages,
@@ -140,6 +151,7 @@ impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascadeQ15<COEFFS_LE
         biquad_cascade_df1_q15(&mut instance, src, dst);
     }
 
+    /// Resets the internal state.
     pub fn reset(&mut self) {
         self.state.fill(q15::ZERO);
     }
@@ -149,6 +161,7 @@ impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascadeQ15<COEFFS_LE
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Matrix<const R: usize, const C: usize, const N: usize> {
+    /// Element data.
     pub data: [f32; N],
 }
 
