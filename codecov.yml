@@ -30,6 +30,20 @@ ignore:
 github_checks:
   annotations: false
 
+# The PR comment is patch-only by default ("By default, Codecov only shows
+# coverage changes on the git diff on the pull request comment"). Setting
+# `hide_project_coverage: false` and asking for the `files` section makes the
+# comment report overall project coverage as well, which is the number this
+# repository actually cares about -- the library floor.
+# See https://docs.codecov.com/docs/common-recipe-list
+comment:
+  layout: "diff, flags, files"
+  behavior: default
+  require_changes: false # post even when coverage is unchanged
+  require_base: false    # no base report required
+  require_head: true     # a head report is required
+  hide_project_coverage: false
+
 coverage:
   status:
     project:
