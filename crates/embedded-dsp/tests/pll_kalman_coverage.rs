@@ -79,14 +79,17 @@ fn costas_loop_demodulates_a_bpsk_carrier() {
     let f = 100.0f32;
     let mut costas = CostasLoop::new(f, sample_rate, 50.0, 0.707);
 
-    // The I/Q arms are the sample projected onto the tracked carrier, so their
-    // magnitude can never exceed the input magnitude.
+    // The returned I/Q arms are the low-pass filtered mixer outputs. Each is
+    // bounded by the input amplitude (1.0) rather than by the instantaneous
+    // sample: the arm filter holds energy across the input's zero crossings, so
+    // it can exceed |x| at a given step.
+    let amplitude = 1.0f32;
     for n in 0..2_000 {
         let t = n as f32 / sample_rate;
-        let x = (2.0 * core::f32::consts::PI * f * t).sin();
+        let x = amplitude * (2.0 * core::f32::consts::PI * f * t).sin();
         let (i, q) = costas.process_sample(x);
-        assert!(i.abs() <= x.abs() + 1e-5, "step {n}: i = {i}, x = {x}");
-        assert!(q.abs() <= x.abs() + 1e-5, "step {n}: q = {q}, x = {x}");
+        assert!(i.abs() <= amplitude + 1e-5, "step {n}: i = {i}");
+        assert!(q.abs() <= amplitude + 1e-5, "step {n}: q = {q}");
     }
     assert!((costas.center_frequency_hz() - f).abs() < 1e-3);
 }

@@ -297,6 +297,11 @@ name = "module_extras_coverage"
 path = "tests/module_extras_coverage.rs"
 required-features = ["libm", "full"]
 
+[[test]]
+name = "costas_loop_tracking"
+path = "tests/costas_loop_tracking.rs"
+required-features = ["libm", "pll"]
+
 [[example]]
 name = "basic_usage"
 path = "examples/basic_usage.rs"
