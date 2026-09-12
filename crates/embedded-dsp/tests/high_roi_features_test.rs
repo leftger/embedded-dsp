@@ -1,10 +1,10 @@
 use core::f32::consts::PI;
 use embedded_dsp::controller::PidBuilder;
 use embedded_dsp::fast_math::{Unwrapper, atan2_i32, cossin, cossin_f32, fast_atan2_f32};
-use embedded_dsp::filtering::{DirectForm1, Lockin, LockinAmplifier};
+use embedded_dsp::filtering::{DirectForm1, Lockin, LockinAmplifier, NormalForm, NormalFormState};
 use embedded_dsp::pipeline::SplitProcess;
 use embedded_dsp::resampling::{HbfDec, HbfDecCascade, HbfInt};
-use embedded_dsp::synthesis::{AccuOsc, Sweep};
+use embedded_dsp::synthesis::{Accu, AccuOsc, Sweep};
 use embedded_dsp::types::Complex;
 
 #[test]
@@ -229,4 +229,113 @@ fn test_exponential_sweep_and_osc() {
     for s in samples {
         assert!(s.real != 0 || s.imag != 0);
     }
+}
+
+#[test]
+fn test_normal_form_oscillator_quadrature_and_period() {
+    // Oscillator at 10% of the sample rate -> period of 10 samples.
+    let nco = NormalForm::oscillator(0.1);
+    let mut state = NormalFormState::default();
+
+    // Kick with a unit impulse.
+    let (first_re, first_im) = nco.process_quadrature(&mut state, 1.0);
+    assert!((first_re - 1.0).abs() < 1e-6, "impulse starts at re=1");
+    assert!(first_im.abs() < 1e-6, "impulse starts at im=0");
+
+    let mut first_peak = None;
+    let mut last_peak = None;
+    let mut peak_spacing_ok = true;
+
+    for n in 1..=100 {
+        let (re, im) = nco.process_quadrature(&mut state, 0.0);
+        let amp = (re * re + im * im).sqrt();
+        assert!(
+            (amp - 1.0).abs() < 2e-4,
+            "oscillator amplitude must stay on the unit circle (n={n}, amp={amp})"
+        );
+        if (re - 1.0).abs() < 1e-3 {
+            if let Some(prev) = last_peak {
+                if n - prev != 10 {
+                    peak_spacing_ok = false;
+                }
+            } else {
+                first_peak = Some(n);
+            }
+            last_peak = Some(n);
+        }
+    }
+
+    // Full rotation after 10 samples.
+    assert_eq!(first_peak, Some(10), "cosine peaks again after one period");
+    assert!(peak_spacing_ok, "peaks must repeat every 10 samples");
+}
+
+#[test]
+fn test_normal_form_from_ba_pole_extraction() {
+    // Denominator: (z - (0.5 + 0.5j))(z - (0.5 - 0.5j)) = z^2 - z + 0.5
+    let ba = [[1.0f32, 0.0, 0.0], [1.0, -1.0, 0.5]];
+    let nf = NormalForm::from_ba(&ba);
+    assert!(
+        (nf.p.re() - 0.5).abs() < 1e-5,
+        "p.re was {p_re}",
+        p_re = nf.p.re()
+    );
+    assert!(
+        (nf.p.im() - 0.5).abs() < 1e-5,
+        "p.im was {p_im}",
+        p_im = nf.p.im()
+    );
+
+    // Impulse response must exactly match the biquad transfer function:
+    // H(z) = 1 / (1 - z^-1 + 0.5 z^-2)
+    // h[0] = 1, h[1] = 1, h[2] = 0.5, h[3] = 0, h[4] = -0.25, ...
+    let mut state = NormalFormState::default();
+    let h0 = nf.process(&mut state, 1.0);
+    let h1 = nf.process(&mut state, 0.0);
+    let h2 = nf.process(&mut state, 0.0);
+    let h3 = nf.process(&mut state, 0.0);
+    let h4 = nf.process(&mut state, 0.0);
+    assert!((h0 - 1.0).abs() < 1e-5);
+    assert!((h1 - 1.0).abs() < 1e-5);
+    assert!((h2 - 0.5).abs() < 1e-5);
+    assert!(h3.abs() < 1e-5);
+    assert!((h4 - (-0.25)).abs() < 1e-5);
+}
+
+#[test]
+fn test_normal_form_bandpass_dc_rejection() {
+    // Narrow bandpass at 0.25 Nyquist-normalized with Q = 10.
+    let bp = NormalForm::bandpass(0.25, 10.0);
+    let mut state = NormalFormState::default();
+
+    // Feed a DC signal: numerator (1 - z^-2) guarantees zero DC gain.
+    let mut out = 0.0;
+    for _ in 0..2000 {
+        out = bp.process(&mut state, 1.0);
+    }
+    assert!(out.abs() < 1e-3, "DC must be rejected, got {out}");
+}
+
+#[test]
+fn test_accu_wrapping_and_algebra() {
+    use core::num::Wrapping;
+
+    // Same behavior as the idsp doctest: 127 + 127 wraps to -2 in i8.
+    let mut acc = Accu::new(Wrapping(0i8), Wrapping(127));
+    assert_eq!(acc.next(), Some(Wrapping(127)));
+    assert_eq!(acc.next(), Some(Wrapping(-2)));
+
+    // Scaling: multiply state and step by the same factor.
+    let acc = Accu::new(Wrapping(2i32), Wrapping(3i32));
+    let scaled = acc * Wrapping(4i32);
+    assert_eq!(scaled.state, Wrapping(8));
+    assert_eq!(scaled.step, Wrapping(12));
+
+    // Composition: add and subtract accumulators elementwise.
+    let a = Accu::new(Wrapping(1i32), Wrapping(2i32));
+    let b = Accu::new(Wrapping(3i32), Wrapping(4i32));
+    let sum = a + b;
+    assert_eq!((sum.state, sum.step), (Wrapping(4), Wrapping(6)));
+    let diff = b - a;
+    assert_eq!((diff.state, diff.step), (Wrapping(2), Wrapping(2)));
 }
