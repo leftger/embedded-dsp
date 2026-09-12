@@ -209,6 +209,13 @@ impl CostasLoop {
 // Integer PLLs (ported from idsp)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Round an `f64` to the nearest `i32` (saturating), matching idsp's Q32.32
+/// coefficient quantization. `f64::round` is unavailable in `core`.
+#[inline]
+fn round_to_i32(v: f64) -> i32 {
+    (v + if v < 0.0 { -0.5 } else { 0.5 }) as i32
+}
+
 /// Type-2, order-3 integer sampled-phase PLL.
 ///
 /// Tracks frequency and phase of an input signal with respect to the sampling
@@ -226,19 +233,19 @@ impl CostasLoop {
 #[derive(Copy, Clone, Debug, Default)]
 pub struct IntPll {
     /// Lead-lag coefficients `[b0, b1, a1]` stored as scaled i32.
-    /// Internal representation: float * 2^31 (Q1.31).
+    /// Internal representation: float * 2^32 (Q32.32), matching the idsp `PLL`.
     pub ba: [i32; 3],
 }
 
 impl IntPll {
     /// Construct from zero, pole, and gain (all normalised to sample rate, i.e. in `[0,1)`).
     pub fn from_zpk(zero: f32, pole: f32, gain: f32) -> Self {
-        const SCALE: f64 = (i32::MAX as f64) + 1.0; // 2^31
+        const SCALE: f64 = 4294967296.0; // 2^32 (Q32.32)
         Self {
             ba: [
-                (gain as f64 * SCALE) as i32,
-                ((-gain * zero) as f64 * SCALE) as i32,
-                ((pole - 1.0) as f64 * SCALE) as i32,
+                round_to_i32(gain as f64 * SCALE),
+                round_to_i32((-gain * zero) as f64 * SCALE),
+                round_to_i32((pole - 1.0) as f64 * SCALE),
             ],
         }
     }
@@ -276,11 +283,19 @@ impl IntPll {
         let y0 = z0.wrapping_add(state.z0);
         state.z0 = z0;
 
-        // Lead-lag biquad with wide state
-        let b0y0 = self.ba[0] as i64 * y0 as i64;
-        let b1y1 = self.ba[1] as i64 * state.y0 as i64;
-        let a1f1 = self.ba[2] as i64 * (state.f0 >> 32) as i64;
-        state.f0 = state.f0.wrapping_add(b0y0 + b1y1 + a1f1);
+        // Lead-lag biquad with wide i64 state, Q32.32 coefficients:
+        // f0 += b0*y0 + b1*y1 + a1*f1 + (a1 * low_word(f0)) >> 32.
+        // The products are full-width (the Q32.32 scaling is applied when
+        // frequency is extracted as f >> 32), matching idsp's wide `Q` math.
+        // The low-word feedback term is evaluated with the *old* f0, exactly
+        // like idsp's single `+=` expression.
+        let f0 = state.f0;
+        let f1 = (f0 >> 32) as i32;
+        let y = self.ba[0] as i64 * y0 as i64
+            + self.ba[1] as i64 * state.y0 as i64
+            + self.ba[2] as i64 * f1 as i64
+            + ((self.ba[2] as i64 * f0 as u32 as i64) >> 32);
+        state.f0 = f0.wrapping_add(y);
         state.y0 = y0;
 
         // DC pole (frequency integrator)
@@ -302,21 +317,26 @@ pub struct ClampWrap {
 
 impl ClampWrap {
     /// Feed a new input; returns a clamped version.
+    ///
+    /// Mirrors idsp's `ClampWrap`: a wrap in one direction clamps the output to
+    /// the corresponding rail and the clamp is only released by a wrap in the
+    /// opposite direction.
     #[inline]
     pub fn process(&mut self, x: i32) -> i32 {
-        let (delta, overflow) = x.overflowing_sub(self.x0);
+        // idsp's `overflowing_sub`: the wrapped delta's sign is compared with
+        // the true comparison sign to classify the wrap direction.
+        let x0 = self.x0;
+        let delta = x.wrapping_sub(x0);
         self.x0 = x;
-        if overflow {
-            // delta's sign tells us which way the wrap went
-            let wrap_sign: i8 = if delta < 0 { 1 } else { -1 };
-            self.dir = self.dir.saturating_add(wrap_sign);
-        } else {
-            if self.dir > 0 { self.dir -= 1; }
-            else if self.dir < 0 { self.dir += 1; }
-        }
+        let wrap: i8 = match (delta >= 0, x >= x0) {
+            (true, false) => 1,
+            (false, true) => -1,
+            _ => 0,
+        };
+        self.dir = (self.dir as i32 + wrap as i32).signum() as i8;
         match self.dir.cmp(&0) {
-            core::cmp::Ordering::Less    => i32::MIN,
-            core::cmp::Ordering::Equal   => x,
+            core::cmp::Ordering::Less => i32::MIN,
+            core::cmp::Ordering::Equal => x,
             core::cmp::Ordering::Greater => i32::MAX,
         }
     }

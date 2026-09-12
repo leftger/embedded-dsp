@@ -5,6 +5,7 @@ use embedded_dsp::filtering::{
     DirectForm1, Lockin, LockinAmplifier, NormalForm, NormalFormState, Wdf, WdfState,
 };
 use embedded_dsp::pipeline::{SplitInplace, SplitProcess};
+use embedded_dsp::pll::{ClampWrap, IntPll, IntPllState};
 use embedded_dsp::resampling::{
     EvenSymmetric, HbfDec, HbfDecCascade, HbfInt, HbfIntCascade, OddSymmetric,
     hbf_dec_response_length, hbf_int_response_length,
@@ -469,5 +470,54 @@ fn test_freqz_matches_biquad_response() {
 
     // DC gain of an all-pole filter: H(1) = 1/(1 - 1 + 0.5) = 2.
     let h = freqz(&[1.0], &[1.0, -1.0, 0.5], 0.0);
-    assert!((h.real - 2.0).abs() < 1e-5, "DC gain was {}", h.real);
+    assert!((h.real - 2.0).abs() < 1e-5, "DC gain was {h}", h = h.real);
+}
+
+#[test]
+fn test_int_pll_convergence() {
+    // Same convergence tests as idsp's `pll::tests`.
+    use core::num::Wrapping as W;
+    use embedded_dsp::synthesis::Accu;
+
+    let p = IntPll::from_bandwidth(5e-2, 4.0);
+    let mut s = IntPllState::default();
+    let a = Accu::<W<i32>>::new(W(0x0), W(0x71f63049));
+    let n = 1 << 9;
+    for (i, x) in a.take(n).enumerate() {
+        let y = p.process(&mut s, x.0);
+        if i > n / 2 {
+            assert!(
+                (a.step.0 + s.frequency()).abs() <= 1,
+                "frequency error at {i}"
+            );
+            assert!((x.0 + y).abs() <= 4, "phase error at {i}");
+        }
+    }
+
+    let p = IntPll::from_bandwidth(8e-5, 4.0);
+    let mut s = IntPllState::default();
+    let a = Accu::<W<i32>>::new(W(0x0), W(0x140_1235));
+    let n = 1 << 18;
+    for (i, x) in a.take(n).enumerate() {
+        let y = p.process(&mut s, x.0);
+        if i > n / 2 {
+            assert!(
+                (a.step.0 + s.frequency()).abs() <= 1 << 16,
+                "narrow frequency error at {i}"
+            );
+            assert!((x.0 + y).abs() <= 1 << 16, "narrow phase error at {i}");
+        }
+    }
+}
+
+#[test]
+fn test_clamp_wrap_semantics() {
+    // Positive-direction wrap clamps to MAX; the clamp is held on non-wrap
+    // samples and released by a wrap in the opposite direction.
+    let mut c = ClampWrap::default();
+    let pos_wrap = 0xcd6d9f69u32 as i32;
+    assert_eq!(c.process(0x71f63049), 0x71f63049); // no wrap
+    assert_eq!(c.process(pos_wrap), i32::MAX); // positive wrap -> MAX
+    assert_eq!(c.process(pos_wrap), i32::MAX); // clamp held on non-wrap
+    assert_eq!(c.process(0x71f63049), 0x71f63049); // opposite wrap releases
 }
