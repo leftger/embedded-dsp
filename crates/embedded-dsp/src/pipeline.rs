@@ -1067,4 +1067,81 @@ mod tests {
         let flat = [1, 2, 3, 4, 5];
         let _ = View::<_, LaneMajor, 2>::from_flat(&flat, 3);
     }
+
+    #[test]
+    fn parallel_covers_the_tuple_and_array_shapes() {
+        // Tuple-shaped: one branch per lane, each contributing its own (unit) state.
+        let mut pair = Split::new(Parallel::new((Offset(1.0f32), Offset(2.0f32))), ((), ()));
+        assert_eq!(pair.process([1.0, 1.0]), [2.0, 3.0]);
+
+        let mut xy = [[1.0f32, 1.0], [2.0, 2.0]];
+        pair.inplace(&mut xy);
+        assert_eq!(xy, [[2.0, 3.0], [3.0, 4.0]]);
+
+        // Array-shaped: one config and one state per lane.
+        let mut quad = Split::new(
+            Parallel::new([Offset(1.0f32), Offset(2.0), Offset(3.0)]),
+            [(); 3],
+        );
+        assert_eq!(quad.process([0.0, 0.0, 0.0]), [1.0, 2.0, 3.0]);
+
+        let mut xy = [[0.0f32; 3]; 2];
+        quad.inplace(&mut xy);
+        assert_eq!(xy, [[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]]);
+    }
+
+    #[test]
+    fn by_lane_covers_the_tuple_and_array_shapes() {
+        let mut pair = Split::new(ByLane::new((Offset(1.0f32), Offset(10.0f32))), ((), ()));
+        assert_eq!(pair.process([1.0, 2.0]), [2.0, 12.0]);
+
+        let mut quad = Split::new(ByLane::new([Offset(1.0f32), Offset(10.0f32)]), [(); 2]);
+        assert_eq!(quad.process([1.0, 2.0]), [2.0, 12.0]);
+
+        // The array form is the one wired to lane-major views.
+        let x = [1.0f32, 2.0, 3.0, 40.0, 50.0, 60.0];
+        let mut y = [0.0f32; 6];
+        let mut lanes = Split::new(ByLane::new([Offset(1.0f32), Offset(10.0f32)]), [(); 2]);
+        lanes.process_view(
+            View::<_, LaneMajor, 2>::from_flat(&x, 3),
+            ViewMut::<_, LaneMajor, 2>::from_flat(&mut y, 3),
+        );
+        assert_eq!(y, [2.0, 3.0, 4.0, 50.0, 60.0, 70.0]);
+    }
+
+    #[test]
+    fn stateless_and_stateful_splits() {
+        // `stateless` pairs a configuration with unit state.
+        let mut stateless = Split::stateless(Offset(3.0f32));
+        assert_eq!(stateless.process(1.0), 4.0);
+
+        // `stateful` wraps the state so it cannot be confused with a configuration.
+        let stateful = Split::stateful(RunningSum);
+        let Unsplit(RunningSum) = stateful.state;
+        assert_eq!(stateful.config, ());
+    }
+
+    #[test]
+    fn mutable_view_accessors() {
+        let mut frames = [[1.0f32, 2.0], [3.0, 4.0]];
+        let mut vm = ViewMut::from_frames(&mut frames);
+        assert_eq!(vm.frames(), 2);
+        assert_eq!(vm.flat(), &[1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(vm.frame(0), &[1.0, 2.0]);
+        vm.frame_mut(0)[0] = 9.0;
+        vm.as_frames_mut()[1][1] = 8.0;
+        assert_eq!(vm.as_frames()[0], [9.0, 2.0]);
+        assert_eq!(vm.flat_mut()[3], 8.0);
+
+        let mut flat = [1.0f32, 2.0, 3.0, 4.0];
+        let mut lm = ViewMut::<_, LaneMajor, 2>::from_flat(&mut flat, 2);
+        assert_eq!(lm.lane(0), &[1.0, 2.0]);
+        lm.lane_mut(1)[1] = 7.0;
+        assert_eq!(lm.lane(1), &[3.0, 7.0]);
+        assert_eq!(lm.frames(), 2);
+
+        let v: View<'_, f32, LaneMajor, 2> = View::from_flat(&flat, 2);
+        assert_eq!(v.flat(), &flat[..]);
+        assert_eq!(v.frames(), 2);
+    }
 }
