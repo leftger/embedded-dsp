@@ -2649,6 +2649,66 @@ fn test_square_root_kalman_filter() {
 }
 
 #[test]
+fn test_square_root_kalman_filter_agrees_with_the_plain_filter() {
+    // Both filters solve the same equations, so they must agree to roundoff. This is what pins the
+    // Householder prediction and the Potter update against an independent implementation: an
+    // error in either leaves the factor a valid Cholesky factor of the *wrong* covariance, which
+    // the structural test above cannot see.
+    let dt = 0.1f32;
+    let f = [[1.0f32, dt], [0.0, 1.0]];
+    let q = 1e-3f32;
+    let r = 0.25f32;
+
+    // Q = diag(q) and R = r, so their factors are the square roots.
+    let s_q = [[q.sqrt(), 0.0], [0.0, q.sqrt()]];
+    let s_r = [[r.sqrt()]];
+
+    let mut plain = KalmanFilter::<2, 1>::new(
+        [0.0, 1.0],
+        [[1.0, 0.0], [0.0, 1.0]],
+        [[q, 0.0], [0.0, q]],
+        [[r]],
+    );
+    let mut root = SquareRootKalmanFilter::<2, 1>::new(
+        [0.0, 1.0],
+        [[1.0, 0.0], [0.0, 1.0]],
+        f,
+        s_q,
+        [[1.0, 0.0]],
+        s_r,
+    );
+
+    for k in 1..=50 {
+        plain.predict(&f);
+        root.predict();
+        let z = [k as f32 * dt + 0.05];
+        assert_eq!(plain.update(&[[1.0, 0.0]], &z), Status::Success);
+        assert_eq!(root.update(&z), Status::Success);
+
+        for i in 0..2 {
+            assert!(
+                (plain.x[i] - root.x[i]).abs() < 1e-5,
+                "state {i} diverged at step {k}: {} vs {}",
+                plain.x[i],
+                root.x[i]
+            );
+        }
+
+        let p = root.covariance();
+        for i in 0..2 {
+            for j in 0..2 {
+                assert!(
+                    (plain.p[i][j] - p[i][j]).abs() < 1e-5,
+                    "covariance [{i}][{j}] diverged at step {k}: {} vs {}",
+                    plain.p[i][j],
+                    p[i][j]
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn test_burg_ar_psd_and_kaiser_window() {
     let mut sig = [0.0f32; 64];
     for (i, val) in sig.iter_mut().enumerate() {

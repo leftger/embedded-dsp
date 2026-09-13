@@ -383,6 +383,13 @@ name = "filter_workbench_and_analysis"
 path = "examples/filter_workbench_and_analysis.rs"
 required-features = ["libm", "full"]
 
+# Diagnostics behind the Cholesky floor fix: measures whether square-root factoring actually beats
+# the plain covariance form in f32. Prints a table; run with `--release`.
+[[example]]
+name = "sr_spike"
+path = "examples/sr_spike.rs"
+required-features = ["libm", "full"]
+
 [[bench]]
 name = "dsp_benchmarks"
 harness = false
