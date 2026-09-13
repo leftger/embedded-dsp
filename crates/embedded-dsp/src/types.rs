@@ -550,10 +550,30 @@ fn saturating_div_q31(a: q31, b: q31) -> q31 {
 // Unified DSP Sample Trait
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Unified numerical sample trait implemented for floating-point sample types.
+/// Unified numerical sample trait implemented for floating-point and fixed-point sample types.
 ///
 /// Enables writing generic filters, delay lines, oscillators, and processing blocks that operate
-/// seamlessly with `f32` and `f64`.
+/// seamlessly with `f32`, `f64`, `q15`, and `q31`.
+///
+/// # Why the trait carries an accumulator and a coefficient type
+///
+/// The arithmetic surface here used to be entirely `Self -> Self -> Self`: a coefficient had the
+/// same type as a sample and a product never widened. That makes two of the most common DSP designs
+/// inexpressible, and it is the reason the fixed-point stages historically shipped a hand-written
+/// twin per width (`SinglePoleFilterQ15`, `FirInstanceQ15`, ...):
+///
+/// 1. **Wider accumulators.** A Q15 recurrence sums several Q30 products before shifting back down,
+///    which neither a Q15 nor a single Q30 word holds. [`Accum`](Self::Accum) is the domain those
+///    products accumulate in, and [`from_accum`](Self::from_accum) is the one place they narrow.
+/// 2. **Coefficients that are not samples.** Coefficients are usually *designed* in `f32` and then
+///    quantized to the sample width once, at construction, rather than re-quantized per sample.
+///    [`Coeff`](Self::Coeff) is the stored type and [`coeff_from_f32`](Self::coeff_from_f32) is the
+///    design-time bridge.
+///
+/// The additions are deliberately additive: the existing `sat_*` / `abs_val` / `to_f32` /
+/// `from_f32` surface is unchanged, so types that merely *use* `DspSample` keep compiling. Per-width
+/// semantics are preserved rather than unified — `q15`'s widening multiply and `f32`'s plain
+/// multiply remain different operations, and this trait only lets both be *expressed* once.
 pub trait DspSample:
     Copy
     + Default
@@ -564,10 +584,73 @@ pub trait DspSample:
     + core::ops::Mul<Output = Self>
     + core::ops::Neg<Output = Self>
 {
+    /// Wider type that products accumulate in.
+    ///
+    /// [`f32`]/[`f64`] for the float samples; `i64` for both fixed-point widths, because a stage may
+    /// sum several full-scale products before the single narrowing shift in
+    /// [`from_accum`](Self::from_accum). This is therefore deliberately wider than one product.
+    type Accum: Copy
+        + Default
+        + core::ops::Add<Output = Self::Accum>
+        + core::ops::Sub<Output = Self::Accum>;
+
+    /// Type coefficients are stored as.
+    ///
+    /// Usually `Self`, but deliberately independent of it so a stage can be *designed* in `f32` and
+    /// still keep coefficients native to the sample width. See
+    /// [`coeff_from_f32`](Self::coeff_from_f32).
+    type Coeff: Copy;
+
     /// Additive identity (`0.0`).
     const ZERO: Self;
     /// Multiplicative identity or normalized unity (`1.0`).
     const ONE: Self;
+    /// Fractional bits in the fixed-point representation; `0` for floats. Drives the biquad
+    /// cascades' `FRAC - post_shift` narrowing.
+    const FRAC: u32;
+
+    /// Multiply-accumulate in the accumulator domain: `acc + x * c`.
+    ///
+    /// For fixed-point samples the product is kept at full width (`Q30` for `q15`, `Q62` for `q31`)
+    /// and the single narrowing shift happens in [`from_accum`](Self::from_accum). That is what lets
+    /// a recurrence sum several products without intermediate truncation. The accumulator add is a
+    /// plain (wrapping) `i64` add, keeping the per-tap loop branch-free; saturation is deferred to
+    /// [`from_accum`](Self::from_accum).
+    fn madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum;
+
+    /// Narrow an accumulator back to a sample, saturating at the sample's range.
+    fn from_accum(acc: Self::Accum) -> Self;
+
+    /// Build a stored coefficient from one designed offline in `f32`.
+    ///
+    /// Fixed-point widths clamp to `[-1, 1)` and quantize; floats convert and pass through.
+    fn coeff_from_f32(c: f32) -> Self::Coeff;
+
+    /// High product of a sample and a coefficient, narrowed once into the accumulator domain.
+    ///
+    /// For fixed-point widths this is `(x * c) >> FRAC` — the product shifted back to the sample's
+    /// Q-format rather than left at full Q30/Q62 width. The FIR kernels accumulate these
+    /// per-term-shifted operands, so unlike [`madd`](Self::madd) the shift happens *per term*.
+    /// Floats return the plain product.
+    fn mul_high(x: Self, c: Self::Coeff) -> Self::Accum;
+
+    /// Narrow an accumulator with an explicit right shift, saturating at the sample's range.
+    ///
+    /// `shift == 0` clamps without shifting; float widths ignore the shift. This is the
+    /// `post_shift` form (`>> (FRAC - post_shift)`) the biquad cascades use.
+    fn from_accum_shifted(acc: Self::Accum, shift: u32) -> Self;
+
+    /// Lift a sample into the accumulator domain, shifted left by `shift` bits.
+    ///
+    /// The transposed DF-II biquad keeps its state pre-shifted (`s << shift`); floats ignore the
+    /// shift and lift the value unchanged.
+    fn accum_from_shifted(x: Self, shift: u32) -> Self::Accum;
+
+    /// Average an accumulated sum over `count` samples, in the sample's own domain.
+    ///
+    /// Floats divide in the accumulator domain; fixed-point widths round with the integer
+    /// division their moving-average kernels used.
+    fn average_accum(sum: Self::Accum, count: usize) -> Self;
 
     /// Saturating addition.
     fn sat_add(self, rhs: Self) -> Self;
@@ -586,8 +669,47 @@ pub trait DspSample:
 }
 
 impl DspSample for f32 {
+    type Accum = f32;
+    type Coeff = f32;
+
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
+    const FRAC: u32 = 0;
+
+    #[inline(always)]
+    fn madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
+        acc + x * c
+    }
+
+    #[inline(always)]
+    fn from_accum(acc: Self::Accum) -> Self {
+        acc
+    }
+
+    #[inline(always)]
+    fn coeff_from_f32(c: f32) -> Self::Coeff {
+        c
+    }
+
+    #[inline(always)]
+    fn average_accum(sum: Self::Accum, count: usize) -> Self {
+        sum / count as f32
+    }
+
+    #[inline(always)]
+    fn mul_high(x: Self, c: Self::Coeff) -> Self::Accum {
+        x * c
+    }
+
+    #[inline(always)]
+    fn from_accum_shifted(acc: Self::Accum, _shift: u32) -> Self {
+        acc
+    }
+
+    #[inline(always)]
+    fn accum_from_shifted(x: Self, _shift: u32) -> Self::Accum {
+        x
+    }
 
     #[inline(always)]
     fn sat_add(self, rhs: Self) -> Self {
@@ -626,8 +748,47 @@ impl DspSample for f32 {
 }
 
 impl DspSample for f64 {
+    type Accum = f64;
+    type Coeff = f64;
+
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
+    const FRAC: u32 = 0;
+
+    #[inline(always)]
+    fn madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
+        acc + x * c
+    }
+
+    #[inline(always)]
+    fn from_accum(acc: Self::Accum) -> Self {
+        acc
+    }
+
+    #[inline(always)]
+    fn coeff_from_f32(c: f32) -> Self::Coeff {
+        c as f64
+    }
+
+    #[inline(always)]
+    fn average_accum(sum: Self::Accum, count: usize) -> Self {
+        sum / count as f64
+    }
+
+    #[inline(always)]
+    fn mul_high(x: Self, c: Self::Coeff) -> Self::Accum {
+        x * c
+    }
+
+    #[inline(always)]
+    fn from_accum_shifted(acc: Self::Accum, _shift: u32) -> Self {
+        acc
+    }
+
+    #[inline(always)]
+    fn accum_from_shifted(x: Self, _shift: u32) -> Self::Accum {
+        x
+    }
 
     #[inline(always)]
     fn sat_add(self, rhs: Self) -> Self {
@@ -666,8 +827,52 @@ impl DspSample for f64 {
 }
 
 impl DspSample for q15 {
+    type Accum = i64;
+    type Coeff = q15;
+
     const ZERO: Self = Self::ZERO;
     const ONE: Self = Self::MAX;
+    const FRAC: u32 = 15;
+
+    #[inline(always)]
+    fn madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
+        // Full Q30 product per term; the caller sums several before the single `>> 15` in
+        // `from_accum`, which is why `Accum` is `i64` and not `i32`. A plain `i64` add is used
+        // rather than a saturating one: overflow needs >2^33 full-scale terms, and a saturating
+        // add would put a branch in the per-tap loop that the hand-written kernels never had.
+        acc.wrapping_add(x.to_bits() as i64 * c.to_bits() as i64)
+    }
+
+    #[inline(always)]
+    fn from_accum(acc: Self::Accum) -> Self {
+        Self::from_bits((acc >> 15).clamp(i16::MIN as i64, i16::MAX as i64) as i16)
+    }
+
+    #[inline(always)]
+    fn coeff_from_f32(c: f32) -> Self::Coeff {
+        Self::saturating_from_num(c.clamp(-1.0, 1.0))
+    }
+
+    #[inline(always)]
+    fn mul_high(x: Self, c: Self::Coeff) -> Self::Accum {
+        // Per-term Q15 high product: `(x * c) >> 15`, matching the FIR kernels' accumulator.
+        (x.to_bits() as i64 * c.to_bits() as i64) >> 15
+    }
+
+    #[inline(always)]
+    fn from_accum_shifted(acc: Self::Accum, shift: u32) -> Self {
+        Self::from_bits((acc >> shift.min(63)).clamp(i16::MIN as i64, i16::MAX as i64) as i16)
+    }
+
+    #[inline(always)]
+    fn accum_from_shifted(x: Self, shift: u32) -> Self::Accum {
+        (x.to_bits() as i64) << shift.min(63)
+    }
+
+    #[inline(always)]
+    fn average_accum(sum: Self::Accum, count: usize) -> Self {
+        Self::from_bits((sum / count as i64).clamp(i16::MIN as i64, i16::MAX as i64) as i16)
+    }
 
     #[inline(always)]
     fn sat_add(self, rhs: Self) -> Self {
@@ -706,8 +911,52 @@ impl DspSample for q15 {
 }
 
 impl DspSample for q31 {
+    type Accum = i64;
+    type Coeff = q31;
+
     const ZERO: Self = Self::ZERO;
     const ONE: Self = Self::MAX;
+    const FRAC: u32 = 31;
+
+    #[inline(always)]
+    fn madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
+        // Full Q62 product per term; the caller sums before the single `>> 31` in `from_accum`.
+        // A plain `i64` add keeps the per-tap loop branch-free; a pair of near-full-scale terms can
+        // wrap the accumulator, which `from_accum` then re-saturates into range, matching the
+        // hand-written fixed-point kernels.
+        acc.wrapping_add(x.to_bits() as i64 * c.to_bits() as i64)
+    }
+
+    #[inline(always)]
+    fn from_accum(acc: Self::Accum) -> Self {
+        Self::from_bits((acc >> 31).clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+    }
+
+    #[inline(always)]
+    fn coeff_from_f32(c: f32) -> Self::Coeff {
+        Self::saturating_from_num(c.clamp(-1.0, 1.0))
+    }
+
+    #[inline(always)]
+    fn mul_high(x: Self, c: Self::Coeff) -> Self::Accum {
+        // Per-term Q31 high product: `(x * c) >> 31`, matching the FIR kernels' accumulator.
+        (x.to_bits() as i64 * c.to_bits() as i64) >> 31
+    }
+
+    #[inline(always)]
+    fn from_accum_shifted(acc: Self::Accum, shift: u32) -> Self {
+        Self::from_bits((acc >> shift.min(63)).clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+    }
+
+    #[inline(always)]
+    fn accum_from_shifted(x: Self, shift: u32) -> Self::Accum {
+        (x.to_bits() as i64) << shift.min(63)
+    }
+
+    #[inline(always)]
+    fn average_accum(sum: Self::Accum, count: usize) -> Self {
+        Self::from_bits((sum / count as i64).clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+    }
 
     #[inline(always)]
     fn sat_add(self, rhs: Self) -> Self {

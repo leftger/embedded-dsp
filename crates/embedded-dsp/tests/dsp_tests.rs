@@ -1550,7 +1550,7 @@ fn test_chebyshev_lowpass_and_highpass_cascade_design() {
 fn test_single_pole_filters() {
     // A step input through a low-pass single-pole filter should settle to unity gain.
     let decay = single_pole_decay_from_cutoff(0.05);
-    let mut lp = SinglePoleFilter::lowpass(decay);
+    let mut lp = SinglePoleFilter::<f32>::lowpass(decay);
     let mut y = 0.0;
     for _ in 0..500 {
         y = lp.process(1.0);
@@ -1558,15 +1558,15 @@ fn test_single_pole_filters() {
     assert!((y - 1.0).abs() < 1e-3);
 
     // A step (DC) input through a high-pass single-pole filter should decay to zero.
-    let mut hp = SinglePoleFilter::highpass(decay);
+    let mut hp = SinglePoleFilter::<f32>::highpass(decay);
     let mut y_hp = 0.0;
     for _ in 0..500 {
         y_hp = hp.process(1.0);
     }
     assert!(y_hp.abs() < 1e-3);
 
-    let mut lp_q = SinglePoleFilterQ15::lowpass_from_f32(decay);
-    let mut hp_q = SinglePoleFilterQ15::highpass_from_f32(decay);
+    let mut lp_q = SinglePoleFilter::<q15>::lowpass_from_f32(decay);
+    let mut hp_q = SinglePoleFilter::<q15>::highpass_from_f32(decay);
     let mut yq = q15::ZERO;
     let mut yq_hp = q15::ZERO;
     for _ in 0..500 {
@@ -1583,9 +1583,92 @@ fn test_single_pole_filters() {
     );
 }
 
+/// The generic `SinglePoleFilter<T>` must reproduce the hand-written per-width recurrence it
+/// replaced, bit for bit, on both `q15` and `f32`. This pins the `Accum`/`Coeff` design: narrowing
+/// the q15 accumulator or reordering the sum would fail here even when the settled-value tests
+/// above (which use tolerances) still pass.
+#[test]
+fn single_pole_generic_matches_legacy_recurrence_bit_for_bit() {
+    let decays = [1i16, 137, 3000, 16_384, 30_000, 32_767];
+    let input: Vec<i16> = (0..257)
+        .map(|i| ((i * 1237 + 11) % 65_536 - 32_768) as i16)
+        .collect();
+
+    for &d in &decays {
+        // Legacy Q15 low-pass: coefficients b0 = MAX - d, b1 = 0, a1 = d; one i64 sum, one >> 15.
+        let b0 = 32_767i64 - d as i64;
+        let a1 = d as i64;
+        let (mut x1, mut y1) = (0i64, 0i64);
+        let mut legacy_lp = Vec::with_capacity(input.len());
+        for &x in &input {
+            let acc = b0 * x as i64 + a1 * y1;
+            let y = (acc >> 15).clamp(i16::MIN as i64, i16::MAX as i64) as i16;
+            x1 = x as i64;
+            y1 = y as i64;
+            legacy_lp.push(y);
+        }
+        let _ = x1;
+
+        let mut generic_lp = SinglePoleFilter::<q15>::lowpass(q15::from_bits(d));
+        for (i, &x) in input.iter().enumerate() {
+            assert_eq!(
+                generic_lp.process(q15::from_bits(x)).to_bits(),
+                legacy_lp[i],
+                "q15 low-pass diverged at decay {d}, index {i}"
+            );
+        }
+
+        // Legacy Q15 high-pass: b0 = (MAX + d) / 2, b1 = -b0, a1 = d.
+        let hp0 = (32_767i64 + d as i64) / 2;
+        let (mut x1, mut y1) = (0i64, 0i64);
+        let mut legacy_hp = Vec::with_capacity(input.len());
+        for &x in &input {
+            let acc = hp0 * x as i64 - hp0 * x1 + a1 * y1;
+            let y = (acc >> 15).clamp(i16::MIN as i64, i16::MAX as i64) as i16;
+            x1 = x as i64;
+            y1 = y as i64;
+            legacy_hp.push(y);
+        }
+        let _ = x1;
+
+        let mut generic_hp = SinglePoleFilter::<q15>::highpass(q15::from_bits(d));
+        for (i, &x) in input.iter().enumerate() {
+            assert_eq!(
+                generic_hp.process(q15::from_bits(x)).to_bits(),
+                legacy_hp[i],
+                "q15 high-pass diverged at decay {d}, index {i}"
+            );
+        }
+    }
+
+    // Same check for the float path, where the generic uses `f32::madd` instead of a widening MAC.
+    let decay = 0.37f32;
+    let (fb0, fb1, fa1) = (1.0 - decay, 0.0f32, decay);
+    let finput: Vec<f32> = (0..257).map(|i| ((i as f32) * 0.017 - 1.3).sin()).collect();
+    let (mut fx1, mut fy1) = (0.0f32, 0.0f32);
+    let mut generic_f = SinglePoleFilter::<f32>::lowpass(decay);
+    for (i, &x) in finput.iter().enumerate() {
+        let legacy = fb0 * x + fb1 * fx1 + fa1 * fy1;
+        fx1 = x;
+        fy1 = legacy;
+        assert_eq!(
+            generic_f.process(x).to_bits(),
+            legacy.to_bits(),
+            "f32 low-pass diverged at index {i}"
+        );
+    }
+
+    // The generic `Default` (used by the DC-blocker wrapper) stays constructible for both widths.
+    let mut zeroed = SinglePoleFilter::<f32>::default();
+    assert_eq!(zeroed.process(0.0), 0.0);
+    let mut zeroed_q = SinglePoleFilter::<q15>::default();
+    assert_eq!(zeroed_q.process(q15::ZERO), q15::ZERO);
+    let _ = DcBlockerQ15::default();
+}
+
 #[test]
 fn test_recursive_moving_average_matches_naive_average() {
-    let mut rma = RecursiveMovingAverage::<4>::new();
+    let mut rma = RecursiveMovingAverage::<f32, 4>::new();
     let input = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
     let mut outputs = [0.0f32; 6];
     for (i, &x) in input.iter().enumerate() {
@@ -2118,7 +2201,7 @@ fn test_biquad_q15_matches_f32_lowpass() {
     let mut state_f = [0.0f32; 4];
     let mut state_q = [q15::ZERO; 4];
     let mut bq_f = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state_f);
-    let mut bq_q = BiquadCascadeInstanceQ15::init(1, &qcoeffs, &mut state_q, post_shift);
+    let mut bq_q = BiquadCascadeInstanceQ15::with_post_shift(1, &qcoeffs, &mut state_q, post_shift);
 
     let mut max_abs_err = 0i32;
     for n in 0..128 {
@@ -2151,9 +2234,11 @@ fn test_biquad_df2t_q15_matches_df1() {
     );
 
     let mut state_df1 = [q15::ZERO; 4];
-    let mut df1 = BiquadCascadeInstanceQ15::init(1, &qcoeffs, &mut state_df1, post_shift);
+    let mut df1 =
+        BiquadCascadeInstanceQ15::with_post_shift(1, &qcoeffs, &mut state_df1, post_shift);
     let mut state_df2t = [q15::ZERO; 2];
-    let mut df2t = BiquadCascadeDf2tInstanceQ15::init(1, &qcoeffs, &mut state_df2t, post_shift);
+    let mut df2t =
+        BiquadCascadeDf2tInstanceQ15::with_post_shift(1, &qcoeffs, &mut state_df2t, post_shift);
 
     let mut max_err = 0i32;
     for n in 0..64 {
@@ -2505,7 +2590,7 @@ fn test_cordic_engine() {
 fn test_dsp_pipeline_and_streaming() {
     use crate::pipeline::*;
 
-    let lowpass = SinglePoleFilter::lowpass(0.1);
+    let lowpass = SinglePoleFilter::<f32>::lowpass(0.1);
     let gain = Gain::new(2.0f32);
     let limiter = Limiter::new(-1.0f32, 1.0f32);
 

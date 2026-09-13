@@ -211,7 +211,7 @@ use embedded_dsp::pipeline::*;
 use embedded_dsp::*;
 
 // Create individual components
-let lowpass = SinglePoleFilter::lowpass(0.05);
+let lowpass = SinglePoleFilter::<f32>::lowpass(0.05);
 let limiter = Limiter::new(-0.8f32, 0.8f32);
 let gain = Gain::new(1.5f32);
 

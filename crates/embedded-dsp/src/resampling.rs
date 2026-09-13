@@ -541,13 +541,13 @@ macro_rules! linear_phase_fir {
                 + core::ops::Add<Output = T>
                 + core::ops::Mul<C, Output = T>,
         {
-            fn process(&self, state: &mut [T; N], x: T) -> T {
+            fn process_with_state(&mut self, state: &mut [T; N], x: T) -> T {
                 let mut y = T::default();
-                self.block(state, core::slice::from_ref(&x), core::slice::from_mut(&mut y));
+                self.block_with_state(state, core::slice::from_ref(&x), core::slice::from_mut(&mut y));
                 y
             }
 
-            fn block(&self, state: &mut [T; N], x: &[T], y: &mut [T]) {
+            fn block_with_state(&mut self, state: &mut [T; N], x: &[T], y: &mut [T]) {
                 const { assert!(N > 2 * M - 1 + $odd as usize) };
                 let chunk = N - (2 * M - 1 + $odd as usize);
                 for (x, y) in x.chunks(chunk).zip(y.chunks_mut(chunk)) {
@@ -568,7 +568,7 @@ macro_rules! linear_phase_fir {
                 + core::ops::Add<Output = T>
                 + core::ops::Mul<C, Output = T>,
         {
-            fn inplace(&self, state: &mut [T; N], xy: &mut [T]) {
+            fn inplace_with_state(&mut self, state: &mut [T; N], xy: &mut [T]) {
                 const { assert!(N > 2 * M - 1 + $odd as usize) };
                 let chunk = N - (2 * M - 1 + $odd as usize);
                 for xy in xy.chunks_mut(chunk) {

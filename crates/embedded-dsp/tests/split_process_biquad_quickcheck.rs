@@ -35,12 +35,12 @@ fn test_split_process_biquad_clamp_anti_windup() {
 fn test_split_process_lanes_multichannel() {
     let coeff = Biquad::<f32>::new(0.2, 0.1, 0.05, 0.5, -0.1);
     let clamp = BiquadClamp::new(coeff, -10.0f32, 10.0f32, 0.0f32);
-    let lanes = Lanes::new(clamp);
+    let mut lanes = Lanes::new(clamp);
 
     let mut states = [DirectForm1::<f32>::new(); 3];
     let inputs = [1.0f32, 2.0f32, 3.0f32];
 
-    let outputs = lanes.process(&mut states, inputs);
+    let outputs = lanes.process_with_state(&mut states, inputs);
 
     // Verify against individual single-channel processing
     let mut single0 = DirectForm1::<f32>::new();
@@ -59,10 +59,10 @@ fn test_split_process_lanes_multichannel() {
 #[test]
 fn test_pair_and_split_pipeline() {
     let coeff = Biquad::<f32>::new(0.5, 0.0, 0.0, 0.0, 0.0);
-    let pair = Pair::new(coeff, coeff);
+    let mut pair = Pair::new(coeff, coeff);
 
     let mut states = (DirectForm1::<f32>::new(), DirectForm1::<f32>::new());
-    let out = pair.process(&mut states, [4.0f32, 8.0f32]);
+    let out = pair.process_with_state(&mut states, [4.0f32, 8.0f32]);
     assert_eq!(out, [2.0, 4.0]);
 
     // Split pipeline wrapper
@@ -149,10 +149,10 @@ fn prop_lanes_matches_independent_channels(x0: i16, x1: i16) -> bool {
 
     let coeff = Biquad::<f32>::new(0.3, 0.1, 0.0, 0.1, 0.0);
     let clamp = BiquadClamp::new(coeff, -100.0f32, 100.0f32, 0.0f32);
-    let lanes = Lanes::new(clamp);
+    let mut lanes = Lanes::new(clamp);
 
     let mut state_lanes = [DirectForm1::<f32>::new(); 2];
-    let out_lanes = lanes.process(&mut state_lanes, [in0, in1]);
+    let out_lanes = lanes.process_with_state(&mut state_lanes, [in0, in1]);
 
     let mut s0 = DirectForm1::<f32>::new();
     let mut s1 = DirectForm1::<f32>::new();

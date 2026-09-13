@@ -175,8 +175,8 @@ fn dsm_reset_restores_a_fresh_modulator() {
 /// `process_in_place`, and `then` methods.
 struct Doubler;
 
-impl DspNode<i32> for Doubler {
-    fn process_sample(&mut self, input: i32) -> i32 {
+impl SplitProcess<i32, i32, ()> for Doubler {
+    fn process_with_state(&mut self, _state: &mut (), input: i32) -> i32 {
         input * 2
     }
 }
@@ -197,7 +197,7 @@ impl Inplace<i32> for Inc {}
 struct RunningScale;
 
 impl SplitProcess<i32, i32, i32> for RunningScale {
-    fn process(&self, state: &mut i32, x: i32) -> i32 {
+    fn process_with_state(&mut self, state: &mut i32, x: i32) -> i32 {
         *state += 1;
         x * *state
     }
@@ -205,21 +205,20 @@ impl SplitProcess<i32, i32, i32> for RunningScale {
 
 impl SplitInplace<i32, i32> for RunningScale {}
 
-/// Disambiguating helper: `Offset` implements both `Process::process` and
-/// `SplitProcess::process`, so UFCS is needed at the call site.
-fn split_step<C, X: Copy, Y, S>(config: &C, state: &mut S, x: X) -> Y
+/// Step one sample through a split configuration.
+fn split_step<C, X: Copy, Y, S>(config: &mut C, state: &mut S, x: X) -> Y
 where
     C: SplitProcess<X, Y, S>,
 {
-    config.process(state, x)
+    config.process_with_state(state, x)
 }
 
-/// Disambiguating helper for `SplitInplace::inplace`.
-fn split_inplace<C, X: Copy, S>(config: &C, state: &mut S, xy: &mut [X])
+/// In-place step through a split configuration.
+fn split_inplace<C, X: Copy, S>(config: &mut C, state: &mut S, xy: &mut [X])
 where
     C: SplitInplace<X, S>,
 {
-    config.inplace(state, xy)
+    config.inplace_with_state(state, xy)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -287,15 +286,15 @@ fn chain_composes_process_and_inplace() {
 
 #[test]
 fn split_process_block_and_inplace() {
-    let config = RunningScale;
+    let mut config = RunningScale;
     let mut state = 0i32;
     let mut out = [0i32; 3];
-    config.block(&mut state, &[1, 2, 3], &mut out);
+    config.block_with_state(&mut state, &[1, 2, 3], &mut out);
     assert_eq!(out, [1, 4, 9]);
 
     let mut state = 0i32;
     let mut xy = [1i32, 1];
-    config.inplace(&mut state, &mut xy);
+    config.inplace_with_state(&mut state, &mut xy);
     assert_eq!(xy, [1, 2]);
 }
 
@@ -322,23 +321,23 @@ fn split_adapter_wraps_config_and_state() {
 
 #[test]
 fn lanes_share_one_config_across_states() {
-    let lanes = Lanes::new(RunningScale);
+    let mut lanes = Lanes::new(RunningScale);
     let mut state = [0i32; 3];
-    let out = lanes.process(&mut state, [1, 2, 3]);
+    let out = lanes.process_with_state(&mut state, [1, 2, 3]);
     assert_eq!(out, [1, 2, 3]);
     assert_eq!(state, [1, 1, 1]);
 
     // `into_inner` hands the shared configuration back.
-    let inner = Lanes::new(RunningScale).into_inner();
+    let mut inner = Lanes::new(RunningScale).into_inner();
     let mut state = 0i32;
-    assert_eq!(inner.process(&mut state, 4), 4);
+    assert_eq!(inner.process_with_state(&mut state, 4), 4);
 }
 
 #[test]
 fn pair_runs_two_independent_branches() {
-    let pair = Pair::new(RunningScale, RunningScale);
+    let mut pair = Pair::new(RunningScale, RunningScale);
     let mut state = (0i32, 0i32);
-    let out = pair.process(&mut state, [2, 3]);
+    let out = pair.process_with_state(&mut state, [2, 3]);
     assert_eq!(out, [2, 3]);
     assert_eq!(state, (1, 1));
 }
@@ -358,15 +357,15 @@ fn offset_adds_and_supports_split_traits() {
     assert_eq!(buf, [1.5, 2.5]);
 
     // Split variants ignore the (unit) state.
-    let config = Offset(0.25f32);
+    let mut config = Offset(0.25f32);
     let mut state = ();
     assert_eq!(
-        split_step::<_, f32, f32, ()>(&config, &mut state, 0.5),
+        split_step::<_, f32, f32, ()>(&mut config, &mut state, 0.5),
         0.75
     );
 
     let mut xy = [1.0f32, 2.0];
-    split_inplace::<_, f32, ()>(&config, &mut state, &mut xy);
+    split_inplace::<_, f32, ()>(&mut config, &mut state, &mut xy);
     assert_eq!(xy, [1.25, 2.25]);
 }
 
@@ -380,10 +379,10 @@ fn identity_passes_samples_through_unchanged() {
     assert_eq!(buf, [1, 2, 3]);
 
     let mut state = ();
-    assert_eq!(split_step::<_, i32, i32, ()>(&id, &mut state, 9), 9);
+    assert_eq!(split_step::<_, i32, i32, ()>(&mut id, &mut state, 9), 9);
 
     let mut xy = [1i32, 2];
-    split_inplace::<_, i32, ()>(&id, &mut state, &mut xy);
+    split_inplace::<_, i32, ()>(&mut id, &mut state, &mut xy);
     assert_eq!(xy, [1, 2]);
 }
 
@@ -430,7 +429,7 @@ fn limiter_clamps_both_rails() {
 #[test]
 fn built_in_nodes_delegate_to_their_inherent_process() {
     use embedded_dsp::controller::{PidInstanceF32, PidInstanceQ15};
-    use embedded_dsp::filtering::{DcBlockerQ15, SinglePoleFilter, SinglePoleFilterQ15};
+    use embedded_dsp::filtering::{DcBlockerQ15, SinglePoleFilter};
     use embedded_dsp::types::q15;
 
     let mut via_node = PidInstanceF32::new(1.0, 0.1, 0.01);
@@ -449,15 +448,15 @@ fn built_in_nodes_delegate_to_their_inherent_process() {
         direct.process(q15::from_bits(1_000))
     );
 
-    let mut via_node = SinglePoleFilter::lowpass(0.9);
-    let mut direct = SinglePoleFilter::lowpass(0.9);
+    let mut via_node = SinglePoleFilter::<f32>::lowpass(0.9);
+    let mut direct = SinglePoleFilter::<f32>::lowpass(0.9);
     assert_eq!(
         DspNode::process_sample(&mut via_node, 1.0),
         direct.process(1.0)
     );
 
-    let mut via_node = SinglePoleFilterQ15::lowpass(q15::from_bits(16_384));
-    let mut direct = SinglePoleFilterQ15::lowpass(q15::from_bits(16_384));
+    let mut via_node = SinglePoleFilter::<q15>::lowpass(q15::from_bits(16_384));
+    let mut direct = SinglePoleFilter::<q15>::lowpass(q15::from_bits(16_384));
     assert_eq!(
         DspNode::process_sample(&mut via_node, q15::from_bits(1_000)),
         direct.process(q15::from_bits(1_000))

@@ -82,6 +82,11 @@ fn test_types_and_dspsample_exhaustive() {
     assert_eq!(DspSample::abs_val(5.0f32), 5.0f32);
     assert_eq!(DspSample::to_f32(4.5f32), 4.5f32);
     assert_eq!(<f32 as DspSample>::from_f32(4.5f32), 4.5f32);
+    let _: <f32 as DspSample>::Accum = 0.0f32;
+    let _: <f32 as DspSample>::Coeff = 0.0f32;
+    assert_eq!(<f32 as DspSample>::madd(0.5, 2.0, 3.0), 6.5);
+    assert_eq!(<f32 as DspSample>::from_accum(6.5), 6.5);
+    assert_eq!(<f32 as DspSample>::coeff_from_f32(0.25), 0.25);
 
     // DspSample for f64
     assert_eq!(f64::ZERO, 0.0);
@@ -94,6 +99,11 @@ fn test_types_and_dspsample_exhaustive() {
     assert_eq!(DspSample::abs_val(5.0f64), 5.0f64);
     assert_eq!(DspSample::to_f32(4.5f64), 4.5f32);
     assert_eq!(<f64 as DspSample>::from_f32(4.5f32), 4.5f64);
+    let _: <f64 as DspSample>::Accum = 0.0f64;
+    let _: <f64 as DspSample>::Coeff = 0.0f64;
+    assert_eq!(<f64 as DspSample>::madd(0.5, 2.0, 3.0), 6.5);
+    assert_eq!(<f64 as DspSample>::from_accum(6.5), 6.5);
+    assert_eq!(<f64 as DspSample>::coeff_from_f32(0.25), 0.25);
 
     // DspSample for q15
     let a_q15 = q15::from_bits(1000);
@@ -117,6 +127,33 @@ fn test_types_and_dspsample_exhaustive() {
     let _f_q15 = DspSample::to_f32(a_q15);
     let _q15_from_f = <q15 as DspSample>::from_f32(0.5);
 
+    // The Q15 accumulator is wide enough to hold several Q30 products, then narrows once.
+    let _: <q15 as DspSample>::Accum = 0i64;
+    let _: <q15 as DspSample>::Coeff = q15::ZERO;
+    assert_eq!(
+        <q15 as DspSample>::madd(0, q15::from_bits(1000), q15::from_bits(2000)),
+        1000i64 * 2000
+    );
+    let wide_q15 = <q15 as DspSample>::madd(
+        <q15 as DspSample>::madd(
+            <q15 as DspSample>::madd(0, q15::MAX, q15::MAX),
+            q15::MAX,
+            q15::MAX,
+        ),
+        q15::MAX,
+        q15::MAX,
+    );
+    assert_eq!(wide_q15, 3 * (32767i64 * 32767));
+    assert_eq!(<q15 as DspSample>::from_accum(wide_q15), q15::MAX);
+    assert_eq!(<q15 as DspSample>::from_accum(i64::MIN), q15::MIN);
+    assert_eq!(<q15 as DspSample>::from_accum(1 << 15), q15::from_bits(1));
+    assert_eq!(
+        <q15 as DspSample>::coeff_from_f32(0.5),
+        q15::saturating_from_num(0.5)
+    );
+    assert_eq!(<q15 as DspSample>::coeff_from_f32(2.0), q15::MAX);
+    assert_eq!(<q15 as DspSample>::coeff_from_f32(-2.0), q15::MIN);
+
     // DspSample for q31
     let a_q31 = q31::from_bits(100000);
     let b_q31 = q31::from_bits(50000);
@@ -138,6 +175,22 @@ fn test_types_and_dspsample_exhaustive() {
     assert_eq!(DspSample::abs_val(-a_q31), a_q31);
     let _f_q31 = DspSample::to_f32(a_q31);
     let _q31_from_f = <q31 as DspSample>::from_f32(0.5);
+
+    let _: <q31 as DspSample>::Accum = 0i64;
+    let _: <q31 as DspSample>::Coeff = q31::ZERO;
+    assert_eq!(
+        <q31 as DspSample>::madd(0, a_q31, a_q31),
+        a_q31.to_bits() as i64 * a_q31.to_bits() as i64
+    );
+    assert_eq!(<q31 as DspSample>::from_accum(i64::MAX), q31::MAX);
+    assert_eq!(<q31 as DspSample>::from_accum(i64::MIN), q31::MIN);
+    assert_eq!(<q31 as DspSample>::from_accum(1 << 31), q31::from_bits(1));
+    assert_eq!(
+        <q31 as DspSample>::coeff_from_f32(0.5),
+        q31::saturating_from_num(0.5)
+    );
+    assert_eq!(<q31 as DspSample>::coeff_from_f32(2.0), q31::MAX);
+    assert_eq!(<q31 as DspSample>::coeff_from_f32(-2.0), q31::MIN);
 
     // Complex operations
     let c1 = Complex::new(1.0f32, 2.0f32);

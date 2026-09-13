@@ -363,6 +363,117 @@ fn bench_idsp_parity_ops(rec: &mut Recorder) {
     rec.record("biquad_fixed_noise_shaped", bq_rate);
 }
 
+/// The pre-genericization `SinglePoleFilterQ15` low-pass, reproduced with the same `q15` wrappers
+/// and `i64` accumulator it used. Timing the generic `SinglePoleFilter<q15>` against this in the
+/// same binary is the regression guard: the two must emit the same loop and run at the same rate.
+/// (Verified during genericization: both 266 MSamples/s.)
+#[derive(Clone, Copy)]
+struct LegacySinglePoleQ15 {
+    b0: q15,
+    b1: q15,
+    a1: q15,
+    x1: q15,
+    y1: q15,
+}
+
+impl LegacySinglePoleQ15 {
+    #[inline(always)]
+    fn lowpass(decay: q15) -> Self {
+        let decay = decay.max(q15::ZERO);
+        Self {
+            b0: q15::from_bits((32_767i32 - decay.to_bits() as i32) as i16),
+            b1: q15::ZERO,
+            a1: decay,
+            x1: q15::ZERO,
+            y1: q15::ZERO,
+        }
+    }
+
+    #[inline(always)]
+    fn process(&mut self, x: q15) -> q15 {
+        let y = (self.b0.to_bits() as i64 * x.to_bits() as i64
+            + self.b1.to_bits() as i64 * self.x1.to_bits() as i64
+            + self.a1.to_bits() as i64 * self.y1.to_bits() as i64)
+            >> 15;
+        let y = q15::from_bits(y.clamp(i16::MIN as i64, i16::MAX as i64) as i16);
+        self.x1 = x;
+        self.y1 = y;
+        y
+    }
+}
+
+fn bench_single_pole(rec: &mut Recorder) {
+    const N: usize = 4096;
+    let iterations = 2_000;
+
+    // f32 low-pass: one multiply-accumulate per tap through `DspSample::madd`.
+    let input_f32: [f32; N] = core::array::from_fn(|i| ((i as f32) * 0.01).sin());
+    let mut lp_f32 = SinglePoleFilter::<f32>::lowpass(0.01);
+    let start = Instant::now();
+    let mut acc_f32 = 0.0f32;
+    for _ in 0..iterations {
+        for &x in &input_f32 {
+            acc_f32 += lp_f32.process(black_box(x)).abs();
+        }
+    }
+    let elapsed_f32 = start.elapsed();
+    let rate_f32 = (iterations * N) as f64 / elapsed_f32.as_secs_f64();
+    println!(
+        "SinglePoleFilter<f32>:    {:.2} MSamples/s ({:?}, sum={:.3})",
+        rate_f32 / 1e6,
+        elapsed_f32,
+        acc_f32
+    );
+    rec.record("single_pole_f32", rate_f32);
+
+    // q15 low-pass: generic `SinglePoleFilter<q15>` vs the faithful pre-genericization twin. A ratio
+    // near 1.0 means the trait dispatch and the i64 accumulator emit the same loop the specialized
+    // twin did. Interleaved rounds with best-of so a clock ramp cannot favour either.
+    let d = 16_384i16;
+    let input_q15: [i16; N] =
+        core::array::from_fn(|i| (((i as i32 * 1237 + 11) % 65_536) - 32_768) as i16);
+
+    let mut best_generic = 0.0f64;
+    let mut best_legacy = 0.0f64;
+    let (mut acc_q15, mut legacy_sum) = (0i64, 0i64);
+    for _round in 0..4 {
+        let mut legacy = black_box(LegacySinglePoleQ15::lowpass(q15::from_bits(d)));
+        let start = Instant::now();
+        let mut sum = 0i64;
+        for _ in 0..iterations {
+            for &x in &input_q15 {
+                sum += legacy.process(black_box(q15::from_bits(x))).to_bits() as i64;
+            }
+        }
+        let elapsed = start.elapsed();
+        best_legacy = best_legacy.max((iterations * N) as f64 / elapsed.as_secs_f64());
+        legacy_sum = sum;
+
+        let mut lp_q15 = SinglePoleFilter::<q15>::lowpass(q15::from_bits(d));
+        let start = Instant::now();
+        let mut sum = 0i64;
+        for _ in 0..iterations {
+            for &x in &input_q15 {
+                sum += lp_q15.process(black_box(q15::from_bits(x))).to_bits() as i64;
+            }
+        }
+        let elapsed = start.elapsed();
+        best_generic = best_generic.max((iterations * N) as f64 / elapsed.as_secs_f64());
+        acc_q15 = sum;
+    }
+
+    println!(
+        "SinglePoleFilter<q15>:    {:.2} MSamples/s generic vs {:.2} legacy ({:.3}x, sum={}/{})",
+        best_generic / 1e6,
+        best_legacy / 1e6,
+        best_generic / best_legacy,
+        acc_q15,
+        legacy_sum
+    );
+    assert_eq!(acc_q15, legacy_sum, "generic q15 path diverged from legacy");
+    rec.record("single_pole_q15", best_generic);
+}
+
 fn main() {
     let mut write_baseline: Option<String> = None;
     let mut check_baseline: Option<String> = None;
@@ -398,6 +509,7 @@ fn main() {
     bench_mult_q31(&mut rec);
     bench_pid_q31(&mut rec);
     bench_idsp_parity_ops(&mut rec);
+    bench_single_pole(&mut rec);
     println!("\n=== Benchmark Complete ===");
 
     if let Some(path) = &write_baseline {

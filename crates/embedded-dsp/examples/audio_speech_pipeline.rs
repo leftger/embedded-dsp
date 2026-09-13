@@ -57,7 +57,7 @@ fn main() {
     println!("\n--- 2. DC Offset Removal (f32 & Q15 DC Blockers) ---");
     let mut dc_blocked_f32 = [0.0f32; NUM_SAMPLES];
     // Highpass filter with pole near 1.0 (decay = 0.995)
-    let mut dc_blocker = SinglePoleFilter::highpass(0.995);
+    let mut dc_blocker = SinglePoleFilter::<f32>::highpass(0.995);
     for (i, &s) in raw_audio.iter().enumerate() {
         dc_blocked_f32[i] = dc_blocker.process(s);
     }
@@ -101,6 +101,7 @@ fn main() {
     let mut eq_state = [0.0f32; 4 * 2]; // 4 state variables per biquad stage
     let mut eq_cascade = BiquadCascadeInstanceF32 {
         num_stages: 2,
+        post_shift: 0,
         coeffs: &cascade_coeffs,
         state: &mut eq_state,
     };
