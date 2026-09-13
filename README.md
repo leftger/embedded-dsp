@@ -64,7 +64,7 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 | `atan2` (i32) | ✅ ~1.3e-6 rad | ✅ ~1.3e-6 rad |
 | Integer `PLL` / reciprocal `RPLL` | ✅ | ✅ |
 | Integer lowpass (`IntLowpass<N>`), unwrap, `saturating_scale_i32` | ✅ | ✅ |
-| CORDIC modes | ✅ circular + hyperbolic (vectoring) | ➖ circular works; its linear and `cosh_sinh` modes do not (see note) |
+| CORDIC modes | ✅ circular + hyperbolic (vectoring), no band or panicking input | ➖ circular and linear `div` are correct; `mul`/`cosh_sinh` limited to a ±0.5 band by a bug (see note) |
 | Biquad `f32`/`f64` DF1 + DF2T | ✅ | ✅ |
 | Biquad `i32` clamping / anti-windup / guard bits | ✅ | ✅ |
 | Biquad fixed-point noise shaping | ✅ | ✅ |
@@ -102,15 +102,19 @@ view framework (`View`, `Chunk`, `FrameMajor`, `LaneMajor`, `by_lane`) well beyo
 Everything else in the table is either at parity or an `embedded-dsp` advantage.
 
 **Note on the extra CORDIC modes.** `idsp` also advertises linear (`mul`/`div`) and hyperbolic
-rotation (`cosh_sinh`) modes, but neither survives its own fixed-point conventions, so neither was
-ported. A faithful transcription of `idsp` 0.22.1's `cordic()` measures `mul(x, y, z)` as
-`y + x·(1 − z)` for `|z| < 0.5` rather than the documented `y + x·z`, `div` as `z − y/x` rather
-than `z + y/x`, and both change behaviour again outside that band. `cosh_sinh` fails for a
-different reason: `cosh(z) ≥ 1` for every `z`, so a Q1.31 result overflows for any meaningful
-angle. This crate implements the hyperbolic *vectoring* mode instead, where both outputs
-(`sqrt(x² − y²)` and `atanh(y/x)`) are representable, and skips the linear mode entirely — a
-fixed-point multiply or divide is one instruction on the cores this crate targets, or a plain
-shift-add, and needs no CORDIC.
+rotation (`cosh_sinh`) modes. Measured against `idsp` 0.22.1, pinned by `tests/idsp_cordic_probe.rs`:
+
+- `div` — correct (`z + y/x`). Not ported: a fixed-point divide is one instruction here.
+- `mul` — correct only for `|z| ≤ 0.5`, folding to `y + x(1 − z)` above it.
+- `cosh_sinh` — correct only to `|z| ≈ 0.3`, sign-flipping past `0.5`.
+
+The band is an upstream bug: the linear table's first entry reads `−1.0` where the angle must be
+`+1.0`. Upstream also panics on `idsp::div(i32::MIN, 0, 0)`, since `i32::MIN` is `−1.0` in Q31 and
+every vectoring mode negates `x`. Both reported upstream.
+
+This crate implements hyperbolic **vectoring** instead: both outputs are representable across their
+full domains, measure to ~`6e-9`, and have no band or panicking input. Rotation mode is hard in
+Q1.31 on either side — `cosh(z) ≥ 1` leaves little headroom once the gain is pre-scaled.
 
 ---
 
