@@ -113,8 +113,9 @@ The band is an upstream bug: the linear table's first entry reads `−1.0` where
 every vectoring mode negates `x`. Both reported upstream.
 
 This crate implements hyperbolic **vectoring** instead: both outputs are representable across their
-full domains, measure to ~`6e-9`, and have no band or panicking input. Rotation mode is hard in
-Q1.31 on either side — `cosh(z) ≥ 1` leaves little headroom once the gain is pre-scaled.
+full domains, measure to ~`6e-9`, and have no band or panicking input. Rotation mode is capped by the
+format, not the algorithm: `cosh` grows like `e^z`, so Q1.31 reaches `|z| ≈ 0.63` at full scale —
+about twice what `idsp` manages.
 
 ---
 
