@@ -423,3 +423,8 @@ required-features = ["libm", "filter-analysis", "filter-design"]
 name = "voxengo_oracle"
 path = "tests/voxengo_oracle.rs"
 required-features = ["libm", "filter-analysis", "filter-design"]
+
+[[test]]
+name = "swept_sine_inverse_filter"
+path = "tests/swept_sine_inverse_filter.rs"
+required-features = ["libm", "synthesis", "transform"]

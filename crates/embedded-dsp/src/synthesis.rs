@@ -266,6 +266,7 @@ use crate::math::FloatMath;
 use crate::types::Complex;
 
 const Q32_F32: f32 = (1i64 << 32) as f32;
+const Q32_F64: f64 = (1i64 << 32) as f64;
 
 /// Parameter errors for [`Sweep::fit`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -360,6 +361,44 @@ impl Sweep {
     #[inline]
     pub fn continuous(&self, t: f64) -> f64 {
         self.cycles() * FloatMath::exp(self.rate() * t)
+    }
+
+    /// Inverse filter for this sweep, evaluated at normalized frequency `f` (cycles/sample).
+    ///
+    /// Multiplying a measured response spectrum by this value deconvolves the sweep, which is
+    /// how a swept sine becomes an impulse-response measurement:
+    ///
+    /// ```text
+    /// x(t) = AccuOsc::new(Sweep::fit(stop, harmonics, cycles))   // stimulus
+    /// y(t) = system(x)(t)                                        // response
+    /// H(f) = inverse_filter(f) * FFT(y)(f)                       // transfer function
+    /// h(t) = IFFT(H)(t)                                          // impulse response
+    /// ```
+    ///
+    /// The magnitude rises as `sqrt(f)`, cancelling the `1/sqrt(f)` slope the sweep picks up from
+    /// spending ever less time at ever higher frequencies; the phase is the sweep's arrival time
+    /// plus a fixed `1/8` turn offset, so the deconvolved impulse lands at a known delay (see
+    /// [`Sweep::delay`]) instead of smearing. The returned value is complex, so a caller doing a
+    /// real-FFT deconvolution should apply it to the positive-frequency bins and the conjugate to
+    /// the mirrored ones.
+    ///
+    /// `f` is in cycles/sample, i.e. `bin / fft_len`. Non-positive and non-finite frequencies
+    /// return zero rather than the `-inf`/NaN the `ln` term would otherwise produce (the sweep
+    /// carries no DC energy anyway). A zero-rate sweep is degenerate for the same reason.
+    pub fn inverse_filter(&self, f: f32) -> Complex<f32> {
+        if f <= 0.0 || !f.is_finite() || self.rate == 0 || self.state == 0 {
+            return Complex::new(0.0, 0.0);
+        }
+        // `rate/Q` is tiny (~1e-5 for a typical sweep), so `1 + x` must be formed in f64 --
+        // building it in f32 first would throw away most of its significant digits.
+        let rate = FloatMath::ln(1.0 + self.rate as f64 / Q32_F64) as f32;
+        let u = f / rate;
+        // The sweep's spectrum falls off as 1/sqrt(f), so the inverse filter rises as sqrt(f).
+        let amp = 2.0 * rate * FloatMath::sqrt(u);
+        let inv_cycles = (Q32_F64 * self.rate as f64 / self.state as f64) as f32;
+        let turns = 0.125 - u * (1.0 - FloatMath::ln(u * inv_cycles));
+        let phase = core::f32::consts::TAU * turns;
+        Complex::new(amp * FloatMath::cos(phase), amp * FloatMath::sin(phase))
     }
 
     /// Synthesize an exponential swept-sine profile.
