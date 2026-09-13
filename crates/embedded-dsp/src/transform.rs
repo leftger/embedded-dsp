@@ -4,6 +4,15 @@
 use crate::math::FloatMath;
 use crate::types::*;
 
+#[path = "mixed_radix.rs"]
+mod mixed_radix;
+
+pub use mixed_radix::{cfft_f32_len_ok, fft_is_235_smooth, next_fast_fft_size};
+
+fn rfft_can_pack_f32(n: usize) -> bool {
+    n >= 4 && n.is_multiple_of(2) && cfft_f32_len_ok(n / 2) && n / 2 <= mixed_radix::MIXED_RADIX_MAX
+}
+
 /// Bit reversal function for interleaved complex array of size `2 * n`.
 pub fn bit_reversal(data: &mut [f32], n: usize) {
     let mut j = 0;
@@ -25,8 +34,23 @@ pub fn bit_reversal(data: &mut [f32], n: usize) {
 /// `data` is interleaved complex array of size `2 * n` (`[re0, im0, re1, im1, ...]`).
 /// `ifft_flag`: 0 for forward FFT, 1 for inverse FFT (IFFT).
 /// `bit_reverse_flag`: 1 to enable bit reversal, 0 to disable.
+///
+/// Power-of-two lengths use in-place radix-2 DIT (any `n` that fits `data`).
+/// Other 2/3/4/5-smooth lengths (`12`, `48`, `96`, `240`, …) up to 512 use a
+/// mixed-radix factor walk; `bit_reverse_flag` is ignored for those sizes
+/// because permutation is built into the algorithm. Inverse applies `1/n`.
 pub fn cfft_f32(data: &mut [f32], n: usize, ifft_flag: u8, bit_reverse_flag: u8) {
-    if n < 2 || (n & (n - 1)) != 0 {
+    if n < 2 || data.len() < 2 * n {
+        return;
+    }
+
+    if !n.is_power_of_two() {
+        if mixed_radix::mixed_radix_cfft(data, n, ifft_flag != 0) && ifft_flag != 0 {
+            let norm = 1.0 / (n as f32);
+            for v in data.iter_mut().take(2 * n) {
+                *v *= norm;
+            }
+        }
         return;
     }
 
@@ -485,12 +509,109 @@ pub fn real_cepstrum_f32(src: &[f32], cepstrum_out: &mut [f32]) -> Status {
     Status::Success
 }
 
+/// Packed real FFT: N/2-point complex FFT of even/odd samples, then unpack.
+fn packed_rfft_f32_forward(src: &[f32], dst: &mut [f32], n: usize) {
+    let m = n / 2;
+    let mut z = [0.0f32; 1024];
+    if 2 * m > z.len() {
+        return;
+    }
+    for k in 0..m {
+        z[2 * k] = src[2 * k];
+        z[2 * k + 1] = src[2 * k + 1];
+    }
+    cfft_f32(&mut z[..2 * m], m, 0, 1);
+
+    dst[0] = z[0] + z[1];
+    dst[1] = 0.0;
+    dst[n] = z[0] - z[1];
+    dst[n + 1] = 0.0;
+
+    for k in 1..m {
+        let zr = z[2 * k];
+        let zi = z[2 * k + 1];
+        let znr = z[2 * (m - k)];
+        let zni = z[2 * (m - k) + 1];
+
+        let xe_re = 0.5 * (zr + znr);
+        let xe_im = 0.5 * (zi - zni);
+        let xo_re = 0.5 * (zi + zni);
+        let xo_im = 0.5 * (znr - zr);
+
+        let angle = -2.0 * core::f32::consts::PI * (k as f32) / (n as f32);
+        let wr = angle.cos();
+        let wi = angle.sin();
+        let t_re = xo_re * wr - xo_im * wi;
+        let t_im = xo_re * wi + xo_im * wr;
+
+        dst[2 * k] = xe_re + t_re;
+        dst[2 * k + 1] = xe_im + t_im;
+        dst[2 * (n - k)] = xe_re - t_re;
+        dst[2 * (n - k) + 1] = -(xe_im + t_im);
+    }
+}
+
+fn packed_irfft_f32(src: &[f32], dst: &mut [f32], n: usize) {
+    let m = n / 2;
+    let mut z = [0.0f32; 1024];
+    if 2 * m > z.len() {
+        return;
+    }
+
+    let dc = src[0];
+    let ny = src[n];
+    z[0] = dc + ny;
+    z[1] = dc - ny;
+
+    for k in 1..m {
+        let xkr = src[2 * k];
+        let xki = src[2 * k + 1];
+        let xnr = src[2 * (k + m)];
+        let xni = src[2 * (k + m) + 1];
+
+        let xe_re = xkr + xnr;
+        let xe_im = xki + xni;
+        let t_re = xkr - xnr;
+        let t_im = xki - xni;
+
+        let angle = 2.0 * core::f32::consts::PI * (k as f32) / (n as f32);
+        let wr = angle.cos();
+        let wi = angle.sin();
+        let xo_re = t_re * wr - t_im * wi;
+        let xo_im = t_re * wi + t_im * wr;
+
+        z[2 * k] = xe_re - xo_im;
+        z[2 * k + 1] = xe_im + xo_re;
+    }
+
+    cfft_f32(&mut z[..2 * m], m, 1, 1);
+    for k in 0..m {
+        dst[2 * k] = z[2 * k] * 0.5;
+        dst[2 * k + 1] = z[2 * k + 1] * 0.5;
+    }
+}
+
 /// Real FFT for floating point 32-bit (`f32`).
-/// `src` has `n` real samples. `dst` receives `2 * n` complex outputs.
+/// `src` has `n` real samples. `dst` receives `2 * n` interleaved complex bins
+/// (same layout as a zero-padded [`cfft_f32`]).
+///
+/// Forward (`ifft_flag == 0`) uses a packed N/2 complex FFT of even/odd samples
+/// when `n` is even and `n/2` is a supported CFFT length. Inverse
+/// (`ifft_flag != 0`) still treats `src` as a real time sequence (real+0j);
+/// use [`irfft_f32`] to invert a packed spectrum.
 pub fn rfft_f32(src: &[f32], dst: &mut [f32], n: usize, ifft_flag: u8) {
     let len = src.len().min(n);
+    if dst.len() < 2 * len {
+        return;
+    }
+
+    if ifft_flag == 0 && rfft_can_pack_f32(len) {
+        packed_rfft_f32_forward(&src[..len], dst, len);
+        return;
+    }
+
     let mut c_data = [0.0f32; 1024];
-    if 2 * len > c_data.len() || dst.len() < 2 * len {
+    if 2 * len > c_data.len() || !cfft_f32_len_ok(len) {
         return;
     }
 
@@ -501,6 +622,28 @@ pub fn rfft_f32(src: &[f32], dst: &mut [f32], n: usize, ifft_flag: u8) {
 
     cfft_f32(&mut c_data[..2 * len], len, ifft_flag, 1);
     dst[..2 * len].copy_from_slice(&c_data[..2 * len]);
+}
+
+/// Inverse packed real FFT. `src` is `2 * n` interleaved bins from [`rfft_f32`];
+/// `dst` receives `n` real samples. Combined with a forward transform,
+/// `irfft(rfft(x)) ≈ x` (same convention as [`cfft_f32`]).
+pub fn irfft_f32(src: &[f32], dst: &mut [f32], n: usize) {
+    if src.len() < 2 * n || dst.len() < n || !cfft_f32_len_ok(n) {
+        return;
+    }
+    if rfft_can_pack_f32(n) {
+        packed_irfft_f32(&src[..2 * n], dst, n);
+        return;
+    }
+    let mut c_data = [0.0f32; 1024];
+    if 2 * n > c_data.len() {
+        return;
+    }
+    c_data[..2 * n].copy_from_slice(&src[..2 * n]);
+    cfft_f32(&mut c_data[..2 * n], n, 1, 1);
+    for i in 0..n {
+        dst[i] = c_data[2 * i];
+    }
 }
 
 /// Packed real FFT (N/2-point complex FFT of even/odd samples, then unpack).

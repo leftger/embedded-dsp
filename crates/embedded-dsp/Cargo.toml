@@ -293,6 +293,11 @@ path = "tests/filtering_resampling_extras.rs"
 required-features = ["libm", "full"]
 
 [[test]]
+name = "kissfft_extract"
+path = "tests/kissfft_extract.rs"
+required-features = ["libm", "filtering", "transform"]
+
+[[test]]
 name = "module_extras_coverage"
 path = "tests/module_extras_coverage.rs"
 required-features = ["libm", "full"]

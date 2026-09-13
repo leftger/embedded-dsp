@@ -1184,6 +1184,182 @@ pub fn fast_convolve_f32(signal: &[f32], kernel: &[f32], dst: &mut [f32]) -> Sta
     Status::Success
 }
 
+/// Streaming overlap-scrap FIR (`kiss_fastfir`): scrap at the tail of each
+/// inverse FFT so consecutive hops overlap by `n_taps - 1` samples.
+///
+/// `NFFT` is the real FFT size. It must be a length [`cfft_f32`](crate::cfft_f32)
+/// accepts (`<= 512` because convolution uses a stack scratch of 1024 floats),
+/// and must be `>=` the impulse length. Hop size is `NFFT - n_taps + 1`.
+///
+/// History is primed with `n_taps - 1` zeros so the first hop aligns with
+/// linear convolution (no extra delay). Call [`FastFirF32::flush`] after the
+/// last input block to emit the filter tail.
+#[cfg(feature = "transform")]
+#[derive(Clone, Copy)]
+pub struct FastFirF32<const NFFT: usize> {
+    n_taps: usize,
+    ngood: usize,
+    fir_re: [f32; NFFT],
+    fir_im: [f32; NFFT],
+    pending: [f32; NFFT],
+    pending_len: usize,
+    spec_re: [f32; NFFT],
+}
+
+#[cfg(feature = "transform")]
+impl<const NFFT: usize> FastFirF32<NFFT> {
+    /// Builds a streaming FIR from a real impulse response.
+    ///
+    /// Returns `None` if `impulse` is empty, longer than `NFFT`, or `NFFT` is
+    /// not a supported FFT length.
+    pub fn new(impulse: &[f32]) -> Option<Self> {
+        use crate::transform::cfft_f32_len_ok;
+        if impulse.is_empty() || impulse.len() > NFFT || !cfft_f32_len_ok(NFFT) {
+            return None;
+        }
+
+        let n_taps = impulse.len();
+        let ngood = NFFT - n_taps + 1;
+        let pending = [0.0f32; NFFT];
+        let mut spec = [0.0f32; 1024];
+        if 2 * NFFT > spec.len() {
+            return None;
+        }
+
+        spec[0] = impulse[n_taps - 1];
+        for i in 0..n_taps.saturating_sub(1) {
+            spec[2 * (ngood + i)] = impulse[i];
+        }
+        cfft_f32(&mut spec[..2 * NFFT], NFFT, 0, 1);
+
+        let mut fir_re = [0.0f32; NFFT];
+        let mut fir_im = [0.0f32; NFFT];
+        for i in 0..NFFT {
+            fir_re[i] = spec[2 * i];
+            fir_im[i] = spec[2 * i + 1];
+        }
+
+        Some(Self {
+            n_taps,
+            ngood,
+            fir_re,
+            fir_im,
+            pending,
+            pending_len: n_taps.saturating_sub(1),
+            spec_re: [0.0f32; NFFT],
+        })
+    }
+
+    /// Valid samples produced per full FFT hop (`NFFT - n_taps + 1`).
+    #[inline]
+    pub const fn ngood(&self) -> usize {
+        self.ngood
+    }
+
+    /// Impulse length used at construction.
+    #[inline]
+    pub const fn n_taps(&self) -> usize {
+        self.n_taps
+    }
+
+    fn convolve_pending(&mut self) {
+        let mut spec = [0.0f32; 1024];
+        for i in 0..NFFT {
+            spec[2 * i] = self.pending[i];
+        }
+        cfft_f32(&mut spec[..2 * NFFT], NFFT, 0, 1);
+        for i in 0..NFFT {
+            let a = spec[2 * i];
+            let b = spec[2 * i + 1];
+            let c = self.fir_re[i];
+            let d = self.fir_im[i];
+            spec[2 * i] = a * c - b * d;
+            spec[2 * i + 1] = a * d + b * c;
+        }
+        cfft_f32(&mut spec[..2 * NFFT], NFFT, 1, 1);
+        for i in 0..NFFT {
+            self.spec_re[i] = spec[2 * i];
+        }
+    }
+
+    fn shift_scrap(&mut self) {
+        let scrap = NFFT - self.ngood;
+        for i in 0..scrap {
+            self.pending[i] = self.pending[self.ngood + i];
+        }
+        self.pending_len = scrap;
+    }
+
+    /// Consumes `input` and writes as many hop-aligned outputs as fit in
+    /// `output`. Returns the number of samples written.
+    ///
+    /// Provide `output.len() >= ngood` (ideally several hops) so full FFT
+    /// blocks are not stalled for lack of output space.
+    pub fn process(&mut self, input: &[f32], output: &mut [f32]) -> usize {
+        let mut in_i = 0;
+        let mut out_i = 0;
+        loop {
+            while self.pending_len < NFFT && in_i < input.len() {
+                self.pending[self.pending_len] = input[in_i];
+                self.pending_len += 1;
+                in_i += 1;
+            }
+            if self.pending_len < NFFT || out_i + self.ngood > output.len() {
+                break;
+            }
+            self.convolve_pending();
+            output[out_i..out_i + self.ngood].copy_from_slice(&self.spec_re[..self.ngood]);
+            out_i += self.ngood;
+            self.shift_scrap();
+        }
+        out_i
+    }
+
+    /// Appends `n_taps - 1` zeros and drains a final padded hop so a finite
+    /// input of length `L` yields the `L + n_taps - 1` linear-convolution samples.
+    pub fn flush(&mut self, output: &mut [f32]) -> usize {
+        let pad = self.n_taps.saturating_sub(1);
+        let mut written = 0;
+        let mut remaining_pad = pad;
+        while remaining_pad > 0 && written < output.len() {
+            let chunk = remaining_pad.min(32);
+            let zeros = [0.0f32; 32];
+            let n = self.process(&zeros[..chunk], &mut output[written..]);
+            written += n;
+            remaining_pad -= chunk;
+            if n == 0 && self.pending_len < NFFT {
+                break;
+            }
+        }
+
+        if self.pending_len == 0 || written >= output.len() {
+            return written;
+        }
+
+        let n = self.pending_len;
+        let zpad = NFFT - n;
+        for i in n..NFFT {
+            self.pending[i] = 0.0;
+        }
+        self.pending_len = NFFT;
+        let nout = self.ngood.saturating_sub(zpad);
+        if nout == 0 || written + nout > output.len() {
+            self.pending_len = n;
+            return written;
+        }
+        self.convolve_pending();
+        output[written..written + nout].copy_from_slice(&self.spec_re[..nout]);
+        self.pending_len = 0;
+        written + nout
+    }
+
+    /// Clears history back to `n_taps - 1` zeros.
+    pub fn reset(&mut self) {
+        self.pending.fill(0.0);
+        self.pending_len = self.n_taps.saturating_sub(1);
+    }
+}
+
 // --- Real-time Circular Buffer & Delay Line ---
 
 /// Const-generic zero-allocation circular buffer and delay line for real-time DSP sample streams.
