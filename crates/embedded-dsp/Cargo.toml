@@ -49,6 +49,7 @@ full = [
     "dither",
     "dynamics",
     "fast-math",
+    "fec",
     "filter-analysis",
     "filter-design",
     "filtering",
@@ -57,11 +58,13 @@ full = [
     "kalman",
     "lut",
     "matrix",
+    "modem",
     "pipeline",
     "pll",
     "psd",
     "quaternion",
     "resampling",
+    "sequence",
     "spatial",
     "statistics",
     "snapshot",
@@ -86,8 +89,9 @@ dsm = []
 dither = []
 dynamics = ["pipeline"]
 fast-math = []
+fec = []
 filter-analysis = []
-filter-design = ["filter-analysis", "support"]
+filter-design = ["filter-analysis", "support", "window"]
 filtering = []
 # Q16.16 saturating arithmetic (rasterizer / no-FPU pipelines). Complements
 # the always-on CMSIS-style q7/q15/q31 fixed-point types in `types`.
@@ -97,11 +101,13 @@ kalman = ["matrix"]
 # Precomputed 256-entry sin/cos tables (i16), an alternative to `fast-math`.
 lut = []
 matrix = ["basic-math"]
+modem = ["transform"]
 pipeline = ["filtering"]
 pll = []
 psd = ["transform", "window"]
 quaternion = []
 resampling = []
+sequence = []
 spatial = []
 statistics = ["fast-math"]
 snapshot = []
@@ -296,6 +302,36 @@ required-features = ["libm", "full"]
 name = "kissfft_extract"
 path = "tests/kissfft_extract.rs"
 required-features = ["libm", "filtering", "transform"]
+
+[[test]]
+name = "filter_design_radio"
+path = "tests/filter_design_radio.rs"
+required-features = ["libm", "filter-design"]
+
+[[test]]
+name = "dynamics_agc"
+path = "tests/dynamics_agc.rs"
+required-features = ["libm", "dynamics"]
+
+[[test]]
+name = "fec_codes"
+path = "tests/fec_codes.rs"
+required-features = ["fec"]
+
+[[test]]
+name = "resampling_sync"
+path = "tests/resampling_sync.rs"
+required-features = ["resampling"]
+
+[[test]]
+name = "sequence_msequence"
+path = "tests/sequence_msequence.rs"
+required-features = ["sequence"]
+
+[[test]]
+name = "analog_modem"
+path = "tests/analog_modem.rs"
+required-features = ["libm", "modem"]
 
 [[test]]
 name = "module_extras_coverage"

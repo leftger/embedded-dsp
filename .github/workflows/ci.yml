@@ -106,8 +106,8 @@ jobs:
         run: |
           for feature in \
             basic-math complex-math filtering controller cordic distance dither dsm \
-            fast-math filter-analysis filter-design fixed-point interpolation kalman lut \
-            matrix pipeline pll psd quaternion resampling spatial statistics snapshot \
+            fast-math fec filter-analysis filter-design fixed-point interpolation kalman lut \
+            matrix modem pipeline pll psd quaternion resampling sequence spatial statistics snapshot \
             synthesis validation support transform window companding const-generics \
             audio beamforming miniconf; do
             echo "::group::libm,$feature"
@@ -123,6 +123,9 @@ jobs:
             "libm,complex-math,distance,interpolation,statistics" \
             "libm,matrix,support,window,fast-math" \
             "libm,controller,fast-math,filter-analysis,filtering,pipeline,pll,resampling,synthesis" \
+            "libm,fec" \
+            "libm,sequence" \
+            "libm,modem" \
             "full,libm"; do
             echo "::group::$features"
             cargo test -p embedded-dsp --no-default-features --features "$features"

@@ -22,9 +22,9 @@
 //! - **Support**: Vector copy, fill, type conversions (Q7, Q15, Q31, F32), sort, barycenter, weighted sum.
 //! - **Matrix**: Matrix addition, subtraction, multiplication, scale, transpose, Gauss-Jordan inverse.
 //! - **Filtering**: FIR, Biquad IIR Direct Form I and transposed DF-II (f32/q15/q31), LMS / leaky LMS / NLMS, Convolution, Correlation, streaming overlap-scrap `FastFirF32`, single-pole recursive filters (f32/q15), Q15 DC blocker, O(1) recursive moving average, and a double-sampled State Variable Filter (simultaneous LP/HP/BP/notch/peak, sweepable cutoff/resonance).
-//! - **Filter Design**: Biquad Lowpass, Highpass, Bandpass, Notch, Peaking EQ, Allpass, Butterworth, Chebyshev, and arbitrary-response (frequency-sampling) design.
+//! - **Filter Design**: Biquad Lowpass, Highpass, Bandpass, Notch, Peaking EQ, Allpass, Butterworth, Chebyshev, 2nd-order elliptic low-pass, Kaiser-windowed sinc FIR, RRC/RC/GMSK-TX pulse shaping, and arbitrary-response (frequency-sampling) design.
 //! - **Filter Analysis**: Frequency response (DTFT) evaluation for FIR/biquad filters, FIR group delay, and pole-based IIR stability checks.
-//! - **Resampling & Multi-rate**: CIC Decimator & Interpolator, linear fractional resampler.
+//! - **Resampling & Multi-rate**: CIC Decimator & Interpolator, linear fractional resampler, arbitrary-rate polyphase resampler, Gardner symbol timing recovery.
 //! - **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, and trait-based `ExtendedKalmanFilter` (EKF).
 //! - **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `FirFilterQ15<N>`, `BiquadCascade<N>`, `BiquadCascadeQ15`, and `Matrix<R, C>`.
 //! - **Transform**: In-place Complex FFT (CFFT) including mixed-radix 2/3/4/5-smooth lengths, packed Real FFT / inverse (`rfft_f32`/`irfft_f32`, `rfft_q15`/`irfft_q15`), DCT-IV, Bit reversal, Fixed-point FFT (Q15/Q31), Haar transform, Hartley transform, and a generalized wavelet transform (Daubechies-4).
@@ -37,6 +37,9 @@
 //! - **Quaternion**: Norm, normalization, product, conjugate, inverse, rotation matrix conversion, and `nalgebra` interop (`nalgebra` feature).
 //! - **Window**: Hanning, Hamming, Blackman, Blackman-Harris, Bartlett, Welch, Flat-top generators (f32), plus Q15 Hanning/Hamming/Blackman/Bartlett.
 //! - **Distance**: Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Jaccard, Hamming, Canberra, Bray-Curtis.
+//! - **FEC**: CRC-8/16/24/32, 8-bit checksum, Hamming(7,4).
+//! - **Sequences**: Maximal-length LFSR (`MSequence`) for PN / scrambling.
+//! - **Modem**: FM phase-accum mod/demod, DSB-AM envelope, SSB USB/LSB via Hilbert.
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -72,6 +75,7 @@ pub mod dither;
 #[cfg(feature = "dsm")]
 pub mod dsm;
 gated_mod!(math "dynamics", dynamics);
+gated_mod!("fec", fec);
 gated_mod!("fast-math", fast_math);
 gated_mod!(math "filter-analysis", filter_analysis);
 gated_mod!(math "filter-design", filter_design);
@@ -82,6 +86,7 @@ gated_mod!("kalman", kalman);
 gated_mod!("lut", lut);
 pub mod math;
 gated_mod!("matrix", matrix);
+gated_mod!(math "modem", modem);
 gated_mod!("miniconf", config);
 gated_mod!("nalgebra", nalgebra_interop);
 gated_mod!("pipeline", pipeline);
@@ -89,6 +94,7 @@ gated_mod!(math "pll", pll);
 gated_mod!("psd", psd);
 gated_mod!("quaternion", quaternion);
 gated_mod!("resampling", resampling);
+gated_mod!("sequence", sequence);
 gated_mod!("spatial", spatial);
 gated_mod!("statistics", statistics);
 gated_mod!("snapshot", snapshot);

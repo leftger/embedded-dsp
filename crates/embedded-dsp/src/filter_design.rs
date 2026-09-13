@@ -765,3 +765,477 @@ pub fn fir_quantize_q15(taps_f32: &[f32], out_q15: &mut [q15]) -> Result<(), Sta
     }
     Ok(())
 }
+
+/// FIR pulse-shaping length: `2 * samples_per_symbol * symbol_span + 1`.
+#[inline]
+pub const fn pulse_shaping_len(samples_per_symbol: usize, symbol_span: usize) -> usize {
+    2 * samples_per_symbol * symbol_span + 1
+}
+
+fn pulse_shaping_args(
+    samples_per_symbol: usize,
+    symbol_span: usize,
+    beta: f32,
+    out: &[f32],
+) -> Status {
+    if samples_per_symbol < 1 || symbol_span < 1 {
+        return Status::ArgumentError;
+    }
+    if !(0.0..=1.0).contains(&beta) {
+        return Status::ArgumentError;
+    }
+    if out.len() != pulse_shaping_len(samples_per_symbol, symbol_span) {
+        return Status::LengthError;
+    }
+    Status::Success
+}
+
+fn sinc_pi(z: f32) -> f32 {
+    let az = z.abs();
+    if az < 0.01 {
+        let p = core::f32::consts::PI * z;
+        (p * 0.5).cos() * (p * 0.25).cos() * (p * 0.125).cos()
+    } else {
+        let pz = core::f32::consts::PI * z;
+        pz.sin() / pz
+    }
+}
+
+/// Kaiser window β from a target stop-band attenuation in dB (Vaidyanathan).
+///
+/// Matches liquid-dsp `kaiser_beta_As`. `stopband_atten_db` is taken in absolute
+/// value. Attenuation ≤ 21 dB yields `β = 0` (rectangular).
+pub fn kaiser_beta_as(stopband_atten_db: f32) -> f32 {
+    let as_db = stopband_atten_db.abs();
+    let mut beta = if as_db > 50.0 {
+        0.1102 * (as_db - 8.7)
+    } else if as_db > 21.0 {
+        0.5842 * (as_db - 21.0).powf(0.4) + 0.07886 * (as_db - 21.0)
+    } else {
+        0.0
+    };
+    if as_db > 110.0 {
+        beta *= 1.02;
+    }
+    beta
+}
+
+/// Kaiser estimate of FIR length for transition width `df` (cycles/sample in
+/// `(0, 0.5)`) and stop-band attenuation `stopband_atten_db` (> 0).
+///
+/// Matches liquid-dsp `estimate_req_filter_len` (Kaiser / Vaidyanathan form):
+/// `(As − 7.95) / (14.26 · df)`, truncated toward zero.
+pub fn estimate_req_filter_len(df: f32, stopband_atten_db: f32) -> Result<usize, Status> {
+    if !(df > 0.0 && df <= 0.5) || stopband_atten_db <= 0.0 {
+        return Err(Status::ArgumentError);
+    }
+    let n = (stopband_atten_db - 7.95) / (14.26 * df);
+    if !n.is_finite() || n < 0.0 {
+        return Err(Status::ArgumentError);
+    }
+    Ok(n as usize)
+}
+
+fn kaiser_window_sample(i: usize, len: usize, beta: f32) -> f32 {
+    if len == 0 || i >= len || beta < 0.0 {
+        return 0.0;
+    }
+    if len == 1 {
+        return 1.0;
+    }
+    let t = i as f32 - (len - 1) as f32 / 2.0;
+    let r = 2.0 * t / (len - 1) as f32;
+    let arg = (1.0 - r * r).max(0.0).sqrt();
+    crate::window::bessel_i0(beta * arg) / crate::window::bessel_i0(beta)
+}
+
+/// Kaiser-windowed sinc low-pass FIR (liquid-dsp `liquid_firdes_kaiser`).
+///
+/// `fc_norm` is cycles/sample in `(0, 0.5]`. `stopband_atten_db` selects β.
+/// `frac_delay` is a fractional sample offset in `[-0.5, 0.5]`. Taps are **not**
+/// DC-normalized (center tap is 1 for odd length and zero delay).
+pub fn firdes_kaiser(
+    fc_norm: f32,
+    stopband_atten_db: f32,
+    frac_delay: f32,
+    out: &mut [f32],
+) -> Status {
+    if out.is_empty() {
+        return Status::LengthError;
+    }
+    if !(fc_norm > 0.0 && fc_norm <= 0.5) {
+        return Status::ArgumentError;
+    }
+    if !(-0.5..=0.5).contains(&frac_delay) {
+        return Status::ArgumentError;
+    }
+    let n = out.len();
+    let beta = kaiser_beta_as(stopband_atten_db);
+    let half = (n - 1) as f32 / 2.0;
+    for (i, h) in out.iter_mut().enumerate() {
+        let t = i as f32 - half + frac_delay;
+        *h = sinc_pi(2.0 * fc_norm * t) * kaiser_window_sample(i, n, beta);
+    }
+    Status::Success
+}
+
+/// Root-raised-cosine FIR (liquid-dsp `liquid_firdes_rrcos`).
+///
+/// `out` must have length [`pulse_shaping_len`]. `beta` is the excess bandwidth in `[0, 1]`.
+/// `frac_delay` is a fractional sample delay (`dt` in liquid-dsp). `beta = 0` yields a sinc.
+pub fn firdes_rrc(
+    samples_per_symbol: usize,
+    symbol_span: usize,
+    beta: f32,
+    frac_delay: f32,
+    out: &mut [f32],
+) -> Status {
+    let st = pulse_shaping_args(samples_per_symbol, symbol_span, beta, out);
+    if st != Status::Success {
+        return st;
+    }
+    let k = samples_per_symbol as f32;
+    let m = symbol_span as f32;
+    let pi = core::f32::consts::PI;
+    for (n, h) in out.iter_mut().enumerate() {
+        let z = (n as f32 + frac_delay) / k - m;
+        if beta < 1e-6 {
+            *h = sinc_pi(z);
+            continue;
+        }
+        if z.abs() < 1e-5 {
+            *h = 1.0 - beta + 4.0 * beta / pi;
+            continue;
+        }
+        let g = 1.0 - 16.0 * beta * beta * z * z;
+        if (g * g) < 1e-5 {
+            let g1 = 1.0 + 2.0 / pi;
+            let g2 = (0.25 * pi / beta).sin();
+            let g3 = 1.0 - 2.0 / pi;
+            let g4 = (0.25 * pi / beta).cos();
+            *h = beta / 2.0f32.sqrt() * (g1 * g2 + g3 * g4);
+        } else {
+            let t1 = ((1.0 + beta) * pi * z).cos();
+            let t2 = ((1.0 - beta) * pi * z).sin();
+            let t3 = 1.0 / (4.0 * beta * z);
+            let t4 = 4.0 * beta / (pi * (1.0 - 16.0 * beta * beta * z * z));
+            *h = t4 * (t1 + t2 * t3);
+        }
+    }
+    Status::Success
+}
+
+/// Raised-cosine FIR (liquid-dsp `liquid_firdes_rcos`).
+///
+/// See [`firdes_rrc`] for arguments. `beta = 0` yields a sinc.
+pub fn firdes_rc(
+    samples_per_symbol: usize,
+    symbol_span: usize,
+    beta: f32,
+    frac_delay: f32,
+    out: &mut [f32],
+) -> Status {
+    let st = pulse_shaping_args(samples_per_symbol, symbol_span, beta, out);
+    if st != Status::Success {
+        return st;
+    }
+    let k = samples_per_symbol as f32;
+    let m = symbol_span as f32;
+    let pi = core::f32::consts::PI;
+    for (n, h) in out.iter_mut().enumerate() {
+        let z = (n as f32 + frac_delay) / k - m;
+        if beta < 1e-6 {
+            *h = sinc_pi(z);
+            continue;
+        }
+        let t3 = 1.0 - 4.0 * beta * beta * z * z;
+        if t3.abs() < 1e-3 {
+            *h = (pi / (2.0 * beta)).sin() * beta * 0.5;
+        } else {
+            *h = (beta * pi * z).cos() * sinc_pi(z) / t3;
+        }
+    }
+    Status::Success
+}
+
+#[allow(clippy::excessive_precision)]
+fn erf_f32(x: f32) -> f32 {
+    // Abramowitz and Stegun 7.1.26
+    let sign = if x < 0.0 { -1.0 } else { 1.0 };
+    let ax = x.abs();
+    let t = 1.0 / (1.0 + 0.3275911 * ax);
+    let y = 1.0
+        - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t
+            + 0.254829592)
+            * t
+            * (-ax * ax).exp();
+    sign * y
+}
+
+fn gauss_q(z: f32) -> f32 {
+    0.5 * (1.0 - erf_f32(z * core::f32::consts::FRAC_1_SQRT_2))
+}
+
+/// GMSK *transmit* pulse (liquid-dsp `liquid_firdes_gmsktx`).
+///
+/// Difference of Gaussian Q-functions, normalized so the discrete integral is `π/2`
+/// then scaled by `samples_per_symbol`. Receive-side GMSK design (FFT / heap) is not
+/// ported.
+pub fn firdes_gmsk_tx(
+    samples_per_symbol: usize,
+    symbol_span: usize,
+    beta: f32,
+    frac_delay: f32,
+    out: &mut [f32],
+) -> Status {
+    let st = pulse_shaping_args(samples_per_symbol, symbol_span, beta, out);
+    if st != Status::Success {
+        return st;
+    }
+    if beta < 1e-6 {
+        return Status::ArgumentError;
+    }
+    let k = samples_per_symbol as f32;
+    let m = symbol_span as f32;
+    let c0 = 1.0 / 2.0f32.ln().sqrt();
+    let two_pi = 2.0 * core::f32::consts::PI;
+    for (i, h) in out.iter_mut().enumerate() {
+        let t = i as f32 / k - m + frac_delay;
+        *h = gauss_q(two_pi * beta * (t - 0.5) * c0) - gauss_q(two_pi * beta * (t + 0.5) * c0);
+    }
+    let e: f32 = out.iter().copied().sum();
+    if e.abs() < 1e-12 {
+        return Status::ArgumentError;
+    }
+    let scale = core::f32::consts::PI / (2.0 * e) * k;
+    for h in out.iter_mut() {
+        *h *= scale;
+    }
+    Status::Success
+}
+
+const ELLIP_LANDEN: usize = 7;
+
+#[derive(Clone, Copy)]
+struct C32 {
+    re: f32,
+    im: f32,
+}
+
+impl C32 {
+    const ONE: Self = Self { re: 1.0, im: 0.0 };
+    const I: Self = Self { re: 0.0, im: 1.0 };
+
+    fn new(re: f32, im: f32) -> Self {
+        Self { re, im }
+    }
+
+    fn add(self, o: Self) -> Self {
+        Self::new(self.re + o.re, self.im + o.im)
+    }
+
+    fn sub(self, o: Self) -> Self {
+        Self::new(self.re - o.re, self.im - o.im)
+    }
+
+    fn mul(self, o: Self) -> Self {
+        Self::new(
+            self.re * o.re - self.im * o.im,
+            self.re * o.im + self.im * o.re,
+        )
+    }
+
+    fn scale(self, s: f32) -> Self {
+        Self::new(self.re * s, self.im * s)
+    }
+
+    fn div(self, o: Self) -> Self {
+        let d = o.re * o.re + o.im * o.im;
+        Self::new(
+            (self.re * o.re + self.im * o.im) / d,
+            (self.im * o.re - self.re * o.im) / d,
+        )
+    }
+
+    fn conj(self) -> Self {
+        Self::new(self.re, -self.im)
+    }
+
+    fn mag2(self) -> f32 {
+        self.re * self.re + self.im * self.im
+    }
+
+    fn sqrt(self) -> Self {
+        let r = self.mag2().sqrt();
+        let sr = ((r + self.re) * 0.5).max(0.0).sqrt();
+        let mut si = ((r - self.re) * 0.5).max(0.0).sqrt();
+        if self.im < 0.0 {
+            si = -si;
+        }
+        Self::new(sr, si)
+    }
+
+    fn ln(self) -> Self {
+        Self::new(0.5 * self.mag2().ln(), self.im.atan2(self.re))
+    }
+
+    fn cos(self) -> Self {
+        let (sin_x, cos_x) = (self.re.sin(), self.re.cos());
+        let e = self.im.exp();
+        let ei = (-self.im).exp();
+        let cosh_y = (e + ei) * 0.5;
+        let sinh_y = (e - ei) * 0.5;
+        Self::new(cos_x * cosh_y, -sin_x * sinh_y)
+    }
+
+    fn acos(self) -> Self {
+        // acos(z) = -i ln(z + i sqrt(1 - z^2))
+        let one_minus = C32::ONE.sub(self.mul(self));
+        let inner = self.add(C32::I.mul(one_minus.sqrt()));
+        C32::I.scale(-1.0).mul(inner.ln())
+    }
+}
+
+fn landenf(k: f32, v: &mut [f32; ELLIP_LANDEN]) {
+    let mut kk = k;
+    for slot in v.iter_mut() {
+        let kp = (1.0 - kk * kk).max(0.0).sqrt();
+        kk = (1.0 - kp) / (1.0 + kp);
+        *slot = kk;
+    }
+}
+
+fn ellipkf(k: f32) -> (f32, f32) {
+    let kmin = 4e-4f32;
+    let kmax = (1.0 - kmin * kmin).sqrt();
+    let kp = (1.0 - k * k).max(0.0).sqrt();
+    let big_k = if k > kmax {
+        let l = -(0.25 * kp).ln();
+        l + 0.25 * (l - 1.0) * kp * kp
+    } else {
+        let mut v = [0.0f32; ELLIP_LANDEN];
+        landenf(k, &mut v);
+        let mut acc = core::f32::consts::FRAC_PI_2;
+        for vi in v {
+            acc *= 1.0 + vi;
+        }
+        acc
+    };
+    let big_kp = if k < kmin {
+        let l = -(k * 0.25).ln();
+        l + 0.25 * (l - 1.0) * k * k
+    } else {
+        let mut vp = [0.0f32; ELLIP_LANDEN];
+        landenf(kp, &mut vp);
+        let mut acc = core::f32::consts::FRAC_PI_2;
+        for vi in vp {
+            acc *= 1.0 + vi;
+        }
+        acc
+    };
+    (big_k, big_kp)
+}
+
+fn ellipdegf(order: f32, k1: f32) -> f32 {
+    let (k1k, k1p) = ellipkf(k1);
+    let q1 = (-core::f32::consts::PI * k1p / k1k).exp();
+    let q = q1.powf(1.0 / order);
+    let n = ELLIP_LANDEN as i32;
+    let mut b = 0.0f32;
+    for m in 0..n {
+        b += q.powf((m * (m + 1)) as f32);
+    }
+    let mut a = 0.0f32;
+    for m in 1..n {
+        a += q.powf((m * m) as f32);
+    }
+    let g = b / (1.0 + 2.0 * a);
+    4.0 * q.sqrt() * g * g
+}
+
+fn ellip_cd(u: C32, k: f32) -> C32 {
+    let mut wn = u.scale(core::f32::consts::FRAC_PI_2).cos();
+    let mut v = [0.0f32; ELLIP_LANDEN];
+    landenf(k, &mut v);
+    for i in (0..ELLIP_LANDEN).rev() {
+        let vi = v[i];
+        wn = wn.scale(1.0 + vi).div(C32::ONE.add(wn.mul(wn).scale(vi)));
+    }
+    wn
+}
+
+fn ellip_acd(w: C32, k: f32) -> C32 {
+    let mut v = [0.0f32; ELLIP_LANDEN];
+    landenf(k, &mut v);
+    let mut w = w;
+    for i in 0..ELLIP_LANDEN {
+        let v1 = if i == 0 { k } else { v[i - 1] };
+        let inner = C32::ONE.sub(w.mul(w).scale(v1 * v1)).sqrt();
+        w = w.div(C32::ONE.add(inner)).scale(2.0 / (1.0 + v[i]));
+    }
+    w.acos().scale(2.0 / core::f32::consts::PI)
+}
+
+fn ellip_asn(w: C32, k: f32) -> C32 {
+    C32::ONE.sub(ellip_acd(w, k))
+}
+
+/// Second-order elliptic low-pass biquad `[b0, b1, b2, a1, a2]` (Direct Form I).
+///
+/// Analog prototype from Orfanidis / liquid-dsp `ellip_azpkf` (order 2), bilinear
+/// transformed with prewarp `tan(π fc_norm)`. `fc_norm` is cycles/sample in `(0, 0.5)`.
+/// `passband_ripple_db` and `stopband_atten_db` must be positive with stop-band
+/// attenuation larger than the pass-band ripple.
+pub fn elliptic_lowpass_biquad(
+    fc_norm: f32,
+    passband_ripple_db: f32,
+    stopband_atten_db: f32,
+) -> Result<[f32; 5], Status> {
+    if !(fc_norm > 0.0 && fc_norm < 0.5) {
+        return Err(Status::ArgumentError);
+    }
+    if passband_ripple_db <= 0.0 || stopband_atten_db <= passband_ripple_db {
+        return Err(Status::ArgumentError);
+    }
+    let gp = 10.0f32.powf(-passband_ripple_db / 20.0);
+    let gs = 10.0f32.powf(-stopband_atten_db / 20.0);
+    let ep = (1.0 / (gp * gp) - 1.0).sqrt();
+    let es = (1.0 / (gs * gs) - 1.0).sqrt();
+    if !ep.is_finite() || !es.is_finite() || ep <= 0.0 || es <= ep {
+        return Err(Status::ArgumentError);
+    }
+    let k1 = ep / es;
+    let k = ellipdegf(2.0, k1);
+    if !(k > 0.0 && k < 1.0) {
+        return Err(Status::ArgumentError);
+    }
+    let wp = 1.0f32;
+    let u = C32::new(0.5, 0.0);
+    let zeta = ellip_cd(u, k);
+    let za = C32::I.scale(wp).div(zeta.scale(k));
+    let v0 = C32::I
+        .scale(-1.0)
+        .mul(ellip_asn(C32::I.scale(1.0 / ep), k1))
+        .scale(0.5);
+    let pa = C32::I.scale(wp).mul(ellip_cd(u.sub(C32::I.mul(v0)), k));
+    let k0 = 1.0 / (1.0 + ep * ep).sqrt();
+    let m = (core::f32::consts::PI * fc_norm).tan();
+    let zm = za.scale(m);
+    let zd = C32::ONE.add(zm).div(C32::ONE.sub(zm));
+    let zd_c = zd.conj();
+    let pm = pa.scale(m);
+    let pd = C32::ONE.add(pm).div(C32::ONE.sub(pm));
+    let pd_c = pd.conj();
+    let mut kd = C32::new(k0, 0.0);
+    kd = kd.mul(C32::ONE.sub(pd).div(C32::ONE.sub(zd)));
+    kd = kd.mul(C32::ONE.sub(pd_c).div(C32::ONE.sub(zd_c)));
+    let b0 = kd.re;
+    let b1 = -kd.re * 2.0 * zd.re;
+    let b2 = kd.re * zd.mag2();
+    let a1 = 2.0 * pd.re;
+    let a2 = -pd.mag2();
+    if ![b0, b1, b2, a1, a2].iter().all(|c| c.is_finite()) {
+        return Err(Status::NanInf);
+    }
+    Ok([b0, b1, b2, a1, a2])
+}

@@ -1079,3 +1079,173 @@ pub type HbfInt16 = HbfIntCascade<4>;
 /// Half-band interpolator cascade, rate change 32.
 pub type HbfInt32 = HbfIntCascade<5>;
 
+/// Arbitrary-rate polyphase resampler (`step` = input samples per output sample).
+///
+/// `PHASES` polyphase branches of `TAPS` coefficients each. Prototype taps are
+/// stored as `h[k * PHASES + p]` (phase `p`, tap `k`). Linear interpolation
+/// between adjacent phases provides fractional delay.
+#[derive(Clone)]
+pub struct PolyphaseResampF32<const PHASES: usize, const TAPS: usize> {
+    h: [[f32; TAPS]; PHASES],
+    delay: [f32; TAPS],
+    mu: f32,
+    step: f32,
+}
+
+impl<const PHASES: usize, const TAPS: usize> PolyphaseResampF32<PHASES, TAPS> {
+    /// Builds a resampler from a packed prototype (`PHASES * TAPS` taps) and
+    /// `step = f_in / f_out` (`> 0`).
+    pub fn from_taps(taps: &[f32], step: f32) -> Result<Self, crate::types::Status> {
+        if PHASES < 2 || TAPS < 1 {
+            return Err(crate::types::Status::ArgumentError);
+        }
+        if taps.len() != PHASES * TAPS || !step.is_finite() || step <= 0.0 {
+            return Err(crate::types::Status::ArgumentError);
+        }
+        let mut h = [[0.0f32; TAPS]; PHASES];
+        for p in 0..PHASES {
+            for k in 0..TAPS {
+                h[p][k] = taps[k * PHASES + p];
+            }
+        }
+        Ok(Self {
+            h,
+            delay: [0.0; TAPS],
+            mu: 1.0,
+            step,
+        })
+    }
+
+    /// Clears the delay line; keeps taps and rate.
+    pub fn reset(&mut self) {
+        self.delay.fill(0.0);
+        self.mu = 1.0;
+    }
+
+    fn interpolate(&self) -> f32 {
+        let pf = (1.0 - self.mu.clamp(0.0, 1.0)) * PHASES as f32;
+        let p0 = (pf as usize) % PHASES;
+        let p1 = (p0 + 1) % PHASES;
+        let f = pf - p0 as f32;
+        let mut y0 = 0.0;
+        let mut y1 = 0.0;
+        for k in 0..TAPS {
+            y0 += self.h[p0][k] * self.delay[k];
+            y1 += self.h[p1][k] * self.delay[k];
+        }
+        y0 * (1.0 - f) + y1 * f
+    }
+
+    fn consume(&mut self, x: f32) {
+        for i in (1..TAPS).rev() {
+            self.delay[i] = self.delay[i - 1];
+        }
+        self.delay[0] = x;
+        self.mu -= 1.0;
+    }
+
+    /// Push one input sample, writing produced outputs into `out`.
+    ///
+    /// Returns the number of samples written (may be zero when downsampling).
+    pub fn push(&mut self, x: f32, out: &mut [f32]) -> usize {
+        self.consume(x);
+        let mut n = 0;
+        while self.mu < 1.0 && n < out.len() {
+            out[n] = self.interpolate();
+            n += 1;
+            self.mu += self.step;
+        }
+        n
+    }
+
+    /// Resamples `src` into `dst`. Returns the number of output samples written.
+    pub fn process_block(&mut self, src: &[f32], dst: &mut [f32]) -> usize {
+        let mut si = 0;
+        let mut di = 0;
+        while di < dst.len() {
+            if self.mu >= 1.0 {
+                if si >= src.len() {
+                    break;
+                }
+                self.consume(src[si]);
+                si += 1;
+            } else {
+                dst[di] = self.interpolate();
+                di += 1;
+                self.mu += self.step;
+            }
+        }
+        di
+    }
+}
+
+/// Gardner symbol timing recovery with a linear interpolator.
+///
+/// Operates at an arbitrary `samples_per_symbol` (≥ 2) by strobing twice per
+/// symbol (early/mid and late) and applying the Gardner error
+/// `e = y_mid * (y_late - y_early)`.
+#[derive(Debug, Clone, Copy)]
+pub struct GardnerSymbolSync {
+    sps: f32,
+    nco: f32,
+    kp: f32,
+    y_early: f32,
+    y_mid: f32,
+    x0: f32,
+    x1: f32,
+    half: bool,
+}
+
+impl GardnerSymbolSync {
+    /// `samples_per_symbol` is the nominal oversampling (≥ 2). `loop_gain` is
+    /// the timing-loop step (try `1e-3` … `5e-2`).
+    pub fn new(samples_per_symbol: f32, loop_gain: f32) -> Result<Self, crate::types::Status> {
+        if samples_per_symbol < 2.0 || loop_gain < 0.0 {
+            return Err(crate::types::Status::ArgumentError);
+        }
+        Ok(Self {
+            sps: samples_per_symbol,
+            nco: samples_per_symbol * 0.5,
+            kp: loop_gain,
+            y_early: 0.0,
+            y_mid: 0.0,
+            x0: 0.0,
+            x1: 0.0,
+            half: false,
+        })
+    }
+
+    /// Resets interpolator history and the NCO (keeps `sps` and loop gain).
+    pub fn reset(&mut self) {
+        self.nco = self.sps * 0.5;
+        self.y_early = 0.0;
+        self.y_mid = 0.0;
+        self.x0 = 0.0;
+        self.x1 = 0.0;
+        self.half = false;
+    }
+
+    /// Push one sample. Returns `Some(symbol)` on a late (decision) strobe.
+    pub fn push(&mut self, x: f32) -> Option<f32> {
+        self.x1 = self.x0;
+        self.x0 = x;
+        self.nco -= 1.0;
+        if self.nco > 0.0 {
+            return None;
+        }
+        let mu = (self.nco + 1.0).clamp(0.0, 1.0);
+        let y = self.x1 * (1.0 - mu) + self.x0 * mu;
+        self.half = !self.half;
+        if !self.half {
+            self.y_mid = y;
+            self.nco += self.sps * 0.5;
+            None
+        } else {
+            let e = self.y_mid * (y - self.y_early);
+            self.y_early = y;
+            self.nco += self.sps * 0.5 - self.kp * e;
+            Some(y)
+        }
+    }
+}
+

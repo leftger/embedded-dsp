@@ -5,6 +5,10 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- **liquid-dsp ports** (no C vendoring, no heap): RRC / raised-cosine / GMSK-TX pulse design (`firdes_rrc`, `firdes_rc`, `firdes_gmsk_tx`), Kaiser-windowed sinc FIR (`firdes_kaiser`, `kaiser_beta_as`, `estimate_req_filter_len`), 2nd-order elliptic low-pass biquad, streaming `AgcF32`, CRC-8/16/24/32 + checksum + Hamming(7,4) (`fec` feature), maximal-length LFSR (`MSequence`, `sequence` feature), arbitrary-rate `PolyphaseResampF32`, `GardnerSymbolSync`, and analog FM / DSB-AM / SSB (`modem` feature; SSB reuses `HilbertTransformF32`).
+
 ### Fixed
 
 - **`CostasLoop` carrier tracking**: the quadrature arm was mixed with `-sin(theta)` instead of `+sin(theta)`, inverting the phase-detector feedback, and the detector was an unnormalised, clamped `I·Q`. The result was that the loop only tracked within a narrow band of loop bandwidths and collapsed to ~0 Hz at 50 Hz or above — the bandwidth this crate's own tests and examples use. With a 100 Hz carrier and a 50 Hz loop bandwidth, `frequency_hz()` decayed from 100 Hz to 0.000 Hz; a half-scale input gave 97.8 Hz where a full-scale input gave 0.0 Hz. The loop now mixes with `+sin(theta)`, low-pass filters both arms (cutoff at the centre frequency, which is what rejects the `2·f_c` mixer image), and uses the amplitude-normalised detector `2·i·q/(i² + q²)`. The frequency estimate is now independent of input amplitude and holds across the pull-in range at both 100 Hz/10 kHz and 1 kHz/48 kHz, including under BPSK data inversions.

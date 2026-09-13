@@ -59,8 +59,8 @@ NO_STD_TARGETS=(
 
 STANDALONE_FEATURES=(
   basic-math complex-math filtering controller cordic distance dither dsm
-  fast-math filter-analysis filter-design fixed-point interpolation kalman lut
-  matrix pipeline pll psd quaternion resampling spatial statistics snapshot
+  fast-math fec filter-analysis filter-design fixed-point interpolation kalman lut
+  matrix modem pipeline pll psd quaternion resampling sequence spatial statistics snapshot
   synthesis validation support transform window companding const-generics
   audio beamforming miniconf
 )
@@ -72,6 +72,9 @@ FEATURE_SUBSETS=(
   "libm,complex-math,distance,interpolation,statistics"
   "libm,matrix,support,window,fast-math"
   "libm,controller,fast-math,filter-analysis,filtering,pipeline,pll,resampling,synthesis"
+  "libm,fec"
+  "libm,sequence"
+  "libm,modem"
   "full,libm"
 )
 

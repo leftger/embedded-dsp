@@ -221,6 +221,109 @@ impl SafetyLimiter {
     }
 }
 
+/// Streaming automatic gain control targeting unit output energy (liquid-dsp `agc`).
+///
+/// `y = g * x`, then `g` is updated from a one-pole estimate of `|y|^2` so the
+/// long-run output power is 1. Squelch is omitted; lock freezes the gain.
+#[derive(Debug, Clone, Copy)]
+pub struct AgcF32 {
+    g: f32,
+    scale: f32,
+    alpha: f32,
+    y2_prime: f32,
+    locked: bool,
+}
+
+impl AgcF32 {
+    /// Default loop bandwidth used by liquid-dsp (`1e-2`).
+    pub const DEFAULT_BANDWIDTH: f32 = 1e-2;
+
+    /// Creates an unlocked AGC with the given loop bandwidth in `(0, 1]`.
+    pub fn new(bandwidth: f32) -> Self {
+        let mut agc = Self {
+            g: 1.0,
+            scale: 1.0,
+            alpha: 0.0,
+            y2_prime: 1.0,
+            locked: false,
+        };
+        agc.set_bandwidth(bandwidth);
+        agc
+    }
+
+    /// Sets the loop bandwidth (clamped to `[0, 1]`). `0` freezes adaptation.
+    pub fn set_bandwidth(&mut self, bandwidth: f32) {
+        self.alpha = bandwidth.clamp(0.0, 1.0);
+    }
+
+    /// Current loop bandwidth (the internal one-pole coefficient).
+    #[inline]
+    pub fn bandwidth(&self) -> f32 {
+        self.alpha
+    }
+
+    /// Multiplier applied after the AGC gain (`1` by default).
+    pub fn set_scale(&mut self, scale: f32) {
+        self.scale = scale;
+    }
+
+    /// Freeze gain updates.
+    pub fn lock(&mut self) {
+        self.locked = true;
+    }
+
+    /// Resume gain updates.
+    pub fn unlock(&mut self) {
+        self.locked = false;
+    }
+
+    /// Whether gain updates are frozen.
+    #[inline]
+    pub fn is_locked(&self) -> bool {
+        self.locked
+    }
+
+    /// Current linear gain `g` (before [`Self::set_scale`]).
+    #[inline]
+    pub fn gain(&self) -> f32 {
+        self.g
+    }
+
+    /// Smoothed output energy estimate, in dB (`10 log10 y2'`).
+    pub fn rssi_db(&self) -> f32 {
+        10.0 * self.y2_prime.max(1e-12).log10()
+    }
+
+    /// Resets gain and energy estimate to unity and unlocks.
+    pub fn reset(&mut self) {
+        self.g = 1.0;
+        self.y2_prime = 1.0;
+        self.locked = false;
+    }
+
+    /// Applies AGC to one real sample.
+    pub fn process(&mut self, x: f32) -> f32 {
+        let mut y = x * self.g;
+        let y2 = y * y;
+        self.y2_prime = (1.0 - self.alpha) * self.y2_prime + self.alpha * y2;
+        if !self.locked && self.y2_prime > 1e-6 {
+            self.g *= (-0.5 * self.alpha * self.y2_prime.ln()).exp();
+            if self.g > 1e6 {
+                self.g = 1e6;
+            }
+        }
+        y *= self.scale;
+        y
+    }
+}
+
+impl DspNode<f32> for AgcF32 {
+    #[inline(always)]
+    fn process_sample(&mut self, input: f32) -> f32 {
+        self.process(input)
+    }
+}
+
 impl DspNode<f32> for SafetyLimiter {
     #[inline(always)]
     fn process_sample(&mut self, input: f32) -> f32 {

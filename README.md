@@ -94,12 +94,15 @@ Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · 
 
 | Category | Key Algorithms & Structs |
 | :--- | :--- |
-| **Filtering & Design** | FIR, Biquad IIR (DF-I & Transposed DF-II), LMS/NLMS, Butterworth/Chebyshev design, Windowed-Sinc, $L_\infty/L_2$ SOS Quantization & SQNR analysis, DC Blocker. |
+| **Filtering & Design** | FIR, Biquad IIR (DF-I & Transposed DF-II), LMS/NLMS, Butterworth/Chebyshev/elliptic design, Kaiser-windowed sinc FIR, RRC/RC/GMSK-TX pulses, Windowed-Sinc, $L_\infty/L_2$ SOS Quantization & SQNR analysis, DC Blocker. |
 | **Spectral & Transforms** | CFFT, RFFT (packed), Block Floating-Point FFT (`cfft_bfp_q15/q31`), Hilbert Transform FIR & Analytic Signal (`HilbertTransformF32/Q15`), Real Cepstrum, DCT-IV, FWHT, Haar, Hartley, Daubechies-4 DWT, Welch & Burg AR PSD. |
-| **Audio & Voice** | Goertzel tone detector, Mel & Generalized filterbanks, MFCC, Q15 VAD, Dynamics Compressor with soft knee, Noise Gate. |
+| **Audio & Voice** | Goertzel tone detector, Mel & Generalized filterbanks, MFCC, Q15 VAD, Dynamics Compressor with soft knee, Noise Gate, streaming AGC. |
 | **Control & Power** | FOC current/speed PID, Clarke & Park transforms, SOGI-PLL (grid synchronization/resolvers), Costas Loop carrier recovery. |
+| **Analog modem** | FM phase-accum mod/demod, DSB-AM envelope, SSB USB/LSB (reuses Hilbert transformer). |
 | **Sensor Fusion & Spatial** | Square-Root Kalman Filter (`SquareRootKalmanFilter`), EKF, 2D Spatial/Vision (Sobel, Median, DCT-II), Delay-and-Sum Beamformer, GCC-PHAT TDoA locator. |
-| **Multi-rate & Resampling** | CIC Decimator/Interpolator with bit-growth normalization, Polyphase Decimation & Interpolation (Float & Q15), fractional linear resampler. |
+| **Multi-rate & Resampling** | CIC Decimator/Interpolator with bit-growth normalization, Polyphase Decimation & Interpolation (Float & Q15), fractional linear resampler, arbitrary-rate polyphase resampler, Gardner symbol sync. |
+| **FEC** | CRC-8/16/24/32, 8-bit checksum, Hamming(7,4) nibble/byte codecs. |
+| **Sequences** | Maximal-length LFSR (`MSequence`) for PN sequences and additive scramble. |
 | **Math, CORDIC & Numerics** | `BFloat16` (50% SRAM buffer reduction), `FloatFloat` (~48-bit double-single extended precision on `f32` FPU), Fast Bit-Manip Log/Pow/dB (`fast_log2`, `fast_pow2`, `fast_gain_to_db`), EFT (`two_sum`, `two_prod`, `two_div`), Horner polynomials & roots, strided dot products, CORDIC engine, Complex math, Quaternions (`nalgebra` interop), 9 Windows, G.711 $\mu$/A-law companding. |
 
 ---
