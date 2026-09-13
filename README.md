@@ -87,7 +87,7 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 | Lock-in amplifier | ✅ | ✅ |
 | Dither + MASH delta-sigma | ✅ | ✅ |
 | Resampling (polyphase, fractional, half-band) | ✅ | ➖ |
-| Swept-sine stimulus | ➖ `Sweep` + `AccuOsc`, no inverse filter | ✅ `Sweep::inverse_filter` (Farina) |
+| Swept-sine stimulus | ✅ `Sweep` + `AccuOsc` + Farina `inverse_filter` | ✅ `Sweep::inverse_filter` |
 | Block/lane block processing | ➖ `DspNode`, `Lanes`, `Pair` | ✅ `View`/`Chunk`/`FrameMajor`/`LaneMajor` (`dsp-process`) |
 | Companding (G.711 µ/A-law) | ✅ | ❌ |
 | In-repo micro-benchmarks | ✅ | ✅ (`tests/embedded`) |
@@ -98,12 +98,11 @@ Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · 
 
 **Where `idsp` still leads.** Its CORDIC implements the linear (`mul`/`div`) and hyperbolic
 (`cosh_sinh`, `sqrt_atanh2`) modes in addition to the circular ones, where this crate's `cordic`
-module is circular-only. It ships the Farina inverse filter that turns a swept sine into a usable
-measurement stimulus, and a composable Kalman architecture whose transition and observation models
-are pluggable types rather than fixed structs. Its separate `dsp-process` crate offers a typed
-block/lane/chunk view framework (`View`, `Chunk`, `FrameMajor`, `LaneMajor`, `by_lane`) well beyond
-`DspNode` + `Lanes`/`Pair`. And it publishes Python bindings for offline analysis and filter
-design. Everything else in the table is either at parity or an `embedded-dsp` advantage.
+module is circular-only. Its Kalman filters compose transition and observation models at the type
+level, and its separate `dsp-process` crate offers a typed block/lane/chunk view framework
+(`View`, `Chunk`, `FrameMajor`, `LaneMajor`, `by_lane`) well beyond `DspNode` + `Lanes`/`Pair`.
+It also publishes Python bindings for offline analysis and filter design. Everything else in the
+table is either at parity or an `embedded-dsp` advantage.
 
 ---
 
@@ -120,7 +119,7 @@ design. Everything else in the table is either at parity or an `embedded-dsp` ad
 | **Multi-rate & Resampling** | CIC Decimator/Interpolator with bit-growth normalization, Polyphase Decimation & Interpolation (Float & Q15), fractional linear resampler, arbitrary-rate polyphase resampler, Gardner symbol sync. |
 | **FEC** | CRC-8/16/24/32, 8-bit checksum, Hamming(7,4) nibble/byte codecs. |
 | **Sequences** | Maximal-length LFSR (`MSequence`) for PN sequences and additive scramble. |
-| **Signal Generation** | PolyBLEP anti-aliased oscillator (`PolyBlepOscillator`: saw/square/triangle/sine), white & Kellett pink noise, linear/exponential `ChirpSweep`, exponential swept-sine `Sweep` with delta-sigma fractional phase (`AccuOsc`, `Accu<T>`). |
+| **Signal Generation** | PolyBLEP anti-aliased oscillator (`PolyBlepOscillator`: saw/square/triangle/sine), white & Kellett pink noise, linear/exponential `ChirpSweep`, exponential swept-sine `Sweep` with delta-sigma fractional phase (`AccuOsc`, `Accu<T>`) and its Farina inverse filter (`Sweep::inverse_filter`) for impulse-response measurement. |
 | **Math, CORDIC & Numerics** | `BFloat16` (50% SRAM buffer reduction), `FloatFloat` (~48-bit double-single extended precision on `f32` FPU), Fast Bit-Manip Log/Pow/dB (`fast_log2_f32`, `fast_pow2_f32`, `fast_gain_to_db_f32`), EFT (`two_sum_f32`/`two_sum_f64`, `two_prod_f32`/`two_prod_f64`, `two_diff_f32`, `two_div_f32`), Horner polynomials & roots, strided dot products, CORDIC engine (circular modes: `sin`/`cos`, polar, `atan2`, `sqrt`), Complex math, Quaternions (`nalgebra` interop), 8 window types (Hanning, Hamming, Blackman, Blackman-Harris, Bartlett, Welch, flat-top, Kaiser) with `apply_window_f32`/`apply_window_q15`, G.711 $\mu$/A-law companding. |
 
 ---
