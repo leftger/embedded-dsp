@@ -82,7 +82,7 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 | FFT (CFFT/RFFT/BFP Q15/Q31), DCT, DWT, Hartley, Hilbert | ✅ | ❌ |
 | Goertzel, Mel/MFCC, VAD, compressor/gate | ✅ | ❌ |
 | Welch/Burg PSD analysis | ✅ | ➖ |
-| Kalman | ✅ const-generic, EKF, square-root | ✅ composable `Transition`/`Observation` models (`DenseKalman`, `RandomWalk`, `ConstantVelocity`) |
+| Kalman | ✅ const-generic, EKF, square-root, **and composable models** (`Estimate`/`Dynamics`/`Transition`/`Observation`, vector + optional measurements, control input) | ➖ composable `Transition`/`Observation` only, with scalar measurements and linear models |
 | 2D vision, beamforming, GCC-PHAT, quaternions, matrices | ✅ | ❌ |
 | Lock-in amplifier | ✅ | ✅ |
 | Dither + MASH delta-sigma | ✅ | ✅ |
@@ -96,11 +96,10 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 
 Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · ❌ not provided.
 
-**Where `idsp` still leads.** Its Kalman filters compose transition and observation models at the
-type level, and its separate `dsp-process` crate offers a typed block/lane/chunk view framework
-(`View`, `Chunk`, `FrameMajor`, `LaneMajor`, `by_lane`) well beyond `DspNode` + `Lanes`/`Pair`.
-It also publishes Python bindings for offline analysis and filter design. Everything else in the
-table is either at parity or an `embedded-dsp` advantage.
+**Where `idsp` still leads.** Its separate `dsp-process` crate offers a typed block/lane/chunk
+view framework (`View`, `Chunk`, `FrameMajor`, `LaneMajor`, `by_lane`) well beyond `DspNode` +
+`Lanes`/`Pair`, and it publishes Python bindings for offline analysis and filter design.
+Everything else in the table is either at parity or an `embedded-dsp` advantage.
 
 **Note on the extra CORDIC modes.** `idsp` also advertises linear (`mul`/`div`) and hyperbolic
 rotation (`cosh_sinh`) modes, but neither survives its own fixed-point conventions, so neither was
@@ -124,7 +123,7 @@ shift-add, and needs no CORDIC.
 | **Audio & Voice** | Goertzel tone detector, Mel & Generalized filterbanks, MFCC, Q15 VAD, Dynamics Compressor with soft knee, Noise Gate, streaming AGC. |
 | **Control & Power** | FOC current/speed PID, Clarke & Park transforms, SOGI-PLL (grid synchronization/resolvers), Costas Loop carrier recovery. |
 | **Analog modem** | FM phase-accum mod/demod, DSB-AM envelope, SSB USB/LSB (reuses Hilbert transformer). |
-| **Sensor Fusion & Spatial** | Square-Root Kalman Filter (`SquareRootKalmanFilter`), EKF, 2D Spatial/Vision (Sobel, Median, DCT-II), Delay-and-Sum Beamformer, GCC-PHAT TDoA locator. |
+| **Sensor Fusion & Spatial** | Square-Root Kalman Filter (`SquareRootKalmanFilter`), EKF, composable Kalman models (`kalman_compose`: `Estimate`, `Dynamics`, `Transition`, `Observation`, `VectorObservation`, `Direct`, `Optional`), 2D Spatial/Vision (Sobel, Median, DCT-II), Delay-and-Sum Beamformer, GCC-PHAT TDoA locator. |
 | **Multi-rate & Resampling** | CIC Decimator/Interpolator with bit-growth normalization, Polyphase Decimation & Interpolation (Float & Q15), fractional linear resampler, arbitrary-rate polyphase resampler, Gardner symbol sync. |
 | **FEC** | CRC-8/16/24/32, 8-bit checksum, Hamming(7,4) nibble/byte codecs. |
 | **Sequences** | Maximal-length LFSR (`MSequence`) for PN sequences and additive scramble. |

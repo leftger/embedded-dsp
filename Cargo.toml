@@ -36,6 +36,8 @@ bytemuck = { version = "1.24.0", default-features = false, features = ["derive"]
 quickcheck = { version = "1.0.3", default-features = false }
 quickcheck_macros = { version = "1.0.0" }
 miniconf = { version = "0.21.0", default-features = false }
+# Test-only oracle for the composable Kalman models (dev-dependency of `embedded-dsp`).
+idsp = { version = "0.22.1", default-features = false }
 
 eframe = { version = "0.36", default-features = true }
 egui_extras = { version = "0.36" }
