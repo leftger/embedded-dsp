@@ -644,31 +644,40 @@ fn ekf_update_apply<const N: usize, const M: usize>(
 
 /// Square-root covariance Kalman filter for $N$-state, $M$-measurement linear systems.
 ///
-/// Keeps the lower-triangular Cholesky factor $S$ of the covariance ($P = S S^T$) instead of the
-/// covariance itself, so the $P = S S^T$ it reports is positive semi-definite by construction.
+/// Propagates a factor $S$ of the covariance with $P = S S^T$ instead of the covariance itself, so
+/// the $P = S S^T$ it reports is positive semi-definite **and exactly symmetric** by construction.
+/// The covariance is never formed:
 ///
-/// Note what it does *not* do. Prediction forms $F S (F S)^T + S_Q S_Q^T$ as a full matrix and
-/// re-factorizes it, and the correction rebuilds $P$ from $S$, applies the Joseph form and
-/// re-factorizes that. The arithmetic therefore runs on $P$, not on the factor, so this is a
-/// factor-*storing* filter rather than a true square-root filter: it does not carry the
-/// orthogonal-transformation (Givens/Householder) update that bounds the rounding error of the
-/// factor itself, and it makes no "never diverges" guarantee. Where it does beat the plain form is
-/// in retaining covariance directions that a `P⁺ = (I - KH)P` update rounds to zero, and in
-/// reporting exactly symmetric output — see `examples/sr_spike.rs`, which measures both against
-/// an `f64` reference.
+/// * Prediction builds the pre-array $[F S \mid S_Q]$ and takes a Householder QR of its transpose.
+///   The resulting $R$ is the new factor, since $[F S \mid S_Q]\,[F S \mid S_Q]^T = R^T R$.
+/// * The correction whitens the measurements with $S_R$, then folds each one in with a scalar
+///   Potter update: $S^+ = S - \gamma (S v) v^T$ with $v = S^T h^T$ and
+///   $\gamma = 1/(\sigma + \sqrt{\sigma})$, where $\sigma = v^T v + 1$ is the whitened innovation
+///   variance and the gain is $(S v)/\sigma$.
+///
+/// Neither step forms $P$, which is what bounds the rounding error of the factor itself. `S` is
+/// lower triangular after a prediction and generally full after a correction; both are valid
+/// factors of the reported covariance, so only [`new`](Self::new) and [`predict`](Self::predict)
+/// care about triangularity. $N$ and $M$ are limited to `16`, and `update` returns
+/// [`Status::Singular`] if the measurement-noise factor has a zero pivot.
+///
+/// See `examples/sr_spike.rs`, which measures this against the plain `P⁺ = (I - KH)P` form and an
+/// `f64` reference: at $N = 12$ on a weakly observable model the factored filter's covariance is
+/// about 9x closer to the `f64` result, while the plain form loses positive definiteness entirely.
 #[derive(Debug, Clone)]
 pub struct SquareRootKalmanFilter<const N: usize, const M: usize> {
     /// State estimate vector $\hat{x} \in \mathbb{R}^N$.
     pub x: [f32; N],
-    /// Lower-triangular Cholesky factor of state covariance $P = S S^T$.
+    /// A factor $S$ of the state covariance, $P = S S^T$. Lower triangular after `predict`,
+    /// generally full after `update`.
     pub s: [[f32; N]; N],
     /// State transition matrix $F \in \mathbb{R}^{N \times N}$.
     pub f: [[f32; N]; N],
-    /// Lower-triangular Cholesky factor of process noise covariance $Q = S_Q S_Q^T$.
+    /// A factor of the process noise covariance, $Q = S_Q S_Q^T$.
     pub s_q: [[f32; N]; N],
     /// Measurement matrix $H \in \mathbb{R}^{M \times N}$.
     pub h: [[f32; N]; M],
-    /// Lower-triangular Cholesky factor of measurement noise $R = S_R S_R^T$.
+    /// Lower-triangular factor of the measurement noise, $R = S_R S_R^T$; used to whiten.
     pub s_r: [[f32; M]; M],
 }
 
@@ -692,113 +701,117 @@ impl<const N: usize, const M: usize> SquareRootKalmanFilter<N, M> {
         }
     }
 
-    /// Predict step: propagates state $\hat{x}^- = F \hat{x}$ and triangularizes $[F S \quad S_Q]$.
+    /// Predict step: propagates the state $\hat{x}^- = F \hat{x}$ and updates the factor.
+    ///
+    /// Forms the pre-array $[F S \mid S_Q]$ and takes a Householder QR of its transpose, so the
+    /// new factor comes out of an orthogonal transformation and $F P F^T + Q$ is never formed.
     pub fn predict(&mut self) {
+        if N == 0 || N > SR_MAX {
+            return;
+        }
+
         // 1. State prediction: x = F * x
         let mut x_new = [0.0f32; N];
         mat_vec_mul(&self.f, &self.x, &mut x_new);
         self.x = x_new;
 
-        // 2. Covariance square-root prediction: S^- via Cholesky factor of FS(FS)^T + S_Q(S_Q)^T
-        let mut fs = [[0.0f32; N]; N];
-        mat_mul(&self.f, &self.s, &mut fs);
-
-        let mut s_new = [[0.0f32; N]; N];
+        // 2. Pre-array [F S | S_Q]; the factor of its Gram matrix is the predicted factor.
+        let mut pre = [[0.0f32; SR_WIDE]; SR_MAX];
         for i in 0..N {
-            for j in 0..=i {
-                let mut sum = 0.0f32;
+            for j in 0..N {
+                let mut acc = 0.0f32;
                 for k in 0..N {
-                    sum += fs[i][k] * fs[j][k] + self.s_q[i][k] * self.s_q[j][k];
+                    acc += self.f[i][k] * self.s[k][j];
                 }
-                s_new[i][j] = sum;
+                pre[i][j] = acc;
+                pre[i][N + j] = self.s_q[i][j];
             }
         }
-        cholesky_inplace_lower(&mut s_new);
-        self.s = s_new;
+
+        let factor = householder_factor_bt(&pre, N, 2 * N);
+        for i in 0..N {
+            for j in 0..N {
+                self.s[i][j] = factor[i][j];
+            }
+        }
     }
 
     /// Update step: updates state $\hat{x}^+$ and factor $S^+$ given measurement vector $z \in \mathbb{R}^M$.
+    ///
+    /// The measurement-noise factor whitens the measurements, after which each is folded in with a
+    /// scalar Potter update on the factor. As in [`predict`](Self::predict), $P$ is never formed.
     pub fn update(&mut self, z: &[f32; M]) -> Status {
-        if M == 0 || M > 16 {
+        if M == 0 || M > SR_MAX || N == 0 || N > SR_MAX {
             return Status::ArgumentError;
         }
 
-        // Innovation y = z - H x
-        let mut hx = [0.0f32; M];
-        mat_vec_mul(&self.h, &self.x, &mut hx);
-        let mut y = [0.0f32; M];
-        for i in 0..M {
-            y[i] = z[i] - hx[i];
+        // Whiten: solve S_R w = z and S_R H' = H so the measurements become independent with unit
+        // variance, which is what lets them be folded in one at a time.
+        let mut w = [0.0f32; M];
+        if !forward_solve_lower(&self.s_r, z, &mut w) {
+            return Status::Singular;
         }
 
-        // Innovation covariance S_yy = H P H^T + R = (H S) (H S)^T + S_R S_R^T
-        let mut hs = [[0.0f32; N]; M];
-        mat_mul(&self.h, &self.s, &mut hs);
-
-        let mut s_yy = [[0.0f32; M]; M];
-        for r in 0..M {
-            for c in 0..M {
-                let mut sum = 0.0f32;
-                for k in 0..N {
-                    sum += hs[r][k] * hs[c][k];
-                }
-                for k in 0..M {
-                    sum += self.s_r[r][k] * self.s_r[c][k];
-                }
-                s_yy[r][c] = sum;
+        let mut h_w = [[0.0f32; N]; M];
+        for j in 0..N {
+            let mut col = [0.0f32; M];
+            for i in 0..M {
+                col[i] = self.h[i][j];
+            }
+            let mut solved = [0.0f32; M];
+            if !forward_solve_lower(&self.s_r, &col, &mut solved) {
+                return Status::Singular;
+            }
+            for i in 0..M {
+                h_w[i][j] = solved[i];
             }
         }
 
-        // Invert S_yy
-        let mut s_yy_inv = [[0.0f32; M]; M];
-        let status = invert_mxm(&s_yy, &mut s_yy_inv);
-        if status != Status::Success {
-            return status;
-        }
+        for (m, row) in h_w.iter().enumerate() {
+            // v = S^T h^T, and sigma = h P h^T + 1 = v^T v + 1.
+            let mut v = [0.0f32; N];
+            for (i, vi) in v.iter_mut().enumerate() {
+                let mut acc = 0.0f32;
+                for (j, hj) in row.iter().enumerate() {
+                    acc += self.s[j][i] * *hj;
+                }
+                *vi = acc;
+            }
 
-        // Kalman gain: K = P H^T S_yy^-1 = S S^T H^T S_yy^-1
-        let mut p = [[0.0f32; N]; N];
-        mat_mul_bt(&self.s, &self.s, &mut p);
+            let mut sigma = 1.0f32;
+            for vi in &v {
+                sigma += vi * vi;
+            }
+            if sigma <= 0.0 || sigma.is_nan() {
+                return Status::Singular;
+            }
 
-        let mut pht = [[0.0f32; M]; N];
-        mat_mul_bt(&p, &self.h, &mut pht);
+            // u = S v = P h^T; the gain is u / sigma.
+            let mut u = [0.0f32; N];
+            for (i, ui) in u.iter_mut().enumerate() {
+                let mut acc = 0.0f32;
+                for (j, vj) in v.iter().enumerate() {
+                    acc += self.s[i][j] * *vj;
+                }
+                *ui = acc;
+            }
 
-        let mut k_gain = [[0.0f32; M]; N];
-        mat_mul(&pht, &s_yy_inv, &mut k_gain);
+            // `gamma` makes (I - gamma v v^T) the symmetric square root of (I - v v^T / sigma),
+            // which is what turns the rank-one downdate into a factored one.
+            let gamma = 1.0 / (sigma + sigma.sqrt());
 
-        // Update state: x = x + K y
-        let mut ky = [0.0f32; N];
-        mat_vec_mul(&k_gain, &y, &mut ky);
-        for i in 0..N {
-            self.x[i] += ky[i];
-        }
+            let mut innovation = w[m];
+            for (j, hj) in row.iter().enumerate() {
+                innovation -= *hj * self.x[j];
+            }
 
-        // Update covariance: P+ = (I - K H) P (I - K H)^T + K R K^T (Joseph form)
-        let mut i_kh = identity_n::<N>();
-        let mut kh = [[0.0f32; N]; N];
-        mat_mul(&k_gain, &self.h, &mut kh);
-        for r in 0..N {
-            for c in 0..N {
-                i_kh[r][c] -= kh[r][c];
+            for i in 0..N {
+                self.x[i] += (u[i] / sigma) * innovation;
+                for j in 0..N {
+                    self.s[i][j] -= gamma * u[i] * v[j];
+                }
             }
         }
-
-        let mut i_kh_p = [[0.0f32; N]; N];
-        mat_mul(&i_kh, &p, &mut i_kh_p);
-        let mut p_plus = [[0.0f32; N]; N];
-        mat_mul_bt(&i_kh_p, &i_kh, &mut p_plus);
-
-        let mut r_mat = [[0.0f32; M]; M];
-        mat_mul_bt(&self.s_r, &self.s_r, &mut r_mat);
-        let mut kr = [[0.0f32; M]; N];
-        mat_mul(&k_gain, &r_mat, &mut kr);
-        let mut krkt = [[0.0f32; N]; N];
-        mat_mul_bt(&kr, &k_gain, &mut krkt);
-        mat_add_inplace_nn(&mut p_plus, &krkt);
-
-        // Factor updated P+ into lower-triangular S+
-        cholesky_inplace_lower(&mut p_plus);
-        self.s = p_plus;
 
         Status::Success
     }
@@ -811,33 +824,92 @@ impl<const N: usize, const M: usize> SquareRootKalmanFilter<N, M> {
     }
 }
 
-/// Compute lower-triangular Cholesky factor $L$ in-place such that $A = L L^T$.
+/// Largest state dimension and measurement count the square-root filter handles, and the width of
+/// its pre-array scratch ($2N$ columns for $[F S \mid S_Q]$). Kept as constants because a
+/// const-generic expression such as `[f32; 2 * N]` is not expressible on stable Rust.
+const SR_MAX: usize = 16;
+const SR_WIDE: usize = 2 * SR_MAX;
+
+/// Lower-triangular `S` with `S Sᵀ = A Aᵀ`, for `A` held in `a[0..rows][0..cols]` with
+/// `cols >= rows`.
 ///
-/// A pivot that is not strictly positive means `A` is only positive *semi*-definite, or is
-/// negative in a direction that roundoff should have made zero. Either way that direction is
-/// **zeroed**, never clamped to a constant: the previous `max(1e-12)` clamp pushed any pivot below
-/// `1e-12` back up to it, so a filter tracking an uncertainty smaller than `1e-12` reported a
-/// covariance of about `1e-12` no matter what the truth was — and a non-positive-definite input
-/// was indistinguishable from a healthy one. Zeroing instead keeps
-/// $P = L L^T$ exact for the semi-definite case and leaves the rank deficiency visible.
-fn cholesky_inplace_lower<const N: usize>(a: &mut [[f32; N]; N]) {
-    for i in 0..N {
-        for j in 0..=i {
-            let mut sum = a[i][j];
-            for k in 0..j {
-                sum -= a[i][k] * a[j][k];
-            }
-            if i == j {
-                a[i][j] = sum.max(0.0).sqrt();
-            } else if a[j][j] > 0.0 {
-                a[i][j] = sum / a[j][j];
-            } else {
-                // Rank-deficient direction: the column below it is zero as well.
-                a[i][j] = 0.0;
-            }
-        }
-        for j in (i + 1)..N {
-            a[i][j] = 0.0;
+/// Takes a Householder QR of `Aᵀ`: `Aᵀ = Q [R; 0]`, so `A Aᵀ = Rᵀ Qᵀ Q R = Rᵀ R` and `S = Rᵀ`.
+/// The Gram matrix `A Aᵀ` is never formed — that is the entire point of factor filtering, and it
+/// is what the previous `Cholesky(F S (F S)ᵀ + S_Q S_Qᵀ)` version gave up. Only the first `rows`
+/// columns and `cols` rows of the scratch are meaningful.
+fn householder_factor_bt<const RA: usize, const CA: usize>(
+    a: &[[f32; RA]; CA],
+    rows: usize,
+    cols: usize,
+) -> [[f32; SR_MAX]; SR_MAX] {
+    // b = Aᵀ, a `cols × rows` matrix.
+    let mut b = [[0.0f32; SR_MAX]; SR_WIDE];
+    for i in 0..rows {
+        for j in 0..cols {
+            b[j][i] = a[i][j];
         }
     }
+
+    for k in 0..rows {
+        // Householder reflector for column k, rows k..cols. `alpha` takes the sign opposite to
+        // `b[k][k]` so the subtraction below cannot cancel.
+        let mut norm = 0.0f32;
+        for i in k..cols {
+            norm += b[i][k] * b[i][k];
+        }
+        norm = norm.sqrt();
+        if norm == 0.0 {
+            continue;
+        }
+
+        let mut v = [0.0f32; SR_WIDE];
+        for i in k..cols {
+            v[i - k] = b[i][k];
+        }
+        v[0] -= if b[k][k] >= 0.0 { norm } else { -norm };
+
+        let mut v_norm = 0.0f32;
+        for i in 0..(cols - k) {
+            v_norm += v[i] * v[i];
+        }
+        if v_norm == 0.0 {
+            continue;
+        }
+
+        // Apply (I - 2 v vᵀ / vᵀv) to rows k..cols of columns k..rows.
+        for j in k..rows {
+            let mut dot = 0.0f32;
+            for i in 0..(cols - k) {
+                dot += v[i] * b[k + i][j];
+            }
+            let scale = 2.0 * dot / v_norm;
+            for i in 0..(cols - k) {
+                b[k + i][j] -= scale * v[i];
+            }
+        }
+    }
+
+    // R is upper triangular, so its transpose is the lower-triangular factor.
+    let mut s = [[0.0f32; SR_MAX]; SR_MAX];
+    for i in 0..rows {
+        for j in 0..rows {
+            s[j][i] = b[i][j];
+        }
+    }
+    s
+}
+
+/// Solve `L x = b` for lower-triangular `L`, in place into `out`. Returns `false` on a zero pivot.
+fn forward_solve_lower<const M: usize>(l: &[[f32; M]; M], b: &[f32; M], out: &mut [f32; M]) -> bool {
+    for i in 0..M {
+        let mut acc = b[i];
+        for j in 0..i {
+            acc -= l[i][j] * out[j];
+        }
+        if l[i][i] == 0.0 {
+            return false;
+        }
+        out[i] = acc / l[i][i];
+    }
+    true
 }

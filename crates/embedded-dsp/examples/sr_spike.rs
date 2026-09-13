@@ -445,15 +445,58 @@ fn main() {
         eye,
     ));
 
+    // Dense and mildly sparse, same step count throughout so the dimensions are comparable. The
+    // N = 16 point at the end is the degenerate extreme: even the f64 reference loses positive
+    // definiteness there, so it says more about the model than about f32.
     println!("=== state-dimension sweep: weakly observable integrator chain ===\n");
 
-    report(&chain::<4>("chain N=4", 100_000, 1e-10, 1e-8, 1));
-    report(&chain::<8>("chain N=8", 50_000, 1e-10, 1e-8, 1));
+    const SWEEP_STEPS: usize = 30_000;
+
+    println!("-- measuring every step --\n");
+    report(&chain::<4>("chain N=4", SWEEP_STEPS, 1e-10, 1e-8, 1));
+    report(&chain::<6>("chain N=6", SWEEP_STEPS, 1e-10, 1e-8, 1));
+    report(&chain::<8>("chain N=8", SWEEP_STEPS, 1e-10, 1e-8, 1));
+    report(&chain::<10>("chain N=10", SWEEP_STEPS, 1e-10, 1e-8, 1));
+    report(&chain::<12>("chain N=12", SWEEP_STEPS, 1e-10, 1e-8, 1));
+
+    println!("-- every second step --\n");
+    report(&chain::<4>(
+        "chain N=4, every 2",
+        SWEEP_STEPS,
+        1e-10,
+        1e-8,
+        2,
+    ));
+    report(&chain::<6>(
+        "chain N=6, every 2",
+        SWEEP_STEPS,
+        1e-10,
+        1e-8,
+        2,
+    ));
+    report(&chain::<8>(
+        "chain N=8, every 2",
+        SWEEP_STEPS,
+        1e-10,
+        1e-8,
+        2,
+    ));
+    report(&chain::<10>(
+        "chain N=10, every 2",
+        SWEEP_STEPS,
+        1e-10,
+        1e-8,
+        2,
+    ));
+    report(&chain::<12>(
+        "chain N=12, every 2",
+        SWEEP_STEPS,
+        1e-10,
+        1e-8,
+        2,
+    ));
+
+    println!("-- degenerate extreme, for contrast --\n");
     report(&chain::<16>("chain N=16", 10_000, 1e-10, 1e-8, 1));
-
-    println!("=== sparse measurements (weaker observability still) ===\n");
-
-    report(&chain::<4>("chain N=4, sparse", 100_000, 1e-12, 1e-10, 8));
-    report(&chain::<8>("chain N=8, sparse", 50_000, 1e-12, 1e-10, 4));
     report(&chain::<16>("chain N=16, sparse", 10_000, 1e-12, 1e-10, 4));
 }
