@@ -64,7 +64,7 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 | `atan2` (i32) | ✅ ~1.3e-6 rad | ✅ ~1.3e-6 rad |
 | Integer `PLL` / reciprocal `RPLL` | ✅ | ✅ |
 | Integer lowpass (`IntLowpass<N>`), unwrap, `saturating_scale_i32` | ✅ | ✅ |
-| CORDIC modes | ➖ circular (`cos_sin`, polar, `atan2`, `sqrt`) | ✅ circular + linear (`mul`/`div`) + hyperbolic (`cosh_sinh`, `sqrt_atanh2`) |
+| CORDIC modes | ✅ circular + hyperbolic (vectoring) | ➖ circular works; its linear and `cosh_sinh` modes do not (see note) |
 | Biquad `f32`/`f64` DF1 + DF2T | ✅ | ✅ |
 | Biquad `i32` clamping / anti-windup / guard bits | ✅ | ✅ |
 | Biquad fixed-point noise shaping | ✅ | ✅ |
@@ -96,13 +96,22 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 
 Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · ❌ not provided.
 
-**Where `idsp` still leads.** Its CORDIC implements the linear (`mul`/`div`) and hyperbolic
-(`cosh_sinh`, `sqrt_atanh2`) modes in addition to the circular ones, where this crate's `cordic`
-module is circular-only. Its Kalman filters compose transition and observation models at the type
-level, and its separate `dsp-process` crate offers a typed block/lane/chunk view framework
+**Where `idsp` still leads.** Its Kalman filters compose transition and observation models at the
+type level, and its separate `dsp-process` crate offers a typed block/lane/chunk view framework
 (`View`, `Chunk`, `FrameMajor`, `LaneMajor`, `by_lane`) well beyond `DspNode` + `Lanes`/`Pair`.
 It also publishes Python bindings for offline analysis and filter design. Everything else in the
 table is either at parity or an `embedded-dsp` advantage.
+
+**Note on the extra CORDIC modes.** `idsp` also advertises linear (`mul`/`div`) and hyperbolic
+rotation (`cosh_sinh`) modes, but neither survives its own fixed-point conventions, so neither was
+ported. A faithful transcription of `idsp` 0.22.1's `cordic()` measures `mul(x, y, z)` as
+`y + x·(1 − z)` for `|z| < 0.5` rather than the documented `y + x·z`, `div` as `z − y/x` rather
+than `z + y/x`, and both change behaviour again outside that band. `cosh_sinh` fails for a
+different reason: `cosh(z) ≥ 1` for every `z`, so a Q1.31 result overflows for any meaningful
+angle. This crate implements the hyperbolic *vectoring* mode instead, where both outputs
+(`sqrt(x² − y²)` and `atanh(y/x)`) are representable, and skips the linear mode entirely — a
+fixed-point multiply or divide is one instruction on the cores this crate targets, or a plain
+shift-add, and needs no CORDIC.
 
 ---
 
@@ -120,7 +129,7 @@ table is either at parity or an `embedded-dsp` advantage.
 | **FEC** | CRC-8/16/24/32, 8-bit checksum, Hamming(7,4) nibble/byte codecs. |
 | **Sequences** | Maximal-length LFSR (`MSequence`) for PN sequences and additive scramble. |
 | **Signal Generation** | PolyBLEP anti-aliased oscillator (`PolyBlepOscillator`: saw/square/triangle/sine), white & Kellett pink noise, linear/exponential `ChirpSweep`, exponential swept-sine `Sweep` with delta-sigma fractional phase (`AccuOsc`, `Accu<T>`) and its Farina inverse filter (`Sweep::inverse_filter`) for impulse-response measurement. |
-| **Math, CORDIC & Numerics** | `BFloat16` (50% SRAM buffer reduction), `FloatFloat` (~48-bit double-single extended precision on `f32` FPU), Fast Bit-Manip Log/Pow/dB (`fast_log2_f32`, `fast_pow2_f32`, `fast_gain_to_db_f32`), EFT (`two_sum_f32`/`two_sum_f64`, `two_prod_f32`/`two_prod_f64`, `two_diff_f32`, `two_div_f32`), Horner polynomials & roots, strided dot products, CORDIC engine (circular modes: `sin`/`cos`, polar, `atan2`, `sqrt`), Complex math, Quaternions (`nalgebra` interop), 8 window types (Hanning, Hamming, Blackman, Blackman-Harris, Bartlett, Welch, flat-top, Kaiser) with `apply_window_f32`/`apply_window_q15`, G.711 $\mu$/A-law companding. |
+| **Math, CORDIC & Numerics** | `BFloat16` (50% SRAM buffer reduction), `FloatFloat` (~48-bit double-single extended precision on `f32` FPU), Fast Bit-Manip Log/Pow/dB (`fast_log2_f32`, `fast_pow2_f32`, `fast_gain_to_db_f32`), EFT (`two_sum_f32`/`two_sum_f64`, `two_prod_f32`/`two_prod_f64`, `two_diff_f32`, `two_div_f32`), Horner polynomials & roots, strided dot products, CORDIC engine (circular `sin`/`cos`, polar, `atan2`, `sqrt` + hyperbolic `sqrt_atanh2`, `atanh`), Complex math, Quaternions (`nalgebra` interop), 8 window types (Hanning, Hamming, Blackman, Blackman-Harris, Bartlett, Welch, flat-top, Kaiser) with `apply_window_f32`/`apply_window_q15`, G.711 $\mu$/A-law companding. |
 
 ---
 
