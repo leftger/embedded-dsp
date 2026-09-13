@@ -62,7 +62,7 @@ STANDALONE_FEATURES=(
   fast-math fec filter-analysis filter-design fixed-point interpolation kalman lut
   matrix modem pipeline pll psd quaternion resampling sequence spatial statistics snapshot
   synthesis validation support transform window companding const-generics
-  audio beamforming miniconf
+  audio beamforming miniconf kalman-models
 )
 
 FEATURE_SUBSETS=(
@@ -237,9 +237,15 @@ job_audit() {
 
 job_coverage() {
   # Mirrors the workflow: the two feature configurations are merged so the
-  # printed total matches the lcov that is uploaded to codecov.
+  # printed total matches the lcov that is uploaded to codecov. `kalman-models`
+  # is excluded for the same reason as in the workflow -- it only re-exports
+  # `idsp`, and toggling it perturbs the merge by ~40 lines.
+  local features
+  features="$(cargo metadata --no-deps --format-version 1 |
+    jq -r '.packages[] | select(.name == "embedded-dsp") | .features | keys[]' |
+    grep -vx 'kalman-models' | paste -sd, -)"
   "${CARGO[@]}" llvm-cov clean --workspace || return 1
-  "${CARGO[@]}" llvm-cov --no-report -p embedded-dsp --all-features || return 1
+  "${CARGO[@]}" llvm-cov --no-report -p embedded-dsp --features "$features" || return 1
   "${CARGO[@]}" llvm-cov --no-report -p embedded-dsp \
     --no-default-features --features full,libm || return 1
 

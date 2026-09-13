@@ -36,6 +36,9 @@ bytemuck = { version = "1.24.0", default-features = false, features = ["derive"]
 quickcheck = { version = "1.0.3", default-features = false }
 quickcheck_macros = { version = "1.0.0" }
 miniconf = { version = "0.21.0", default-features = false }
+# Optional, behind the `kalman-models` feature: the upstream composable Kalman models.
+idsp = { version = "0.22.1", default-features = false }
+dsp-process = { version = "0.3.1", default-features = false }
 
 eframe = { version = "0.36", default-features = true }
 egui_extras = { version = "0.36" }

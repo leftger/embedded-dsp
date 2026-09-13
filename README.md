@@ -82,7 +82,7 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 | FFT (CFFT/RFFT/BFP Q15/Q31), DCT, DWT, Hartley, Hilbert | ✅ | ❌ |
 | Goertzel, Mel/MFCC, VAD, compressor/gate | ✅ | ❌ |
 | Welch/Burg PSD analysis | ✅ | ➖ |
-| Kalman | ✅ const-generic, EKF, square-root | ✅ composable `Transition`/`Observation` models (`DenseKalman`, `RandomWalk`, `ConstantVelocity`) |
+| Kalman | ✅ const-generic, EKF, square-root, plus composable `Estimate`/`Transition`/`Observation` models via the optional `kalman-models` feature | ✅ composable `Transition`/`Observation` models (`DenseKalman`, `RandomWalk`, `ConstantVelocity`) |
 | 2D vision, beamforming, GCC-PHAT, quaternions, matrices | ✅ | ❌ |
 | Lock-in amplifier | ✅ | ✅ |
 | Dither + MASH delta-sigma | ✅ | ✅ |
@@ -96,11 +96,20 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 
 Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · ❌ not provided.
 
-**Where `idsp` still leads.** Its Kalman filters compose transition and observation models at the
-type level, and its separate `dsp-process` crate offers a typed block/lane/chunk view framework
-(`View`, `Chunk`, `FrameMajor`, `LaneMajor`, `by_lane`) well beyond `DspNode` + `Lanes`/`Pair`.
-It also publishes Python bindings for offline analysis and filter design. Everything else in the
-table is either at parity or an `embedded-dsp` advantage.
+**Where `idsp` still leads.** Its separate `dsp-process` crate offers a typed block/lane/chunk
+view framework (`View`, `Chunk`, `FrameMajor`, `LaneMajor`, `by_lane`) well beyond `DspNode` +
+`Lanes`/`Pair`. It also publishes Python bindings for offline analysis and filter design.
+Everything else in the table is either at parity or an `embedded-dsp` advantage.
+
+**One deliberate dependency.** The composable Kalman models are re-exported from `idsp` itself
+rather than reimplemented, behind the optional `kalman-models` feature. That feature is the only
+one that pulls external crates (`idsp`, `dsp-process`, `dsp-fixedpoint`), so — like `nalgebra` —
+it is kept out of `full` and default builds stay dependency-free. Enabling it gives you
+`Estimate`, `Transition`, `Observation`, `Direct`, `RandomWalk`, `ConstantVelocity` and the
+`Kalman` composition, plus a re-export of `dsp_process` so the filters can be driven without
+adding that dependency yourself. The reasoning is that this particular module is numerically
+delicate and upstream already maintains it; porting it would only add risk. Everything else in
+this crate is implemented here and verified against `idsp`'s results.
 
 **Note on the extra CORDIC modes.** `idsp` also advertises linear (`mul`/`div`) and hyperbolic
 rotation (`cosh_sinh`) modes, but neither survives its own fixed-point conventions, so neither was
@@ -147,6 +156,9 @@ embedded-dsp = { version = "0.5.1", default-features = false, features = ["libm"
 
 # Minimal firmware footprint (only FIR/Biquad filtering + basic math)
 embedded-dsp = { version = "0.5.1", default-features = false, features = ["libm", "filtering", "basic-math"] }
+
+# Plus composable Kalman models — the one feature that pulls external crates
+embedded-dsp = { version = "0.5.1", default-features = false, features = ["libm", "full", "kalman-models"] }
 ```
 
 ### Basic Example

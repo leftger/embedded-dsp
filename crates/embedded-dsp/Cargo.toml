@@ -98,6 +98,10 @@ filtering = []
 fixed-point = []
 interpolation = []
 kalman = ["matrix"]
+# Composable Kalman models (pluggable transition/observation types), re-exported from the
+# upstream `idsp` crate. Opt-in and deliberately *not* part of `full`, like `nalgebra`: it is
+# the one feature that pulls an external crate (`idsp` -> `dsp-process`, `dsp-fixedpoint`).
+kalman-models = ["dep:idsp", "dep:dsp-process"]
 # Precomputed 256-entry sin/cos tables (i16), an alternative to `fast-math`.
 lut = []
 matrix = ["basic-math"]
@@ -129,6 +133,8 @@ miniconf = { workspace = true, optional = true, features = [
     "meta-node",
     "meta-edge",
 ] }
+idsp = { workspace = true, optional = true }
+dsp-process = { workspace = true, optional = true }
 
 [dev-dependencies]
 quickcheck = { workspace = true }
@@ -433,3 +439,8 @@ required-features = ["libm", "synthesis", "transform"]
 name = "cordic_hyperbolic"
 path = "tests/cordic_hyperbolic.rs"
 required-features = ["libm", "cordic"]
+
+[[test]]
+name = "composable_kalman"
+path = "tests/composable_kalman.rs"
+required-features = ["libm", "kalman-models"]

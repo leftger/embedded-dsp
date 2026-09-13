@@ -107,6 +107,14 @@ pub mod intrinsics;
 pub mod types;
 gated_mod!("window", window);
 
+/// Composable Kalman models — `Estimate`, `Transition`, `Observation` and the
+/// `Kalman` composition — re-exported from the upstream `idsp` crate.
+///
+/// Kept in its own namespace rather than glob-re-exported at the crate root, and behind the
+/// `kalman-models` feature, which is not part of `full` (it pulls external crates).
+#[cfg(feature = "kalman-models")]
+pub mod kalman_models;
+
 pub use intrinsics::*;
 pub use math::*;
 pub use types::*;

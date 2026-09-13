@@ -109,7 +109,7 @@ jobs:
             fast-math fec filter-analysis filter-design fixed-point interpolation kalman lut \
             matrix modem pipeline pll psd quaternion resampling sequence spatial statistics snapshot \
             synthesis validation support transform window companding const-generics \
-            audio beamforming miniconf; do
+            audio beamforming miniconf kalman-models; do
             echo "::group::libm,$feature"
             cargo check -p embedded-dsp --no-default-features --features "libm,$feature" --target thumbv7em-none-eabihf
             echo "::endgroup::"
@@ -201,12 +201,23 @@ jobs:
       # `embedded-dsp-studio` egui GUI is excluded (see codecov.yml), and the
       # two feature configurations are merged so the reported number matches
       # what codecov derives from the uploaded lcov.
+      #
+      # `--all-features` is deliberately not used here: the `kalman-models`
+      # feature only re-exports the upstream `idsp` crate (no library code of
+      # ours), and toggling it perturbs LLVM's codegen-unit partitioning, which
+      # makes the merge mis-attribute ~40 already-executed lines of
+      # `#[inline(always)]` code (audio.rs swings between 15 and 49 uncovered
+      # lines purely on that flag). The floor is meant to track *our*
+      # implementation, so the dependency-only feature is left out.
       - name: Measure library code coverage
         run: |
           echo "### 📊 Code Coverage Report (embedded-dsp library)" >> "$GITHUB_STEP_SUMMARY"
           echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          features="$(cargo metadata --no-deps --format-version 1 |
+            jq -r '.packages[] | select(.name == "embedded-dsp") | .features | keys[]' |
+            grep -vx 'kalman-models' | paste -sd, -)"
           cargo llvm-cov clean --workspace
-          cargo llvm-cov --no-report -p embedded-dsp --all-features
+          cargo llvm-cov --no-report -p embedded-dsp --features "$features"
           cargo llvm-cov --no-report -p embedded-dsp --no-default-features --features full,libm
           cargo llvm-cov report --summary-only | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

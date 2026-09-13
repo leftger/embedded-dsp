@@ -858,6 +858,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
+name = "dsp-fixedpoint"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "563da37e89f398877d6f709440327a6ff4743cf2f7911e1c96ee14870e11bc74"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "dsp-process"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1128a9bf1bcfb6e1122f7dacb8a74df1cded215dd526a99f5be7761a4c3959d6"
+
+[[package]]
 name = "ecolor"
 version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1014,7 +1029,9 @@ version = "0.5.1"
 dependencies = [
  "bytemuck",
  "defmt",
+ "dsp-process",
  "fixed",
+ "idsp",
  "libm",
  "miniconf",
  "nalgebra",
@@ -1719,6 +1736,17 @@ checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "idsp"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f39b0a3e0ddda4ddf1d78dc7134084aaac43577b87cce1de587767972092a24d"
+dependencies = [
+ "dsp-fixedpoint",
+ "dsp-process",
+ "num-traits",
 ]
 
 [[package]]
