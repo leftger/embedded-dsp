@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-commit hook: format, check, check no_std target, clippy, and test.
+# Pre-commit hook: format, check, check no_std target, clippy, test, and docs.
 set -euo pipefail
 
 if ! command -v cargo >/dev/null 2>&1; then
@@ -42,5 +42,9 @@ cargo clippy --lib -p embedded-dsp --all-features -- -W clippy::all
 
 echo "pre-commit: cargo test"
 cargo test
+
+# Same command as the CI "Docs check" job: rustdoc with -D warnings.
+echo "pre-commit: cargo doc (-D warnings)"
+bash .github/scripts/ci_docs.sh
 
 echo "pre-commit: ok"

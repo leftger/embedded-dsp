@@ -36,3 +36,10 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+
+      - id: cargo-doc
+        name: cargo doc (-D warnings)
+        entry: bash .github/scripts/ci_docs.sh
+        language: system
+        types: [rust]
+        pass_filenames: false
