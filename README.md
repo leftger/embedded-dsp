@@ -20,8 +20,8 @@ A high-performance **`#![no_std]` Rust Digital Signal Processing library** desig
 - **Fixed & Float Parity**: CMSIS-style `f32`, `f64`, and `q7`/`q15`/`q31` — interoperable with the [`fixed`](https://crates.io/crates/fixed) crate (optional `fixed` feature, enabled by default) with zero-dependency fallback newtypes — plus the polymorphic `DspSample` trait.
 - **Hardware Acceleration**: ARM Cortex-M assembly intrinsics (`smlad`, `smlald`, `ssat`, `qadd16`) via `cortex-m-dsp`, with portable SWAR vector fallbacks.
 - **Pure-Integer CORDIC Engine**: Shift-and-add `sin`, `cos`, `atan2`, polar conversion, and `sqrt` requiring no hardware multipliers.
-- **Streaming Pipelines**: Zero-allocation [`DspNode`](src/pipeline.rs) composable processing chains (`Chain`, `Gain`, `Limiter`).
-- **Production Tested**: Continuous integration across 7 bare-metal architectures (`thumbv6m`, `thumbv7em`, `thumbv7em-hf`, `thumbv8m-main-hf`, `riscv32imc`, `wasm32`, `x86_64`).
+- **Streaming Pipelines**: Zero-allocation [`DspNode`](crates/embedded-dsp/src/pipeline.rs) composable processing chains (`Chain`, `Gain`, `Limiter`).
+- **Production Tested**: CI runs the full test suite on the host and `cargo check --all-targets --all-features` plus a `no_std` build on six embedded/WebAssembly targets (`thumbv6m-none-eabi`, `thumbv7em-none-eabi`, `thumbv7em-none-eabihf`, `thumbv8m.main-none-eabihf`, `riscv32imc-unknown-none-elf`, `wasm32-unknown-unknown`), and enforces a **97% line-coverage floor** on the library.
 
 ---
 
@@ -47,10 +47,14 @@ cargo run -p embedded-dsp-studio
 
 ## Comparison with `idsp`
 
-`embedded-dsp` is a superset of the well-established [`idsp`](https://crates.io/crates/idsp) crate for the
-algorithms the two share, and adds transforms, audio/vision, sensor-fusion, control, and tooling on top.
-The fixed-point/integer algorithms were ported and re-verified against `idsp`'s own test vectors where
-available. Honest differences are marked, including the few places where `idsp` still has more to offer.
+[`idsp`](https://crates.io/crates/idsp) (0.22, by Robert Jördens / QUARTIQ) is the other well-established
+`#![no_std]`, integer-first DSP crate; [Stabilizer](https://github.com/quartiq/stabilizer) is its
+comprehensive production user. `embedded-dsp` ports and re-verifies `idsp`'s fixed-point and integer
+algorithms, so for the algorithms the two share it is a superset — and it adds transforms, audio and
+vision, sensor fusion, control, and tooling on top.
+
+The table is checked against `idsp` `0.22.1`. Honest differences are marked, including the places where
+`idsp` still has more to offer; those are also called out below the table.
 
 | Feature | `embedded-dsp` | `idsp` |
 | :--- | :---: | :---: |
@@ -59,34 +63,55 @@ available. Honest differences are marked, including the few places where `idsp` 
 | `cossin` LUT (i32) | ✅ ~5e-6 RMS | ✅ ~4e-6 RMS |
 | `atan2` (i32) | ✅ ~1.3e-6 rad | ✅ ~1.3e-6 rad |
 | Integer `PLL` / reciprocal `RPLL` | ✅ | ✅ |
-| Integer lowpass, CORDIC, unwrap, `saturating_scale` | ✅ | ✅ |
+| Integer lowpass (`IntLowpass<N>`), unwrap, `saturating_scale_i32` | ✅ | ✅ |
+| CORDIC modes | ✅ circular + hyperbolic (vectoring) | ➖ circular works; its linear and `cosh_sinh` modes do not (see note) |
 | Biquad `f32`/`f64` DF1 + DF2T | ✅ | ✅ |
 | Biquad `i32` clamping / anti-windup / guard bits | ✅ | ✅ |
 | Biquad fixed-point noise shaping | ✅ | ✅ |
 | Biquad generic integer `i8`/`i16`/`i32`/`i64` | ✅ `BiquadInt<T>` | ✅ |
 | Biquad DF1 wide (`Q32.32`) / dither actions | ✅ | ✅ |
 | Control-plane settings via `miniconf` | ✅ `config::BiquadSettings` | ✅ |
+| Audio EQ builder / WebAudio export | ➖ individual RBJ `biquad_*_coeffs` functions | ✅ `iir::coefficients::{Filter, Shape, Type, WebAudio}` |
 | Normal-form IIR | ✅ arbitrary numerator | ⚠️ forced `p.im·z⁻¹` factor |
 | Wave digital allpass filters | ✅ | ✅ |
-| PI²D² controller builder (per-action limits) | ✅ | ✅ |
+| PI²D² controller builder (per-action limits) | ✅ `PidBuilder` | ✅ |
 | Half-band Type I–IV linear-phase FIR | ✅ | ✅ |
-| Half-band cascades with known-good taps | ✅ 140 dB + 98 dB | ✅ 140 dB |
+| Half-band cascades with known-good taps | ✅ rates 2/4/8/16/32, 140 dB + 98 dB | ✅ rates 2/4/8/16/32, 140 dB |
 | CIC decimator/interpolator | ✅ | ✅ |
 | General FIR, LMS/NLMS | ✅ | ➖ |
 | FFT (CFFT/RFFT/BFP Q15/Q31), DCT, DWT, Hartley, Hilbert | ✅ | ❌ |
 | Goertzel, Mel/MFCC, VAD, compressor/gate | ✅ | ❌ |
 | Welch/Burg PSD analysis | ✅ | ➖ |
-| Kalman (const-generic, EKF, square-root) | ✅ | ✅ (composable models) |
+| Kalman | ✅ const-generic, EKF, square-root | ✅ composable `Transition`/`Observation` models (`DenseKalman`, `RandomWalk`, `ConstantVelocity`) |
 | 2D vision, beamforming, GCC-PHAT, quaternions, matrices | ✅ | ❌ |
 | Lock-in amplifier | ✅ | ✅ |
 | Dither + MASH delta-sigma | ✅ | ✅ |
-| Resampling (polyphase, fractional) | ✅ | ➖ |
+| Resampling (polyphase, fractional, half-band) | ✅ | ➖ |
+| Swept-sine stimulus | ✅ `Sweep` + `AccuOsc` + Farina `inverse_filter` | ✅ `Sweep::inverse_filter` |
+| Block/lane block processing | ➖ `DspNode`, `Lanes`, `Pair` | ✅ `View`/`Chunk`/`FrameMajor`/`LaneMajor` (`dsp-process`) |
 | Companding (G.711 µ/A-law) | ✅ | ❌ |
 | In-repo micro-benchmarks | ✅ | ✅ (`tests/embedded`) |
-| Python bindings | ❌ | ✅ |
+| Python bindings | ❌ | ✅ (`py` / `numpy`) |
 | Interactive WebAssembly studio | ✅ | ❌ |
 
 Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · ❌ not provided.
+
+**Where `idsp` still leads.** Its Kalman filters compose transition and observation models at the
+type level, and its separate `dsp-process` crate offers a typed block/lane/chunk view framework
+(`View`, `Chunk`, `FrameMajor`, `LaneMajor`, `by_lane`) well beyond `DspNode` + `Lanes`/`Pair`.
+It also publishes Python bindings for offline analysis and filter design. Everything else in the
+table is either at parity or an `embedded-dsp` advantage.
+
+**Note on the extra CORDIC modes.** `idsp` also advertises linear (`mul`/`div`) and hyperbolic
+rotation (`cosh_sinh`) modes, but neither survives its own fixed-point conventions, so neither was
+ported. A faithful transcription of `idsp` 0.22.1's `cordic()` measures `mul(x, y, z)` as
+`y + x·(1 − z)` for `|z| < 0.5` rather than the documented `y + x·z`, `div` as `z − y/x` rather
+than `z + y/x`, and both change behaviour again outside that band. `cosh_sinh` fails for a
+different reason: `cosh(z) ≥ 1` for every `z`, so a Q1.31 result overflows for any meaningful
+angle. This crate implements the hyperbolic *vectoring* mode instead, where both outputs
+(`sqrt(x² − y²)` and `atanh(y/x)`) are representable, and skips the linear mode entirely — a
+fixed-point multiply or divide is one instruction on the cores this crate targets, or a plain
+shift-add, and needs no CORDIC.
 
 ---
 
@@ -103,7 +128,8 @@ Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · 
 | **Multi-rate & Resampling** | CIC Decimator/Interpolator with bit-growth normalization, Polyphase Decimation & Interpolation (Float & Q15), fractional linear resampler, arbitrary-rate polyphase resampler, Gardner symbol sync. |
 | **FEC** | CRC-8/16/24/32, 8-bit checksum, Hamming(7,4) nibble/byte codecs. |
 | **Sequences** | Maximal-length LFSR (`MSequence`) for PN sequences and additive scramble. |
-| **Math, CORDIC & Numerics** | `BFloat16` (50% SRAM buffer reduction), `FloatFloat` (~48-bit double-single extended precision on `f32` FPU), Fast Bit-Manip Log/Pow/dB (`fast_log2`, `fast_pow2`, `fast_gain_to_db`), EFT (`two_sum`, `two_prod`, `two_div`), Horner polynomials & roots, strided dot products, CORDIC engine, Complex math, Quaternions (`nalgebra` interop), 9 Windows, G.711 $\mu$/A-law companding. |
+| **Signal Generation** | PolyBLEP anti-aliased oscillator (`PolyBlepOscillator`: saw/square/triangle/sine), white & Kellett pink noise, linear/exponential `ChirpSweep`, exponential swept-sine `Sweep` with delta-sigma fractional phase (`AccuOsc`, `Accu<T>`) and its Farina inverse filter (`Sweep::inverse_filter`) for impulse-response measurement. |
+| **Math, CORDIC & Numerics** | `BFloat16` (50% SRAM buffer reduction), `FloatFloat` (~48-bit double-single extended precision on `f32` FPU), Fast Bit-Manip Log/Pow/dB (`fast_log2_f32`, `fast_pow2_f32`, `fast_gain_to_db_f32`), EFT (`two_sum_f32`/`two_sum_f64`, `two_prod_f32`/`two_prod_f64`, `two_diff_f32`, `two_div_f32`), Horner polynomials & roots, strided dot products, CORDIC engine (circular `sin`/`cos`, polar, `atan2`, `sqrt` + hyperbolic `sqrt_atanh2`, `atanh`), Complex math, Quaternions (`nalgebra` interop), 8 window types (Hanning, Hamming, Blackman, Blackman-Harris, Bartlett, Welch, flat-top, Kaiser) with `apply_window_f32`/`apply_window_q15`, G.711 $\mu$/A-law companding. |
 
 ---
 
@@ -114,13 +140,13 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 # Standard std environment (all modules enabled)
-embedded-dsp = "0.5.0"
+embedded-dsp = "0.5.1"
 
 # Bare-metal #![no_std] with libm
-embedded-dsp = { version = "0.5.0", default-features = false, features = ["libm", "full"] }
+embedded-dsp = { version = "0.5.1", default-features = false, features = ["libm", "full"] }
 
 # Minimal firmware footprint (only FIR/Biquad filtering + basic math)
-embedded-dsp = { version = "0.5.0", default-features = false, features = ["libm", "filtering", "basic-math"] }
+embedded-dsp = { version = "0.5.1", default-features = false, features = ["libm", "filtering", "basic-math"] }
 ```
 
 ### Basic Example

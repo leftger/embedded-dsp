@@ -5,7 +5,7 @@
 # env var. It has no dependency on a third-party app or plan. The statuses
 # configured below take effect only once the Codecov GitHub App is installed and
 # posting checks; keep `coverage.status.project.default.target` in sync with
-# COVERAGE_MIN (currently 95).
+# COVERAGE_MIN (currently 97).
 #
 # Score only the core embedded-dsp library (crates/embedded-dsp). Sibling
 # crates (studio, …) and non-library trees are excluded.
@@ -66,11 +66,14 @@ coverage:
         # #[inline(always)] functions report as unexecuted on CI, which costs
         # ~0.3 points versus an identical local run.
         #
-        # Ceiling note: ~92 lines (transform.rs twiddle tables, fast_math.rs
-        # CORDIC table, lut.rs) are `const fn`s evaluated only at compile time,
-        # so no test can mark them executed. Practical maximum is therefore
-        # just under 100%, not 100%.
-        target: 95%
+        # Ceiling note: the compile-time twiddle / CORDIC / sine tables in
+        # transform.rs, fast_math.rs and lut.rs are now covered -- in-crate unit
+        # tests call those `const fn`s at runtime through `black_box`. What stays
+        # uncounted is a small set of defensive branches plus the per-feature
+        # `FloatMath` arms in math.rs, whose bodies differ between the std and
+        # libm configurations and which the merged report does not attribute.
+        # The practical maximum is therefore just under 100%, not 100%.
+        target: 97%
         threshold: 0.5%
         paths:
           - crates/embedded-dsp

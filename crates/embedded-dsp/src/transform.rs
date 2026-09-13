@@ -1528,3 +1528,47 @@ pub fn analytic_phase_f32(analytic: &[Complex<f32>], dst_phase: &mut [f32]) {
         dst_phase[i] = analytic[i].imag.atan2(analytic[i].real);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+    use super::*;
+
+    /// The Q15 twiddle tables and their Taylor helpers are `const fn`s: the compiler evaluates
+    /// them at build time, so they never run at runtime and carry no line coverage. Route them
+    /// through `black_box`ed function pointers / arguments to force real execution, then verify
+    /// the generated tables still trace a unit circle.
+    #[test]
+    fn compile_time_twiddle_tables_and_helpers_are_sane() {
+        let wrap: fn(f32) -> f32 = core::hint::black_box(wrap_pi);
+        let cos_t: fn(f32) -> f32 = core::hint::black_box(cos_taylor);
+        let sin_t: fn(f32) -> f32 = core::hint::black_box(sin_taylor);
+        let gen_cos: fn() -> [i16; TWIDDLE_N] = core::hint::black_box(gen_cos_q15);
+        let gen_sin: fn() -> [i16; TWIDDLE_N] = core::hint::black_box(gen_sin_q15);
+        let pi = core::f32::consts::PI;
+
+        // `wrap_pi` folds any argument into (-pi, pi].
+        for k in -4i32..=4 {
+            let x = core::hint::black_box(k as f32 * pi + 0.5);
+            let w = wrap(x);
+            assert!(w > -pi - 1e-3 && w <= pi + 1e-3, "wrap_pi({x}) = {w}");
+        }
+
+        // The truncated Taylor series track the real functions over the reduced range.
+        for &v in &[-3.0f32, -2.0, -1.0, -0.5, 0.0, 0.25, 1.0, 2.0, 3.0] {
+            let x = core::hint::black_box(v);
+            assert!((cos_t(x) - x.cos()).abs() < 3e-2, "cos_taylor({x})");
+            assert!((sin_t(x) - x.sin()).abs() < 3e-2, "sin_taylor({x})");
+        }
+
+        let c = gen_cos();
+        let s = gen_sin();
+        for i in 0..TWIDDLE_N {
+            let angle = i as f32 * 2.0 * pi / TWIDDLE_N as f32;
+            let want_cos = (angle.cos() * 32767.0).clamp(-32768.0, 32767.0);
+            let want_sin = (angle.sin() * 32767.0).clamp(-32768.0, 32767.0);
+            assert!((c[i] as f32 - want_cos).abs() < 1600.0, "cos[{i}] = {}", c[i]);
+            assert!((s[i] as f32 - want_sin).abs() < 1600.0, "sin[{i}] = {}", s[i]);
+        }
+    }
+}

@@ -22,13 +22,35 @@ pub fn sin_cos_f32(theta: f32, sin_val: &mut f32, cos_val: &mut f32) {
     *cos_val = rad.cos();
 }
 
-const fn atan_taylor(x: f32) -> f32 {
+/// Seven-term Maclaurin series for `atan`, accurate to ~3e-6 for `|x| <= 0.5`.
+///
+/// The next omitted term is `x^15/15`, i.e. `2.0e-6` at `x = 0.5`; that is why callers fold
+/// `x >= 0.5` down to `|z| <= 1/3` before calling in.
+const fn atan_series(x: f32) -> f32 {
     let x2 = x * x;
     let x3 = x2 * x;
     let x5 = x3 * x2;
     let x7 = x5 * x2;
     let x9 = x7 * x2;
-    x - x3 / 3.0 + x5 / 5.0 - x7 / 7.0 + x9 / 9.0
+    let x11 = x9 * x2;
+    let x13 = x11 * x2;
+    x - x3 / 3.0 + x5 / 5.0 - x7 / 7.0 + x9 / 9.0 - x11 / 11.0 + x13 / 13.0
+}
+
+/// `atan(x)` for `x` in `0.0..=1.0`.
+///
+/// The Maclaurin series alone only converges well for small arguments -- at `x = 1` it returns
+/// 0.835 instead of `pi/4` -- so arguments of 0.5 or more are folded with
+/// `atan(x) = pi/4 + atan((x - 1) / (x + 1))`, which maps them into `[-1/3, 0]` where the series
+/// is at its most accurate. The fold starts at 0.5 (not above it) so the CORDIC table's
+/// `atan(2^-1)` entry takes the folded branch too: the raw series needs ~13 terms to reach one
+/// Q31 LSB at `x = 0.5`.
+const fn atan_taylor(x: f32) -> f32 {
+    if x >= 0.5 {
+        core::f32::consts::FRAC_PI_4 + atan_series((x - 1.0) / (x + 1.0))
+    } else {
+        atan_series(x)
+    }
 }
 
 const fn gen_cordic_atan_q31() -> [i32; 32] {
@@ -79,14 +101,19 @@ fn cordic_atan_first_q31(mut x: i32, mut y: i32) -> i32 {
     if y == 0 {
         return 0;
     }
-    while x < (1 << 30) && y < (1 << 30) && (x > 0 || y > 0) {
-        let nx = x.saturating_mul(2);
-        let ny = y.saturating_mul(2);
-        if nx / 2 != x || ny / 2 != y {
-            break;
-        }
-        x = nx;
-        y = ny;
+    // The result is scale-invariant, so normalise the larger component into `[2^28, 2^29)`.
+    // Scaling *down* is what makes this safe for large inputs: the CORDIC update `x ±= y` runs
+    // from the normalised magnitude and the rotation grows the vector by the CORDIC gain
+    // (~1.6468), so `sqrt(2) * 2^29 * 1.6468 < 2^31` leaves headroom. The previous code only
+    // scaled *up* (towards `2^30`), so any input at or above that magnitude made the first
+    // update saturate `i32`, corrupting the angle by up to ~10 degrees.
+    while x < (1 << 28) && y < (1 << 28) {
+        x <<= 1;
+        y <<= 1;
+    }
+    while x >= (1 << 29) || y >= (1 << 29) {
+        x >>= 1;
+        y >>= 1;
     }
     let mut z = 0i32;
     let mut i = 0;
@@ -687,4 +714,116 @@ impl IntPhaseUnwrapper {
     /// Current accumulated phase.
     #[inline]
     pub fn phase(&self) -> i32 { self.y }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+    use super::*;
+
+    /// `atan_taylor` and the CORDIC angle table are `const fn`s evaluated at build time, so they
+    /// need an explicit runtime call to register coverage. Also poke the two private helpers that
+    /// the public `atan2_i32` path only reaches through one branch.
+    #[test]
+    fn compile_time_atan_helpers_and_private_divi() {
+        let atan_t: fn(f32) -> f32 = core::hint::black_box(atan_taylor);
+        let gen_atan: fn() -> [i32; 32] = core::hint::black_box(gen_cordic_atan_q31);
+        let first: fn(i32, i32) -> i32 = core::hint::black_box(cordic_atan_first_q31);
+        let div: fn(u32, u32) -> u32 = core::hint::black_box(divi);
+        let pi = core::f32::consts::PI;
+
+        // The folded series stays accurate all the way to atan(1) = pi/4.
+        for &v in &[0.0f32, 0.125, 0.25, 0.5, 0.75, 1.0] {
+            let x = core::hint::black_box(v);
+            assert!((atan_t(x) - x.atan()).abs() < 2e-4, "atan_taylor({x})");
+        }
+        assert!((atan_t(1.0) - core::f32::consts::FRAC_PI_4).abs() < 1e-6);
+
+        // Each entry is atan(2^-i)/pi in Q1.31: positive and non-increasing. Beyond i ~= 29 the
+        // angle falls below the Q31 resolution, so the tail is exactly zero.
+        let table = gen_atan();
+        // atan(2^0) = pi/4, i.e. exactly 0.25 in Q1.31. This used to come out ~6% high because
+        // the unfurled Maclaurin series was evaluated at x = 1.
+        assert_eq!(table[0], 0x2000_0000);
+        for i in 0..31 {
+            assert!(table[i] >= table[i + 1], "atan table increased at {i}");
+        }
+        for i in 0..29 {
+            assert!(table[i] > table[i + 1], "atan table not decreasing at {i}");
+        }
+        for i in 0..30 {
+            assert!(table[i] > 0, "atan table non-positive at {i}");
+        }
+        // Every entry matches the true `atan(2^-i)/pi` to within a few Q31 LSBs. The bound is
+        // generous only for the `f32` rounding in the truncated series; the truncation itself
+        // is now well below one LSB.
+        let mut worst = 0.0f32;
+        let mut worst_i = 0;
+        for i in 1..29 {
+            let expect = (2.0f32.powi(-(i as i32))).atan() / pi * 2147483648.0;
+            let err = ((table[i] as f32) - expect).abs();
+            if err > worst {
+                worst = err;
+                worst_i = i;
+            }
+            assert!(
+                err < 4.0,
+                "table[{i}] = {} vs {expect} (off by {err} Q31 units)",
+                table[i]
+            );
+        }
+        assert!(worst < 4.0, "worst table error {worst} at i={worst_i}");
+
+        assert_eq!(first(0, 0), 0);
+        assert!(first(1 << 30, 1 << 28) > 0);
+        assert_eq!(div(0x4000_0000, 0), 0); // divide-by-zero guard
+        let _ = div(0x2000_0000, 0x4000_0000);
+    }
+
+    /// `atan2_from_xy_q31` normalises the vector before the CORDIC rotation. The former pre-scale
+    /// only scaled *up* (towards `2^30`), so a component at or above that magnitude saturated
+    /// `i32` on the first update and the angle could be off by ~10 degrees.
+    #[test]
+    fn atan2_from_xy_q31_is_accurate_across_the_full_input_range() {
+        let vals = [
+            0i32,
+            1,
+            -1,
+            2,
+            -2,
+            17,
+            -17,
+            256,
+            -256,
+            1 << 16,
+            -(1 << 16),
+            1 << 24,
+            -(1 << 24),
+            1 << 29,
+            -(1 << 29),
+            i32::MAX,
+            i32::MIN,
+            i32::MIN + 1,
+        ];
+
+        let mut worst = 0.0f64;
+        let mut worst_at = (0i32, 0i32);
+        for &y in &vals {
+            for &x in &vals {
+                let got = atan2_from_xy_q31(y, x) as f64 / 2147483648.0;
+                let want = (y as f64).atan2(x as f64) / core::f64::consts::PI;
+                if (got - want).abs() > worst {
+                    worst = (got - want).abs();
+                    worst_at = (y, x);
+                }
+            }
+        }
+
+        assert!(
+            worst < 1e-6,
+            "worst atan2_from_xy_q31 error {worst} (normalized to pi) at (y={}, x={})",
+            worst_at.0,
+            worst_at.1
+        );
+    }
 }

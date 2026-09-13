@@ -388,3 +388,48 @@ name = "dsp_benchmarks"
 harness = false
 path = "benches/dsp_benchmarks.rs"
 required-features = ["libm", "full"]
+
+[[test]]
+name = "edge_branch_coverage"
+path = "tests/edge_branch_coverage.rs"
+required-features = [
+    "libm",
+    "beamforming",
+    "filter-analysis",
+    "resampling",
+    "support",
+    "validation",
+]
+
+[[test]]
+name = "utility_api_coverage"
+path = "tests/utility_api_coverage.rs"
+required-features = [
+    "libm",
+    "companding",
+    "cordic",
+    "fast-math",
+    "filtering",
+    "pipeline",
+    "snapshot",
+]
+
+[[test]]
+name = "filter_design_eq_params"
+path = "tests/filter_design_eq_params.rs"
+required-features = ["libm", "filter-analysis", "filter-design"]
+
+[[test]]
+name = "voxengo_oracle"
+path = "tests/voxengo_oracle.rs"
+required-features = ["libm", "filter-analysis", "filter-design"]
+
+[[test]]
+name = "swept_sine_inverse_filter"
+path = "tests/swept_sine_inverse_filter.rs"
+required-features = ["libm", "synthesis", "transform"]
+
+[[test]]
+name = "cordic_hyperbolic"
+path = "tests/cordic_hyperbolic.rs"
+required-features = ["libm", "cordic"]
