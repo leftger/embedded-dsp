@@ -134,6 +134,9 @@ miniconf = { workspace = true, optional = true, features = [
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
 miniconf = { workspace = true, features = ["json-core"] }
+# Test-only oracle for the composable Kalman models: upstream `idsp` as a reference to check
+# `kalman_compose` against, never a runtime dependency.
+idsp = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true
@@ -440,3 +443,8 @@ required-features = ["libm", "synthesis", "transform"]
 name = "cordic_hyperbolic"
 path = "tests/cordic_hyperbolic.rs"
 required-features = ["libm", "cordic"]
+
+[[test]]
+name = "kalman_compose"
+path = "tests/kalman_compose.rs"
+required-features = ["libm", "kalman"]

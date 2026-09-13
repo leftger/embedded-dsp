@@ -83,6 +83,7 @@ gated_mod!("filtering", filtering);
 gated_mod!("fixed-point", fixed_point);
 gated_mod!("interpolation", interpolation);
 gated_mod!("kalman", kalman);
+gated_mod!("kalman", kalman_compose);
 gated_mod!("lut", lut);
 pub mod math;
 gated_mod!("matrix", matrix);
