@@ -6,6 +6,9 @@
 # configured below take effect only once the Codecov GitHub App is installed and
 # posting checks; keep `coverage.status.project.default.target` in sync with
 # COVERAGE_MIN (currently 95).
+#
+# Score only the core embedded-dsp library (crates/embedded-dsp). Sibling
+# crates (studio, …) and non-library trees are excluded.
 ignore:
   - "benches/**"
   - "**/benches/**"
@@ -18,7 +21,7 @@ ignore:
   # rendering code exercised only when a window is drawn, so unit-testing it
   # would mostly assert that painting does not panic. Coverage therefore
   # measures the `embedded-dsp` DSP library.
-  - "crates/embedded-dsp-studio/**"
+  - "crates/embedded-dsp-*/**"
   - "**/embedded-dsp-studio/**"
 
 # Inline annotations in the PR "Files changed" tab are enabled by default, but
@@ -69,6 +72,8 @@ coverage:
         # just under 100%, not 100%.
         target: 95%
         threshold: 0.5%
+        paths:
+          - crates/embedded-dsp
     patch:
       default:
         # Deliberately lower than the project target: new code rarely starts as
@@ -76,3 +81,5 @@ coverage:
         # starts eroding from below.
         target: 60%
         threshold: 1%
+        paths:
+          - crates/embedded-dsp
