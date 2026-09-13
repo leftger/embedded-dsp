@@ -15,6 +15,8 @@ All notable changes to this project are documented in this file. The format foll
 - **liquid-dsp ports** (no C vendoring, no heap): RRC/RC/GMSK-TX pulse design, Kaiser-windowed sinc FIR, 2nd-order elliptic biquad, `AgcF32`, CRC/Hamming(7,4), `MSequence`, `PolyphaseResampF32`, `GardnerSymbolSync`, analog FM/DSB-AM/SSB.
 - **`examples/sr_spike.rs`**: measures `SquareRootKalmanFilter` against `KalmanFilter` and an `f64` reference, over two-state regimes and a state-dimension sweep at `N = 4…12`.
 - **`CostasLoop::reset()`**: restores phase, frequency estimate and arm-filter state, keeping the configured centre frequency and coefficients.
+- **Typed layout views and combinators** (`pipeline`): `View`/`ViewMut` with `FrameMajor`/`LaneMajor` markers and `as_layout` re-read the same storage under either layout with no copy and no `unsafe`, driven by `SplitViewProcess`/`SplitViewInplace` and the `ViewProcess`/`ViewInplace` forms on `Split`. Added `Parallel` (per-lane branches over tuples or arrays), `ByLane` (per-lane configuration), `Butterfly`, `Unsplit`, and `Split::stateless`/`stateful` — the `dsp-process` design, natively and with no new dependency. The comparison table's view-framework row now reads at parity.
+- **Chunk bridges** (`pipeline`): `FnSplitProcess` adapts a closure into a `SplitProcess`; `ChunkInOut<P, Q, R>` runs a chunk stage (`[X; Q] → [Y; R]`) over a block, with the chunk counts checked at compile time; `PerFrame` plus `Split::process_frames`/`inplace_frames` run the same stage once per frame of a frame-major view. The remaining `dsp-process` gaps are now the gap-tolerant `Buffer` and the scratch-buffer `Major`.
 
 ### Fixed
 
