@@ -1187,7 +1187,7 @@ pub fn fast_convolve_f32(signal: &[f32], kernel: &[f32], dst: &mut [f32]) -> Sta
 /// Streaming overlap-scrap FIR (`kiss_fastfir`): scrap at the tail of each
 /// inverse FFT so consecutive hops overlap by `n_taps - 1` samples.
 ///
-/// `NFFT` is the real FFT size. It must be a length [`cfft_f32`](crate::cfft_f32)
+/// `NFFT` is the real FFT size. It must be a length [`cfft_f32`]
 /// accepts (`<= 512` because convolution uses a stack scratch of 1024 floats),
 /// and must be `>=` the impulse length. Hop size is `NFFT - n_taps + 1`.
 ///
