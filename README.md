@@ -88,7 +88,7 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 | Dither + MASH delta-sigma | ✅ | ✅ |
 | Resampling (polyphase, fractional, half-band) | ✅ | ➖ |
 | Swept-sine stimulus | ✅ `Sweep` + `AccuOsc` + Farina `inverse_filter` | ✅ `Sweep::inverse_filter` |
-| Block/lane block processing | ✅ `DspNode`, `Split`/`SplitProcess`, `Lanes`, `Pair`, `Parallel`, `ByLane`, typed `View`/`ViewMut` (`FrameMajor`/`LaneMajor`, `as_layout`), chunk bridges (`ChunkInOut`, `PerFrame`, `FnSplitProcess`), gated `Buffer` | ✅ same ideas in `dsp-process`, plus a scratch-buffer `Major` |
+| Block/lane block processing | ✅ `DspNode`, `Split`/`SplitProcess`, `Lanes`, `Pair`, `Parallel`, `ByLane`, typed `View`/`ViewMut` (`FrameMajor`/`LaneMajor`, `as_layout`), chunk bridges (`ChunkInOut`, `PerFrame`, `FnSplitProcess`), gated `Buffer` | ✅ same ideas in `dsp-process`; the scratch-buffer `Major` is deliberately not mirrored (see note) |
 | Companding (G.711 µ/A-law) | ✅ | ❌ |
 | In-repo micro-benchmarks | ✅ | ✅ (`tests/embedded`) |
 | Python bindings | ❌ | ✅ (`py` / `numpy`) |
@@ -96,11 +96,11 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 
 Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · ❌ not provided.
 
-**Where `idsp` still leads.** Its `dsp-process` crate still has `Major`'s stage-major traversal with
-explicit scratch. It also publishes Python bindings for offline analysis and filter design.
+**Where `idsp` still leads.** It publishes Python bindings for offline analysis and filter design.
 Everything else in the table is either at parity or an `embedded-dsp` advantage — including the typed
 view framework, the chunk bridges and the gated `Buffer`, which this crate now carries natively
-rather than depending on `dsp-process` for.
+rather than depending on `dsp-process` for. The one piece deliberately not mirrored is `Major`; see
+the note below.
 
 **Note on the extra CORDIC modes.** `idsp` also advertises linear (`mul`/`div`) and hyperbolic
 rotation (`cosh_sinh`) modes. Measured against `idsp` 0.22.1, pinned by `tests/idsp_cordic_probe.rs`:
@@ -117,6 +117,29 @@ This crate implements hyperbolic **vectoring** instead: both outputs are represe
 full domains, measure to ~`6e-9`, and have no band or panicking input. Rotation mode is capped by the
 format, not the algorithm: `cosh` grows like `e^z`, so Q1.31 reaches `|z| ≈ 0.63` at full scale —
 about twice what `idsp` manages.
+
+**Note on `Major`.** `dsp-process` also ships `Major`, which traverses a composition *stage by stage*
+over a whole block, materialising the intermediate signal in explicit scratch, as opposed to the
+default `Minor` where one sample walks through every stage. It is not ported, for three reasons:
+
+- **The composition it needs does not exist here.** Upstream's `Major<P, U>` threads scratch between
+  stages of a *tuple-seq* composition (`Minor<(C0, C1), U>`). Ours is `Chain<A, B>`, homogeneous over
+  one sample type, so the type-level problem it solves — what is the intermediate type between stage
+  *i* and *i+1* — does not arise. Here it is just `&mut [T]`.
+- **The payoff needs stages with real `block` specializations.** Count ours: `Buffer` and
+  `ChunkInOut`. Everything else is a recursive per-sample stage — biquads, single-pole, PLL, AGC, DSM
+  — where sample-major is already optimal, because keeping that stage's state hot in registers is the
+  point.
+- **The capability is already reachable in one line.** `a.block(&x, &mut scratch); b.block(&scratch,
+  &mut y);` *is* stage-major traversal. What the upstream type adds is doing it automatically for a
+  composed tuple and owning the scratch — neither of which is worth a type parameter that propagates
+  through every bound and combinator.
+
+If it is ever built, the shape would be a method taking **caller-owned** scratch rather than a
+`Major<C, U>` wrapper, because scratch length is the cache dial this whole trade-off is about, and
+caller-owned scratch can live in a `static` or in DMA-visible memory. The trigger to build it is
+concrete: a stage gaining a `block` path worth exploiting, which today means the FIRs, whose stages
+are per-sample.
 
 ---
 
