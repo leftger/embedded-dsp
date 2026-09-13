@@ -101,19 +101,30 @@ pub fn ulaw_to_linear(u: u8) -> i16 {
 
 /// Encode a 16-bit linear PCM sample to a G.711 A-law byte.
 pub fn linear_to_alaw(sample: i16) -> u8 {
-    let mut pcm = sample as i32;
+    // Reduce to the 13-bit magnitude domain the G.711 segment boundaries are defined on, then
+    // fold negatives to a non-negative magnitude. Doing the shift first (as the reference encoder
+    // does) keeps `-pcm - 1` non-negative for every input. The previous formulation used
+    // `-pcm - 8` on the raw 16-bit value, which stays negative for `sample` in `-7..=-1`; that
+    // made the segment index negative and shifted `pcm >> shift` by a negative amount (a panic
+    // in debug builds, garbage in release).
+    let mut pcm = (sample as i32) >> 3;
     let mask = if pcm >= 0 {
         0xD5
     } else {
-        pcm = -pcm - 8;
+        pcm = -pcm - 1;
         0x55
     };
-    let seg = top_bit(pcm | 0xFF) - 7;
+    // Segment index = magnitude bits above the 5-bit segment header, floored at 0.
+    let seg = (top_bit(pcm) - 4).max(0);
     if seg >= 8 {
         (0x7F ^ mask) as u8
     } else {
-        let shift = if seg != 0 { seg + 3 } else { 4 };
-        let aval = (seg << 4) | ((pcm >> shift) & 0x0F);
+        let mut aval = seg << 4;
+        aval |= if seg < 2 {
+            (pcm >> 1) & 0x0F
+        } else {
+            (pcm >> seg) & 0x0F
+        };
         (aval ^ mask) as u8
     }
 }
