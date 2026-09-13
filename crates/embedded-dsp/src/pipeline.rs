@@ -957,6 +957,214 @@ where
 {
 }
 
+/// Fixed-size sample buffer, used as a delay line or as a chunk accumulator.
+///
+/// Which job it does is chosen by the [`Process`] implementation in play:
+///
+/// * `X -> X` — a delay line of `N` samples, the simplest stateful FIFO here.
+/// * `X -> Option<[X; N]>` — accumulate into chunks, yielding `Some` every `N` samples.
+/// * `Option<[X; N]> -> X` — stream a chunk back out one sample at a time; a `None` on the input
+///   means "keep draining the current chunk", so a chunk stays valid across a gap.
+///
+/// Both `Option` directions also have `block` forms that cross a gapped stream in runs rather than
+/// sample by sample.
+///
+/// # Panics
+///
+/// The streaming direction reads within the chunk that was last loaded, so a run of `None`s longer
+/// than that chunk's remaining samples is out of contract and panics. Feed a fresh `Some` before the
+/// current one is exhausted.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct Buffer<B> {
+    buffer: B,
+    idx: usize,
+}
+
+impl<X, const N: usize> Buffer<[X; N]> {
+    /// Whether the write index is at zero.
+    ///
+    /// For delay-line use this says nothing about whether the earlier samples are still defaults.
+    #[inline(always)]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.idx == 0
+    }
+}
+
+/// Delay line.
+impl<X: Copy, const N: usize> Process<X> for Buffer<[X; N]> {
+    #[inline]
+    fn process(&mut self, x: X) -> X {
+        const { assert!(N > 0) };
+        let y = core::mem::replace(&mut self.buffer[self.idx], x);
+        self.idx = (self.idx + 1) % N;
+        y
+    }
+
+    fn block(&mut self, x: &[X], y: &mut [X]) {
+        const { assert!(N > 0) };
+        debug_assert_eq!(x.len(), y.len());
+        let mut x = x;
+        let mut y = y;
+
+        // Finish the partially-filled ring first, so the bulk swaps below start at index zero.
+        if self.idx != 0 {
+            let n = x.len().min(N - self.idx);
+            let (xh, xr) = x.split_at(n);
+            let (yh, yr) = y.split_at_mut(n);
+            yh.copy_from_slice(&self.buffer[self.idx..self.idx + n]);
+            self.buffer[self.idx..self.idx + n].copy_from_slice(xh);
+            self.idx = (self.idx + n) % N;
+            x = xr;
+            y = yr;
+        }
+
+        let (chunks, tail) = x.as_chunks::<N>();
+        let (out, out_tail) = y.as_chunks_mut::<N>();
+        for (chunk, slot) in chunks.iter().zip(out) {
+            *slot = self.buffer;
+            self.buffer = *chunk;
+        }
+
+        out_tail.copy_from_slice(&self.buffer[..tail.len()]);
+        self.buffer[..tail.len()].copy_from_slice(tail);
+        self.idx = tail.len();
+    }
+}
+
+impl<X: Copy, const N: usize> Inplace<X> for Buffer<[X; N]> {
+    fn inplace(&mut self, xy: &mut [X]) {
+        const { assert!(N > 0) };
+        let mut xy = xy;
+
+        if self.idx != 0 {
+            let n = xy.len().min(N - self.idx);
+            let (head, rest) = xy.split_at_mut(n);
+            for (sample, held) in head
+                .iter_mut()
+                .zip(self.buffer[self.idx..self.idx + n].iter_mut())
+            {
+                core::mem::swap(sample, held);
+            }
+            self.idx = (self.idx + n) % N;
+            xy = rest;
+        }
+
+        let (chunks, tail) = xy.as_chunks_mut::<N>();
+        for chunk in chunks {
+            core::mem::swap(chunk, &mut self.buffer);
+        }
+
+        let n = tail.len();
+        for (sample, held) in tail.iter_mut().zip(self.buffer[..n].iter_mut()) {
+            core::mem::swap(sample, held);
+        }
+        self.idx = n;
+    }
+}
+
+/// The delay line applied to an array shape.
+impl<X: Copy, const N: usize, const M: usize> Process<[X; M]> for Buffer<[X; N]> {
+    #[inline]
+    fn process(&mut self, x: [X; M]) -> [X; M] {
+        let mut y = x;
+        <Self as Process<X>>::block(self, &x, &mut y);
+        y
+    }
+}
+
+/// Accumulate into chunks: `Some(chunk)` every `N` samples, `None` otherwise.
+impl<X: Copy, const N: usize> Process<X, Option<[X; N]>> for Buffer<[X; N]> {
+    #[inline]
+    fn process(&mut self, x: X) -> Option<[X; N]> {
+        const { assert!(N > 0) };
+        self.buffer[self.idx] = x;
+        self.idx += 1;
+        if self.idx == N {
+            self.idx = 0;
+            Some(self.buffer)
+        } else {
+            None
+        }
+    }
+
+    fn block(&mut self, x: &[X], y: &mut [Option<[X; N]>]) {
+        const { assert!(N > 0) };
+        debug_assert_eq!(x.len(), y.len());
+        let mut x = x;
+        let mut y = y;
+
+        if self.idx != 0 {
+            let n = x.len().min(N - self.idx);
+            let (xh, xr) = x.split_at(n);
+            let (yh, yr) = y.split_at_mut(n);
+            self.buffer[self.idx..self.idx + n].copy_from_slice(xh);
+            yh.fill(None);
+            self.idx += n;
+            if self.idx == N {
+                self.idx = 0;
+                yh[n - 1] = Some(self.buffer);
+            }
+            x = xr;
+            y = yr;
+        }
+
+        let (chunks, tail) = x.as_chunks::<N>();
+        let (out, out_tail) = y.as_chunks_mut::<N>();
+        for (chunk, slot) in chunks.iter().zip(out) {
+            let Some((last, rest)) = slot.split_last_mut() else {
+                unreachable!()
+            };
+            rest.fill(None);
+            *last = Some(*chunk);
+        }
+
+        self.buffer[..tail.len()].copy_from_slice(tail);
+        out_tail.fill(None);
+        self.idx = tail.len();
+    }
+}
+
+/// Stream a chunk back out: `Some(chunk)` loads the buffer, `None` keeps draining it.
+impl<X: Copy, const N: usize> Process<Option<[X; N]>, X> for Buffer<[X; N]> {
+    #[inline]
+    fn process(&mut self, x: Option<[X; N]>) -> X {
+        const { assert!(N > 0) };
+        if let Some(chunk) = x {
+            self.buffer = chunk;
+            self.idx = 0;
+        } else {
+            self.idx += 1;
+        }
+        self.buffer[self.idx]
+    }
+
+    fn block(&mut self, x: &[Option<[X; N]>], y: &mut [X]) {
+        const { assert!(N > 0) };
+        debug_assert_eq!(x.len(), y.len());
+        let mut i = 0;
+        while i < x.len() {
+            if let Some(chunk) = x[i] {
+                self.buffer = chunk;
+                self.idx = 0;
+                y[i] = self.buffer[0];
+                i += 1;
+                continue;
+            }
+
+            // Drain in one run up to the next chunk rather than per sample.
+            let run = x[i..]
+                .iter()
+                .position(Option::is_some)
+                .unwrap_or(x.len() - i);
+            y[i..i + run].copy_from_slice(&self.buffer[self.idx + 1..self.idx + 1 + run]);
+            self.idx += run;
+            i += run;
+        }
+    }
+}
+
 /// Bridges a chunk processor to a block processor.
 ///
 /// Wraps a processor that consumes one `[X; Q]` chunk and emits one `[Y; R]` chunk, exposing it over
@@ -1365,5 +1573,119 @@ mod tests {
         let mut frames = [[1.0f32, 2.0], [3.0, 4.0]];
         p.inplace_frames(ViewMut::from_frames(&mut frames));
         assert_eq!(frames, [[2.0, 1.0], [4.0, 3.0]]);
+    }
+
+    #[test]
+    fn buffer_delay_line_matches_its_sample_path() {
+        let x: [i32; 7] = [1, 2, 3, 4, 5, 6, 7];
+
+        let mut per_sample = Buffer::<[i32; 3]>::default();
+        let mut expected = [0; 7];
+        for (slot, v) in expected.iter_mut().zip(x) {
+            *slot = per_sample.process(v);
+        }
+        assert_eq!(expected, [0, 0, 0, 1, 2, 3, 4]);
+
+        // The block form has to agree with the sample-at-a-time one, ring wrap included.
+        let mut blocked = Buffer::<[i32; 3]>::default();
+        let mut got = [0; 7];
+        blocked.block(&x, &mut got);
+        assert_eq!(got, expected);
+        assert!(!blocked.is_empty());
+    }
+
+    #[test]
+    fn buffer_delay_line_inplace_matches_the_out_of_place_form() {
+        let x: [i32; 7] = [1, 2, 3, 4, 5, 6, 7];
+
+        let mut a = Buffer::<[i32; 3]>::default();
+        let mut out_of_place = [0; 7];
+        a.block(&x, &mut out_of_place);
+
+        let mut b = Buffer::<[i32; 3]>::default();
+        let mut in_place = x;
+        b.inplace(&mut in_place);
+
+        assert_eq!(in_place, out_of_place);
+    }
+
+    #[test]
+    fn buffer_applies_the_delay_to_array_shapes() {
+        // One continuous 2-sample delay across the whole stream 1,2,3,4,5,6, so the outputs are
+        // 0,0,1,2,3,4 read off three at a time.
+        let mut b = Buffer::<[i32; 2]>::default();
+        assert_eq!(b.process([1, 2, 3]), [0, 0, 1]);
+        assert_eq!(b.process([4, 5, 6]), [2, 3, 4]);
+    }
+
+    #[test]
+    fn buffer_collects_chunks_and_streams_them_back_with_gaps() {
+        // Collect: one `Some` every N samples, `None` in between.
+        let mut collect = Buffer::<[i32; 2]>::default();
+        let mut y = [None; 5];
+        collect.block(&[1, 2, 3, 4, 5], &mut y);
+        assert_eq!(y, [None, Some([1, 2]), None, Some([3, 4]), None]);
+
+        // Stream: a `Some` loads a chunk, `None` keeps draining it across the gap.
+        let mut stream = Buffer::<[i32; 2]>::default();
+        let mut z = [0; 5];
+        stream.block(&[Some([1, 2]), None, Some([3, 4]), None, Some([5, 6])], &mut z);
+        assert_eq!(z, [1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn buffer_option_paths_agree_between_process_and_block() {
+        let mut per_sample = Buffer::<[i32; 2]>::default();
+        let collected: [Option<[i32; 2]>; 4] = core::array::from_fn(|i| per_sample.process(i as i32));
+        assert_eq!(collected, [None, Some([0, 1]), None, Some([2, 3])]);
+
+        let mut per_sample = Buffer::<[i32; 2]>::default();
+        let inputs = [Some([1, 2]), None, Some([3, 4]), None];
+        let streamed: [i32; 4] = core::array::from_fn(|i| per_sample.process(inputs[i]));
+        assert_eq!(streamed, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn buffer_delay_agrees_across_repeated_calls() {
+        // Two calls, so the second has to re-enter at a non-zero index: the partial-ring head path
+        // in both `block` and `inplace`.
+        let first: [i32; 5] = [1, 2, 3, 4, 5];
+        let second: [i32; 5] = [6, 7, 8, 9, 10];
+
+        let mut reference = Buffer::<[i32; 3]>::default();
+        let mut expected = [0; 10];
+        for (slot, v) in expected.iter_mut().zip(first.into_iter().chain(second)) {
+            *slot = reference.process(v);
+        }
+
+        let mut blocked = Buffer::<[i32; 3]>::default();
+        let mut got = [0; 10];
+        blocked.block(&first, &mut got[..5]);
+        blocked.block(&second, &mut got[5..]);
+        assert_eq!(got, expected);
+
+        let mut in_place = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let mut ip = Buffer::<[i32; 3]>::default();
+        ip.inplace(&mut in_place[..5]);
+        ip.inplace(&mut in_place[5..]);
+        assert_eq!(in_place, expected);
+    }
+
+    #[test]
+    fn buffer_collect_agrees_across_repeated_calls() {
+        let first: [i32; 5] = [1, 2, 3, 4, 5];
+        let second: [i32; 5] = [6, 7, 8, 9, 10];
+
+        let mut reference = Buffer::<[i32; 3]>::default();
+        let mut expected = [None; 10];
+        for (slot, v) in expected.iter_mut().zip(first.into_iter().chain(second)) {
+            *slot = reference.process(v);
+        }
+
+        let mut collected = Buffer::<[i32; 3]>::default();
+        let mut got = [None; 10];
+        collected.block(&first, &mut got[..5]);
+        collected.block(&second, &mut got[5..]);
+        assert_eq!(got, expected);
     }
 }
