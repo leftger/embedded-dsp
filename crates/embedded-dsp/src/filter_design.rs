@@ -1,4 +1,4 @@
-//! Filter design routines for calculating biquad IIR coefficients (Low-pass, High-pass, Band-pass, Notch, Peaking, All-pass, Butterworth).
+//! Filter design routines for calculating biquad IIR coefficients (Low-pass, High-pass, Band-pass, Notch, Peaking, All-pass, Butterworth), plus RBJ Audio EQ Cookbook helpers that convert octave bandwidth ([`biquad_q_from_bw`]) and shelf slope ([`biquad_q_from_shelf_slope`]) into the `q` those designers take.
 
 #[allow(unused_imports)]
 use crate::math::FloatMath;
@@ -42,7 +42,7 @@ pub fn biquad_highpass_coeffs(cutoff_freq: f32, sample_rate: f32, q: f32) -> [f3
     [b0, b1, b2, a1, a2]
 }
 
-/// Computes Direct Form I Biquad coefficients `[b0, b1, b2, a1, a2]` for a Band-Pass Filter (constant skirt gain).
+/// Computes Direct Form I Biquad coefficients `[b0, b1, b2, a1, a2]` for a Band-Pass Filter (constant 0 dB peak gain).
 pub fn biquad_bandpass_coeffs(center_freq: f32, sample_rate: f32, q: f32) -> [f32; 5] {
     let w0 = 2.0 * core::f32::consts::PI * center_freq / sample_rate;
     let cos_w0 = w0.cos();
@@ -164,6 +164,48 @@ pub fn biquad_highshelf_coeffs(cutoff_freq: f32, sample_rate: f32, q: f32, gain_
     let a2 = -((a + 1.0) - (a - 1.0) * cos_w0 - two_sqrt_a_alpha) / a0;
 
     [b0, b1, b2, a1, a2]
+}
+
+// --- RBJ Audio EQ Cookbook parameter conversions ---
+
+/// Converts an octave bandwidth `bw_octaves` to the `q` accepted by the band-pass, notch, and
+/// peaking-EQ designers ([`biquad_bandpass_coeffs`], [`biquad_bandpass_skirt_coeffs`],
+/// [`biquad_notch_coeffs`], [`biquad_peaking_coeffs`]).
+///
+/// `bw_octaves` is the -3 dB bandwidth for the band-pass and notch types, and the bandwidth
+/// between the half-gain (`dBgain/2`) frequencies for a peaking EQ (RBJ Audio EQ Cookbook
+/// semantics).
+///
+/// The conversion uses the bilinear-transform-corrected, frequency-dependent relation
+/// `1/Q = 2 sinh( ln(2)/2 * BW * w0 / sin(w0) )`, so a band keeps its octave width as
+/// `center_freq` approaches Nyquist. The uncorrected analog form `1/Q = 2 sinh(ln(2)/2 * BW)`
+/// over-states the width there.
+///
+/// `center_freq` is clamped inside `(0, sample_rate/2)` and `bw_octaves` to a positive value,
+/// so the result is always finite.
+pub fn biquad_q_from_bw(bw_octaves: f32, center_freq: f32, sample_rate: f32) -> f32 {
+    let f_norm = (center_freq / sample_rate).clamp(1e-6, 0.499);
+    let w0 = 2.0 * core::f32::consts::PI * f_norm;
+    let bw = bw_octaves.clamp(1e-6, 32.0);
+
+    // `2 sinh(k)`, with `k` capped so `exp` cannot overflow on out-of-domain bandwidths.
+    let k = (0.5 * core::f32::consts::LN_2 * bw * w0 / w0.sin()).min(20.0);
+    let two_sinh = k.exp() - (-k).exp();
+    1.0 / two_sinh
+}
+
+/// Converts a shelving-filter slope `shelf_slope` (the `S` of the RBJ Audio EQ Cookbook, where
+/// `S = 1` is the steepest slope that remains monotonic) to the `q` accepted by
+/// [`biquad_lowshelf_coeffs`] and [`biquad_highshelf_coeffs`].
+///
+/// The relation is `1/Q = sqrt( (A + 1/A)(1/S - 1) + 2 )` with `A = 10^(gain_db/40)`, so `S = 1`
+/// gives `Q = 1/sqrt(2)`; `gain_db` must match the shelf's own gain. The radicand is clamped so
+/// the result stays finite for slopes beyond the monotonic range.
+pub fn biquad_q_from_shelf_slope(shelf_slope: f32, gain_db: f32) -> f32 {
+    let a = (10.0f32).powf(gain_db / 40.0);
+    let s = shelf_slope.max(1e-6);
+    let radicand = ((a + 1.0 / a) * (1.0 / s - 1.0) + 2.0).max(1e-6);
+    1.0 / radicand.sqrt()
 }
 
 /// Calculates multi-stage Butterworth Low-Pass filter biquad coefficients.
