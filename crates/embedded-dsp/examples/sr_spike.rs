@@ -1,288 +1,459 @@
-//! Throwaway spike: does square-root factoring actually beat the plain covariance form in f32?
+//! Diagnostics: does square-root factoring actually beat the plain covariance form in f32?
 //!
-//! Settles one question before committing to a composed factored filter:
+//! Compares three filters on identical models and measurements:
 //!
-//! * `KalmanFilter<N, M>` — plain form, simple `P⁺ = (I − KH)P`.
-//! * `SquareRootKalmanFilter<N, M>` — stores a Cholesky factor, re-factorizes each step
-//!   (`P = S Sᵀ` is PSD by construction, but the arithmetic is still done on P).
-//! * an `f64` simple-form reference, so "error" means deviation from the exact arithmetic that
-//!   an f32 filter is trying to emulate.
+//! * `KalmanFilter<N, M>` — plain form, `P⁺ = (I − KH)P`.
+//! * `SquareRootKalmanFilter<N, M>` — stores a Cholesky factor and re-factorizes each step, so
+//!   `P = S Sᵀ` is positive semi-definite by construction, but the arithmetic still runs on `P`
+//!   (see the type's documentation).
+//! * an `f64` reference, so "error" means deviation from the arithmetic an f32 filter is trying
+//!   to emulate.
 //!
-//! Metrics per run: asymmetry of `P`, the smaller eigenvalue of `P` (negative ⇒ positive
-//! definiteness lost), relative Frobenius distance from the f64 `P`, and the state error against
-//! the known ground-truth trajectory.
+//! Reported per run: the smallest diagonal of the covariance's Cholesky factor (a scale indicator
+//! for the least-determined direction), whether that factor exists at all — i.e. whether `P` is
+//! still positive definite — the asymmetry of `P`, the relative Frobenius distance from the `f64`
+//! covariance, and the worst state error against the known trajectory.
+//!
+//! The second half sweeps the state dimension with a weakly observable model: an integrator chain
+//! of order `N` observed only at position, which is where the plain form's `I − KH` cancellation
+//! has the most room to compound.
+//!
+//! ```sh
+//! cargo run -p embedded-dsp --example sr_spike --release
+//! ```
 
 use embedded_dsp::kalman::{KalmanFilter, SquareRootKalmanFilter};
 
-type M2 = [[f64; 2]; 2];
+// ─────────────────────────────────────────────────────────────────────────────
+// f64 helpers (independent of the crate, so they can serve as a reference)
+// ─────────────────────────────────────────────────────────────────────────────
 
-fn chol(p: M2) -> M2 {
-    let l00 = p[0][0].max(0.0).sqrt();
-    let l10 = if l00 > 0.0 { p[1][0] / l00 } else { 0.0 };
-    let l11 = (p[1][1] - l10 * l10).max(0.0).sqrt();
-    [[l00, 0.0], [l10, l11]]
+type Mat<const N: usize> = [[f64; N]; N];
+
+fn zeros<const N: usize>() -> Mat<N> {
+    [[0.0; N]; N]
 }
 
-fn to_f32(m: M2) -> [[f32; 2]; 2] {
-    [
-        [m[0][0] as f32, m[0][1] as f32],
-        [m[1][0] as f32, m[1][1] as f32],
-    ]
+/// `v` on the diagonal.
+fn diag<const N: usize>(v: f64) -> Mat<N> {
+    let mut m = zeros::<N>();
+    for (i, row) in m.iter_mut().enumerate() {
+        row[i] = v;
+    }
+    m
 }
 
-/// Smaller eigenvalue of a symmetric 2×2 matrix.
-fn min_eig_f32(p: [[f32; 2]; 2]) -> f64 {
-    let (a, b, d) = (p[0][0] as f64, p[0][1] as f64, p[1][1] as f64);
-    let tr = a + d;
-    let disc = (tr * tr - 4.0 * (a * d - b * b)).max(0.0).sqrt();
-    (tr - disc) / 2.0
+/// Integrator chain of order `N` for `dt = 1`: `F[i][j] = 1 / (j − i)!` for `j ≥ i`.
+fn chain_f<const N: usize>() -> Mat<N> {
+    let mut f = zeros::<N>();
+    for (i, row) in f.iter_mut().enumerate() {
+        let mut factorial = 1.0f64;
+        for (j, cell) in row.iter_mut().enumerate().skip(i) {
+            let d = j - i;
+            if d > 0 {
+                factorial *= d as f64;
+            }
+            *cell = 1.0 / factorial;
+        }
+    }
+    f
 }
 
-fn asym_f32(p: [[f32; 2]; 2]) -> f64 {
-    (p[0][1] as f64 - p[1][0] as f64).abs()
+fn mat_mul<const N: usize>(a: &Mat<N>, b: &Mat<N>) -> Mat<N> {
+    let mut out = zeros::<N>();
+    for i in 0..N {
+        for j in 0..N {
+            let mut acc = 0.0;
+            for k in 0..N {
+                acc += a[i][k] * b[k][j];
+            }
+            out[i][j] = acc;
+        }
+    }
+    out
 }
 
-fn frob_diff(a: [[f32; 2]; 2], b: M2) -> f64 {
+/// `a · bᵀ`.
+fn mul_bt<const N: usize>(a: &Mat<N>, b: &Mat<N>) -> Mat<N> {
+    let mut out = zeros::<N>();
+    for i in 0..N {
+        for j in 0..N {
+            let mut acc = 0.0;
+            for k in 0..N {
+                acc += a[i][k] * b[j][k];
+            }
+            out[i][j] = acc;
+        }
+    }
+    out
+}
+
+/// Lower Cholesky factor with **no** floor: the flag is `false` when `a` is not positive definite,
+/// which is the property we actually want to measure.
+fn chol_lower<const N: usize>(a: &Mat<N>) -> (Mat<N>, bool) {
+    let mut l = zeros::<N>();
+    for i in 0..N {
+        for j in 0..=i {
+            let mut sum = a[i][j];
+            for k in 0..j {
+                sum -= l[i][k] * l[j][k];
+            }
+            if i == j {
+                // A NaN pivot counts as "not positive definite" too.
+                if sum <= 0.0 || sum.is_nan() {
+                    return (l, false);
+                }
+                l[i][j] = sum.sqrt();
+            } else {
+                if l[j][j] == 0.0 {
+                    return (l, false);
+                }
+                l[i][j] = sum / l[j][j];
+            }
+        }
+    }
+    (l, true)
+}
+
+fn min_diag<const N: usize>(m: &Mat<N>) -> f64 {
+    (0..N).map(|i| m[i][i]).fold(f64::INFINITY, f64::min)
+}
+
+fn frob<const N: usize>(m: &Mat<N>) -> f64 {
     let mut s = 0.0;
-    for i in 0..2 {
-        for j in 0..2 {
-            let d = a[i][j] as f64 - b[i][j];
+    for row in m {
+        for v in row {
+            s += v * v;
+        }
+    }
+    s.sqrt()
+}
+
+fn rel_frob<const N: usize>(a: &Mat<N>, b: &Mat<N>) -> f64 {
+    let mut s = 0.0;
+    for i in 0..N {
+        for j in 0..N {
+            let d = a[i][j] - b[i][j];
             s += d * d;
         }
     }
-    s.sqrt()
+    s.sqrt() / frob(b).max(1e-300)
 }
 
-fn frob(b: M2) -> f64 {
-    let mut s = 0.0;
-    for i in 0..2 {
-        for j in 0..2 {
-            s += b[i][j] * b[i][j];
+fn asym<const N: usize>(m: &Mat<N>) -> f64 {
+    let mut worst = 0.0f64;
+    for i in 0..N {
+        for j in (i + 1)..N {
+            worst = worst.max((m[i][j] - m[j][i]).abs());
         }
     }
-    s.sqrt()
+    worst
 }
 
-struct Scenario {
+fn to_f32<const N: usize>(m: &Mat<N>) -> [[f32; N]; N] {
+    let mut out = [[0.0f32; N]; N];
+    for i in 0..N {
+        for j in 0..N {
+            out[i][j] = m[i][j] as f32;
+        }
+    }
+    out
+}
+
+fn to_f64<const N: usize>(m: &[[f32; N]; N]) -> Mat<N> {
+    let mut out = zeros::<N>();
+    for i in 0..N {
+        for j in 0..N {
+            out[i][j] = m[i][j] as f64;
+        }
+    }
+    out
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The three filters
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct Scenario<const N: usize> {
     name: &'static str,
     steps: usize,
-    f: M2,
-    q: M2,
+    f: Mat<N>,
+    q: Mat<N>,
     r: f64,
-    p0: M2,
+    p0: Mat<N>,
+    /// Measure every `n`-th step; 1 means every step.
+    measure_every: usize,
 }
 
-/// Plain f32 filter: `x ← F x`, `P ← F P Fᵀ + Q`, then the simple-form measurement update.
-fn run_plain(s: &Scenario) -> ([[f32; 2]; 2], [f32; 2], bool) {
-    let mut kf = KalmanFilter::<2, 1>::new([0.0, 1.0], to_f32(s.p0), to_f32(s.q), [[s.r as f32]]);
-    let f = to_f32(s.f);
-    let h = [[1.0f32, 0.0]];
+/// Position of the ground-truth trajectory: constant velocity from the origin.
+fn truth_position(step: usize) -> f64 {
+    step as f64
+}
+
+fn measurement_row<const N: usize>() -> [[f32; N]; 1] {
+    let mut h = [[0.0f32; N]; 1];
+    h[0][0] = 1.0;
+    h
+}
+
+fn run_plain<const N: usize>(s: &Scenario<N>) -> (Mat<N>, [f64; N], bool) {
+    let x0 = [0.0f32; N];
+    let mut kf = KalmanFilter::<N, 1>::new(x0, to_f32(&s.p0), to_f32(&s.q), [[s.r as f32]]);
+    let f = to_f32(&s.f);
+    let h = measurement_row::<N>();
 
     for step in 1..=s.steps {
         kf.predict(&f);
-        let z = [step as f32]; // constant velocity from x0 = [0, 1]
-        if kf.update(&h, &z) != embedded_dsp::Status::Success {
-            return (kf.p, kf.x, false);
+        if step % s.measure_every == 0 {
+            let z = [truth_position(step) as f32];
+            if kf.update(&h, &z) != embedded_dsp::Status::Success {
+                return (to_f64(&kf.p), kf.x.map(f64::from), false);
+            }
         }
         if !kf.p[0][0].is_finite() || !kf.x[0].is_finite() {
-            return (kf.p, kf.x, false);
+            return (to_f64(&kf.p), kf.x.map(f64::from), false);
         }
     }
-    (kf.p, kf.x, true)
+    (to_f64(&kf.p), kf.x.map(f64::from), true)
 }
 
-fn run_sr(s: &Scenario) -> ([[f32; 2]; 2], [f32; 2], bool) {
-    let mut sr = SquareRootKalmanFilter::<2, 1>::new(
-        [0.0, 1.0],
-        to_f32(chol(s.p0)),
-        to_f32(s.f),
-        to_f32(chol(s.q)),
-        [[1.0f32, 0.0]],
-        [[(s.r).max(0.0).sqrt() as f32]],
+fn run_sr<const N: usize>(s: &Scenario<N>) -> (Mat<N>, [f64; N], bool) {
+    let (s0, ok0) = chol_lower(&s.p0);
+    let (s_q, ok_q) = chol_lower(&s.q);
+    if !ok0 || !ok_q {
+        return (s.p0, [0.0; N], false);
+    }
+
+    let mut sr = SquareRootKalmanFilter::<N, 1>::new(
+        [0.0f32; N],
+        to_f32(&s0),
+        to_f32(&s.f),
+        to_f32(&s_q),
+        measurement_row::<N>(),
+        [[s.r.max(0.0).sqrt() as f32]],
     );
 
     for step in 1..=s.steps {
         sr.predict();
-        let z = [step as f32];
-        if sr.update(&z) != embedded_dsp::Status::Success {
-            return (sr.covariance(), sr.x, false);
+        if step % s.measure_every == 0 {
+            let z = [truth_position(step) as f32];
+            if sr.update(&z) != embedded_dsp::Status::Success {
+                return (to_f64(&sr.covariance()), sr.x.map(f64::from), false);
+            }
         }
         if !sr.s[0][0].is_finite() {
-            return (sr.covariance(), sr.x, false);
+            return (to_f64(&sr.covariance()), sr.x.map(f64::from), false);
         }
     }
-    (sr.covariance(), sr.x, true)
+    (to_f64(&sr.covariance()), sr.x.map(f64::from), true)
 }
 
-/// f64 reference, same update form as the plain filter.
-fn run_reference(s: &Scenario) -> (M2, [f64; 2]) {
-    let (mut x, mut p) = ([0.0f64, 1.0], s.p0);
-    let f = s.f;
+/// f64 reference using the same simple-form update as the plain filter.
+fn run_reference<const N: usize>(s: &Scenario<N>) -> (Mat<N>, [f64; N]) {
+    let mut x = [0.0f64; N];
+    let mut p = s.p0;
+    let mut h = [0.0f64; N];
+    h[0] = 1.0;
 
     for step in 1..=s.steps {
-        // x ← F x, P ← F P Fᵀ + Q
-        let x1 = f[0][0] * x[0] + f[0][1] * x[1];
-        let x2 = f[1][0] * x[0] + f[1][1] * x[1];
-        x = [x1, x2];
-        let fp = [
-            [
-                f[0][0] * p[0][0] + f[0][1] * p[1][0],
-                f[0][0] * p[0][1] + f[0][1] * p[1][1],
-            ],
-            [
-                f[1][0] * p[0][0] + f[1][1] * p[1][0],
-                f[1][0] * p[0][1] + f[1][1] * p[1][1],
-            ],
-        ];
-        p = [
-            [
-                fp[0][0] * f[0][0] + fp[0][1] * f[0][1] + s.q[0][0],
-                fp[0][0] * f[1][0] + fp[0][1] * f[1][1] + s.q[0][1],
-            ],
-            [
-                fp[1][0] * f[0][0] + fp[1][1] * f[0][1] + s.q[1][0],
-                fp[1][0] * f[1][0] + fp[1][1] * f[1][1] + s.q[1][1],
-            ],
-        ];
+        // x ← F x
+        let mut next = [0.0f64; N];
+        for (i, n) in next.iter_mut().enumerate() {
+            let mut acc = 0.0;
+            for k in 0..N {
+                acc += s.f[i][k] * x[k];
+            }
+            *n = acc;
+        }
+        x = next;
 
-        // Scalar update with H = [1, 0].
-        let h = [1.0f64, 0.0];
-        let ph = [
-            p[0][0] * h[0] + p[0][1] * h[1],
-            p[1][0] * h[0] + p[1][1] * h[1],
-        ];
-        let var = h[0] * ph[0] + h[1] * ph[1] + s.r;
-        let k = [ph[0] / var, ph[1] / var];
-        let y = step as f64 - x[0];
-        x = [x[0] + k[0] * y, x[1] + k[1] * y];
+        // P ← F P Fᵀ + Q
+        let fp = mat_mul(&s.f, &p);
+        p = mul_bt(&fp, &s.f);
+        for i in 0..N {
+            for j in 0..N {
+                p[i][j] += s.q[i][j];
+            }
+        }
 
-        let kh = [[k[0] * h[0], k[0] * h[1]], [k[1] * h[0], k[1] * h[1]]];
-        let ikh = [[1.0 - kh[0][0], -kh[0][1]], [-kh[1][0], 1.0 - kh[1][1]]];
-        p = [
-            [
-                ikh[0][0] * p[0][0] + ikh[0][1] * p[1][0],
-                ikh[0][0] * p[0][1] + ikh[0][1] * p[1][1],
-            ],
-            [
-                ikh[1][0] * p[0][0] + ikh[1][1] * p[1][0],
-                ikh[1][0] * p[0][1] + ikh[1][1] * p[1][1],
-            ],
-        ];
+        if step % s.measure_every == 0 {
+            let z = truth_position(step);
+
+            // P Hᵀ (column vector), S = H P Hᵀ + R
+            let mut ph = [0.0f64; N];
+            for (i, v) in ph.iter_mut().enumerate() {
+                let mut acc = 0.0;
+                for k in 0..N {
+                    acc += p[i][k] * h[k];
+                }
+                *v = acc;
+            }
+            let mut var = s.r;
+            for k in 0..N {
+                var += h[k] * ph[k];
+            }
+
+            let innovation = z - x[0];
+            let gain: [f64; N] = core::array::from_fn(|i| ph[i] / var);
+            for i in 0..N {
+                x[i] += gain[i] * innovation;
+            }
+
+            // P ← (I − K H) P
+            let mut next_p = zeros::<N>();
+            for i in 0..N {
+                for j in 0..N {
+                    let mut acc = 0.0;
+                    for t in 0..N {
+                        let mut ikh = -gain[i] * h[t];
+                        if i == t {
+                            ikh += 1.0;
+                        }
+                        acc += ikh * p[t][j];
+                    }
+                    next_p[i][j] = acc;
+                }
+            }
+            p = next_p;
+        }
     }
     (p, x)
 }
 
-fn main() {
-    let scenarios = [
-        Scenario {
-            name: "benign: R ~ P0",
-            steps: 20_000,
-            f: [[1.0, 1.0], [0.0, 1.0]],
-            q: [[1e-6, 0.0], [0.0, 1e-6]],
-            r: 1e-2,
-            p0: [[1.0, 0.0], [0.0, 1.0]],
-        },
-        Scenario {
-            name: "tight R << P0",
-            steps: 20_000,
-            f: [[1.0, 1.0], [0.0, 1.0]],
-            q: [[1e-12, 0.0], [0.0, 1e-12]],
-            r: 1e-8,
-            p0: [[1.0, 0.0], [0.0, 1.0]],
-        },
-        Scenario {
-            name: "anisotropic P0 (1e12)",
-            steps: 20_000,
-            f: [[1.0, 1.0], [0.0, 1.0]],
-            q: [[1e-10, 0.0], [0.0, 1e-10]],
-            r: 1e-6,
-            p0: [[1e6, 0.0], [0.0, 1e-6]],
-        },
-        Scenario {
-            name: "R = 0 (deterministic)",
-            steps: 2_000,
-            f: [[1.0, 1.0], [0.0, 1.0]],
-            q: [[1e-9, 0.0], [0.0, 1e-9]],
-            r: 0.0,
-            p0: [[1.0, 0.0], [0.0, 1.0]],
-        },
-        Scenario {
-            name: "long run, tiny Q and R",
-            steps: 200_000,
-            f: [[1.0, 1.0], [0.0, 1.0]],
-            q: [[1e-14, 0.0], [0.0, 1e-14]],
-            r: 1e-10,
-            p0: [[1.0, 0.0], [0.0, 1.0]],
-        },
-        Scenario {
-            name: "huge Q, tiny R",
-            steps: 20_000,
-            f: [[1.0, 1.0], [0.0, 1.0]],
-            q: [[1.0, 0.0], [0.0, 1.0]],
-            r: 1e-12,
-            p0: [[1.0, 0.0], [0.0, 1.0]],
-        },
-        // Diagnostics for the Cholesky diagonal floor (`max(1e-12)` in the crate): the same
-        // long-run shape, with the steady-state covariance sitting either side of 1e-12.
-        Scenario {
-            name: "long run, P well above floor",
-            steps: 200_000,
-            f: [[1.0, 1.0], [0.0, 1.0]],
-            q: [[1e-10, 0.0], [0.0, 1e-10]],
-            r: 1e-8,
-            p0: [[1.0, 0.0], [0.0, 1.0]],
-        },
-        Scenario {
-            name: "long run, P just above floor",
-            steps: 200_000,
-            f: [[1.0, 1.0], [0.0, 1.0]],
-            q: [[1e-12, 0.0], [0.0, 1e-12]],
-            r: 1e-10,
-            p0: [[1.0, 0.0], [0.0, 1.0]],
-        },
-    ];
+fn report<const N: usize>(s: &Scenario<N>) {
+    let (pref, xref) = run_reference(s);
+    let (pref_chol, pref_pd) = chol_lower(&pref);
+    let (pp, xp, okp) = run_plain(s);
+    let (ps, xs, oks) = run_sr(s);
+    let (pp_chol, pp_pd) = chol_lower(&pp);
+    let (ps_chol, ps_pd) = chol_lower(&ps);
+
+    let state_err = |x: &[f64; N]| {
+        (0..N)
+            .map(|i| (x[i] - xref[i]).abs())
+            .fold(0.0f64, f64::max)
+    };
 
     println!(
-        "{:<30} {:>7} {:>11} {:>9} {:>10} {:>10} {:>11} {:>6}",
-        "scenario", "filter", "minEig", "minEig/ref", "asym", "relErrP", "stateErr", "ok"
+        "{:<26} N={:<3} every={:<3} steps={}",
+        s.name, N, s.measure_every, s.steps
     );
+    println!(
+        "  {:<6} {:>11} {:>4} {:>10} {:>10} {:>11} {:>5}",
+        "filter", "minDiag(L)", "PD", "asym", "relErrP", "stateErr", "ok"
+    );
+    println!(
+        "  {:<6} {:>11.3e} {:>4} {:>10.3e} {:>10.3e} {:>11.3e} {:>5}",
+        "plain",
+        min_diag(&pp_chol),
+        pp_pd,
+        asym(&pp),
+        rel_frob(&pp, &pref),
+        state_err(&xp),
+        okp
+    );
+    println!(
+        "  {:<6} {:>11.3e} {:>4} {:>10.3e} {:>10.3e} {:>11.3e} {:>5}",
+        "sqrt",
+        min_diag(&ps_chol),
+        ps_pd,
+        asym(&ps),
+        rel_frob(&ps, &pref),
+        state_err(&xs),
+        oks
+    );
+    println!(
+        "  {:<6} {:>11.3e} {:>4} {:>10.3e} {:>10.3e} {:>11.3e} {:>5}",
+        "f64 ref",
+        min_diag(&pref_chol),
+        pref_pd,
+        0.0,
+        0.0,
+        0.0,
+        true
+    );
+    println!();
+}
 
-    for s in &scenarios {
-        let (pref, xref) = run_reference(s);
-        let scale = frob(pref).max(1e-300);
-        let mref = min_eig_f32(to_f32(pref));
-
-        let (pp, xp, okp) = run_plain(s);
-        let (ps, xs, oks) = run_sr(s);
-
-        let ratio = |m: f64| if mref.abs() > 0.0 { m / mref } else { f64::NAN };
-
-        println!(
-            "{:<30} {:>7} {:>11.3e} {:>9.3} {:>10.3e} {:>10.3e} {:>11.3e} {:>6}",
-            s.name,
-            "plain",
-            min_eig_f32(pp),
-            ratio(min_eig_f32(pp)),
-            asym_f32(pp),
-            frob_diff(pp, pref) / scale,
-            (xp[0] as f64 - xref[0]).abs(),
-            okp
-        );
-        println!(
-            "{:<30} {:>7} {:>11.3e} {:>9.3} {:>10.3e} {:>10.3e} {:>11.3e} {:>6}",
-            "",
-            "sqrt",
-            min_eig_f32(ps),
-            ratio(min_eig_f32(ps)),
-            asym_f32(ps),
-            frob_diff(ps, pref) / scale,
-            (xs[0] as f64 - xref[0]).abs(),
-            oks
-        );
-        println!(
-            "{:<30} {:>7} {:>11.3e} {:>9.3} {:>10.3e} {:>10.3e} {:>11.3e} {:>6}",
-            "", "f64 ref", mref, 1.0, 0.0, 0.0, 0.0, true
-        );
-        println!();
+/// An `N`-state integrator chain observed only at position, which leaves the higher states weakly
+/// observable — the regime where `I − KH` cancellation has the most room to compound.
+fn chain<const N: usize>(
+    name: &'static str,
+    steps: usize,
+    q: f64,
+    r: f64,
+    every: usize,
+) -> Scenario<N> {
+    Scenario {
+        name,
+        steps,
+        f: chain_f::<N>(),
+        q: diag::<N>(q),
+        r,
+        p0: diag::<N>(1.0),
+        measure_every: every,
     }
+}
+
+/// Two-state constant-velocity model, as used for the original sweep.
+fn two_state(name: &'static str, steps: usize, q: f64, r: f64, p0: [[f64; 2]; 2]) -> Scenario<2> {
+    Scenario {
+        name,
+        steps,
+        f: [[1.0, 1.0], [0.0, 1.0]],
+        q: diag::<2>(q),
+        r,
+        p0,
+        measure_every: 1,
+    }
+}
+
+fn main() {
+    println!("=== original 2-state regimes ===\n");
+
+    let eye: [[f64; 2]; 2] = [[1.0, 0.0], [0.0, 1.0]];
+    report(&two_state("benign: R ~ P0", 20_000, 1e-6, 1e-2, eye));
+    report(&two_state("tight R << P0", 20_000, 1e-12, 1e-8, eye));
+    report(&two_state(
+        "anisotropic P0 (1e12)",
+        20_000,
+        1e-10,
+        1e-6,
+        [[1e6, 0.0], [0.0, 1e-6]],
+    ));
+    report(&two_state("R = 0 (deterministic)", 2_000, 1e-9, 0.0, eye));
+    report(&two_state(
+        "long run, tiny Q and R",
+        200_000,
+        1e-14,
+        1e-10,
+        eye,
+    ));
+    report(&two_state("huge Q, tiny R", 20_000, 1.0, 1e-12, eye));
+    report(&two_state(
+        "long run, P above floor",
+        200_000,
+        1e-10,
+        1e-8,
+        eye,
+    ));
+    report(&two_state(
+        "long run, P just above floor",
+        200_000,
+        1e-12,
+        1e-10,
+        eye,
+    ));
+
+    println!("=== state-dimension sweep: weakly observable integrator chain ===\n");
+
+    report(&chain::<4>("chain N=4", 100_000, 1e-10, 1e-8, 1));
+    report(&chain::<8>("chain N=8", 50_000, 1e-10, 1e-8, 1));
+    report(&chain::<16>("chain N=16", 10_000, 1e-10, 1e-8, 1));
+
+    println!("=== sparse measurements (weaker observability still) ===\n");
+
+    report(&chain::<4>("chain N=4, sparse", 100_000, 1e-12, 1e-10, 8));
+    report(&chain::<8>("chain N=8, sparse", 50_000, 1e-12, 1e-10, 4));
+    report(&chain::<16>("chain N=16, sparse", 10_000, 1e-12, 1e-10, 4));
 }
