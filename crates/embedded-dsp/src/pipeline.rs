@@ -933,6 +933,152 @@ where
     }
 }
 
+/// Adapts a closure into a [`SplitProcess`], convenient for short stages and tests.
+///
+/// The closure receives the state and one input sample: `Fn(&mut S, X) -> Y`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FnSplitProcess<F>(pub F);
+
+impl<F, X, Y, S> SplitProcess<X, Y, S> for FnSplitProcess<F>
+where
+    F: Fn(&mut S, X) -> Y,
+    X: Copy,
+{
+    #[inline(always)]
+    fn process(&self, state: &mut S, x: X) -> Y {
+        (self.0)(state, x)
+    }
+}
+
+impl<F, X, S> SplitInplace<X, S> for FnSplitProcess<F>
+where
+    X: Copy,
+    Self: SplitProcess<X, X, S>,
+{
+}
+
+/// Bridges a chunk processor to a block processor.
+///
+/// Wraps a processor that consumes one `[X; Q]` chunk and emits one `[Y; R]` chunk, exposing it over
+/// a block of `[X; N]` into `[Y; M]`, where `N` and `M` hold the same whole number of chunks. A
+/// chunk is the unit of work, so a rate-changing stage sees whole chunks rather than a partial one.
+///
+/// The chunk counts are compile-time checks: the build fails if `Q` or `R` is zero, if `N` is not a
+/// multiple of `Q`, or if `N / Q != M / R`. Pair with [`PerFrame`] to run the same stage once per
+/// frame of a frame-major view.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ChunkInOut<P, const Q: usize, const R: usize>(pub P);
+
+impl<C, S, X, Y, const Q: usize, const N: usize, const R: usize, const M: usize>
+    SplitProcess<[X; N], [Y; M], S> for ChunkInOut<C, Q, R>
+where
+    X: Copy,
+    Y: Default + Copy,
+    C: SplitProcess<[X; Q], [Y; R], S>,
+{
+    #[inline]
+    fn process(&self, state: &mut S, x: [X; N]) -> [Y; M] {
+        const { assert!(Q > 0) };
+        const { assert!(R > 0) };
+        const { assert!(N.is_multiple_of(Q)) };
+        const { assert!(M.is_multiple_of(R)) };
+        const { assert!(N / Q == M / R) };
+
+        let mut y = [Y::default(); M];
+        let (out, []) = y.as_chunks_mut::<R>() else {
+            unreachable!()
+        };
+        let (chunks, []) = x.as_chunks::<Q>() else {
+            unreachable!()
+        };
+        for (chunk, slot) in chunks.iter().zip(out) {
+            *slot = self.0.process(state, *chunk);
+        }
+        y
+    }
+
+    #[inline]
+    fn block(&self, state: &mut S, x: &[[X; N]], y: &mut [[Y; M]]) {
+        const { assert!(Q > 0) };
+        const { assert!(R > 0) };
+        const { assert!(N.is_multiple_of(Q)) };
+        const { assert!(M.is_multiple_of(R)) };
+        const { assert!(N / Q == M / R) };
+
+        let (in_chunks, []) = x.as_flattened().as_chunks::<Q>() else {
+            unreachable!()
+        };
+        let (out_chunks, []) = y.as_flattened_mut().as_chunks_mut::<R>() else {
+            unreachable!()
+        };
+        self.0.block(state, in_chunks, out_chunks);
+    }
+}
+
+impl<C, S, X, const N: usize> SplitInplace<[X; N], S> for ChunkInOut<C, 1, 1>
+where
+    X: Copy + Default,
+    C: SplitInplace<[X; 1], S>,
+    Self: SplitProcess<[X; N], [X; N], S>,
+{
+    #[inline]
+    fn inplace(&self, state: &mut S, xy: &mut [[X; N]]) {
+        let (samples, []) = xy.as_flattened_mut().as_chunks_mut::<1>() else {
+            unreachable!()
+        };
+        self.0.inplace(state, samples);
+    }
+}
+
+/// Runs a chunk processor once per frame of a frame-major view.
+///
+/// This is the bridge between chunk semantics and the typed views: a
+/// `SplitProcess<[X; Q], [Y; R], S>` becomes frame-wise processing from `View<FrameMajor, Q>` to
+/// `ViewMut<FrameMajor, R>`. See [`Split::process_frames`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PerFrame<C>(pub C);
+
+impl<C, S> Split<C, S> {
+    /// Wrap the configuration in [`PerFrame`], so it runs once per frame of a frame-major view.
+    #[inline(always)]
+    #[must_use]
+    pub fn per_frame(self) -> Split<PerFrame<C>, S> {
+        Split::new(PerFrame(self.config), self.state)
+    }
+}
+
+impl<C, S> Split<PerFrame<C>, S> {
+    /// Process a frame-major view one frame at a time, `Q` samples in and `R` samples out.
+    ///
+    /// # Panics
+    ///
+    /// If the two views disagree on their frame count.
+    #[inline]
+    pub fn process_frames<'a, 'b, X, Y, const Q: usize, const R: usize>(
+        &mut self,
+        x: View<'a, X, FrameMajor, Q>,
+        mut y: ViewMut<'b, Y, FrameMajor, R>,
+    ) where
+        X: Copy,
+        C: SplitProcess<[X; Q], [Y; R], S>,
+    {
+        debug_assert_eq!(x.frames(), y.frames());
+        self.config
+            .0
+            .block(&mut self.state, x.as_frames(), y.as_frames_mut());
+    }
+
+    /// Process a frame-major view in place, one frame at a time.
+    #[inline]
+    pub fn inplace_frames<'a, X, const L: usize>(&mut self, mut xy: ViewMut<'a, X, FrameMajor, L>)
+    where
+        X: Copy,
+        C: SplitInplace<[X; L], S>,
+    {
+        self.config.0.inplace(&mut self.state, xy.as_frames_mut());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;
@@ -1143,5 +1289,81 @@ mod tests {
         let v: View<'_, f32, LaneMajor, 2> = View::from_flat(&flat, 2);
         assert_eq!(v.flat(), &flat[..]);
         assert_eq!(v.frames(), 2);
+    }
+
+    /// Swaps the two samples of a frame, in place.
+    struct SwapFrame;
+
+    impl SplitProcess<[f32; 2], [f32; 2], ()> for SwapFrame {
+        fn process(&self, _state: &mut (), [a, b]: [f32; 2]) -> [f32; 2] {
+            [b, a]
+        }
+    }
+
+    impl SplitInplace<[f32; 2], ()> for SwapFrame {}
+
+    #[test]
+    fn fn_split_process_adapts_a_closure() {
+        let proc = FnSplitProcess(|state: &mut i32, x: i32| {
+            *state += x;
+            *state
+        });
+        let mut state = 0;
+        assert_eq!(proc.process(&mut state, 2), 2);
+        assert_eq!(proc.process(&mut state, 3), 5);
+    }
+
+    #[test]
+    fn chunk_in_out_bridges_a_chunk_stage_to_a_block() {
+        // 2 samples in, 1 out: a pairwise sum.
+        let mut p = Split::stateless(ChunkInOut::<_, 2, 1>(FnSplitProcess(
+            |_: &mut (), [a, b]: [i32; 2]| [a + b],
+        )));
+        assert_eq!(p.process([1, 2, 3, 4]), [3, 7]);
+
+        // The same stage over a block of frames, one chunk each.
+        let x = [[1, 2], [3, 4], [5, 6]];
+        let mut y = [[0]; 3];
+        p.block(&x, &mut y);
+        assert_eq!(y, [[3], [7], [11]]);
+
+        // 1 in, 2 out: a doubling stage, four samples at a time.
+        let mut q = Split::stateless(ChunkInOut::<_, 1, 2>(FnSplitProcess(
+            |_: &mut (), [a]: [i32; 1]| [a, -a],
+        )));
+        assert_eq!(q.process([1, 2]), [1, -1, 2, -2]);
+    }
+
+    #[test]
+    fn chunk_in_out_is_inplace_for_unit_chunks() {
+        // 1:1 chunks are the case that stays in place.
+        let mut p = Split::stateless(ChunkInOut::<_, 1, 1>(FnSplitProcess(
+            |_: &mut (), [a]: [f32; 1]| [-a],
+        )));
+        let mut xy = [[1.0f32], [2.0], [3.0]];
+        p.inplace(&mut xy);
+        assert_eq!(xy, [[-1.0], [-2.0], [-3.0]]);
+    }
+
+    #[test]
+    fn per_frame_runs_a_chunk_stage_once_per_frame() {
+        // A frame holds 2 samples; the stage reduces each frame to 1.
+        let mut p = Split::stateless(ChunkInOut::<_, 2, 1>(FnSplitProcess(
+            |_: &mut (), [a, b]: [i32; 2]| [a + b],
+        )))
+        .per_frame();
+
+        let x = View::from_frames(&[[1, 2], [3, 4]]);
+        let mut y = [[0; 1]; 2];
+        p.process_frames(x, ViewMut::from_frames(&mut y));
+        assert_eq!(y, [[3], [7]]);
+    }
+
+    #[test]
+    fn per_frame_can_process_in_place() {
+        let mut p = Split::new(PerFrame(SwapFrame), ());
+        let mut frames = [[1.0f32, 2.0], [3.0, 4.0]];
+        p.inplace_frames(ViewMut::from_frames(&mut frames));
+        assert_eq!(frames, [[2.0, 1.0], [4.0, 3.0]]);
     }
 }

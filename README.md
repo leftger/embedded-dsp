@@ -88,7 +88,7 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 | Dither + MASH delta-sigma | ✅ | ✅ |
 | Resampling (polyphase, fractional, half-band) | ✅ | ➖ |
 | Swept-sine stimulus | ✅ `Sweep` + `AccuOsc` + Farina `inverse_filter` | ✅ `Sweep::inverse_filter` |
-| Block/lane block processing | ✅ `DspNode`, `Split`/`SplitProcess`, `Lanes`, `Pair`, `Parallel`, `ByLane`, typed `View`/`ViewMut` (`FrameMajor`/`LaneMajor`, `as_layout`) | ✅ same ideas in `dsp-process`, plus chunk bridges and a scratch-buffer `Major` |
+| Block/lane block processing | ✅ `DspNode`, `Split`/`SplitProcess`, `Lanes`, `Pair`, `Parallel`, `ByLane`, typed `View`/`ViewMut` (`FrameMajor`/`LaneMajor`, `as_layout`), chunk bridges (`ChunkInOut`, `PerFrame`, `FnSplitProcess`) | ✅ same ideas in `dsp-process`, plus a gap-tolerant `Buffer` and a scratch-buffer `Major` |
 | Companding (G.711 µ/A-law) | ✅ | ❌ |
 | In-repo micro-benchmarks | ✅ | ✅ (`tests/embedded`) |
 | Python bindings | ❌ | ✅ (`py` / `numpy`) |
@@ -96,12 +96,11 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 
 Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · ❌ not provided.
 
-**Where `idsp` still leads.** Its `dsp-process` crate still has what this one mirrors only in part:
-the chunk bridges (`ChunkInOut`, `PerFrame`), a `Buffer` with gap-tolerant streaming, and `Major`'s
-stage-major traversal with explicit scratch. It also publishes Python bindings for offline analysis
-and filter design. Everything else in the table is either at parity or an `embedded-dsp` advantage —
-including the typed view framework, which this crate now carries natively rather than depending on
-`dsp-process` for.
+**Where `idsp` still leads.** Its `dsp-process` crate still has a `Buffer` with gap-tolerant
+streaming, and `Major`'s stage-major traversal with explicit scratch. It also publishes Python
+bindings for offline analysis and filter design. Everything else in the table is either at parity or
+an `embedded-dsp` advantage — including the typed view framework and the chunk bridges, which this
+crate now carries natively rather than depending on `dsp-process` for.
 
 **Note on the extra CORDIC modes.** `idsp` also advertises linear (`mul`/`div`) and hyperbolic
 rotation (`cosh_sinh`) modes. Measured against `idsp` 0.22.1, pinned by `tests/idsp_cordic_probe.rs`:
