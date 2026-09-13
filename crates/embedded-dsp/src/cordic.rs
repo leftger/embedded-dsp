@@ -187,3 +187,116 @@ pub fn cordic_sqrt_q15(x: q15) -> q15 {
     let _ = crate::fast_math::sqrt_q15(x, &mut out);
     out
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hyperbolic CORDIC modes
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Number of hyperbolic microrotations.
+const HYP_ITERATIONS: usize = 30;
+
+/// Hyperbolic microrotation table: `atanh(2^-j)` in Q1.31 for `j = 1..=30`.
+const HYP_ATANH_TABLE_Q31: [i32; HYP_ITERATIONS] = [
+    1179625963, // atanh(2^-1)
+    548494837,  // atanh(2^-2)
+    269846813,  // atanh(2^-3)
+    134392901,  // atanh(2^-4)
+    67130722,   // atanh(2^-5)
+    33557163,   // atanh(2^-6)
+    16777557,   // atanh(2^-7)
+    8388651,    // atanh(2^-8)
+    4194309,    // atanh(2^-9)
+    2097153,    // atanh(2^-10)
+    1048576,    // atanh(2^-11)
+    524288,     // atanh(2^-12)
+    262144,     // atanh(2^-13)
+    131072,     // atanh(2^-14)
+    65536,      // atanh(2^-15)
+    32768,      // atanh(2^-16)
+    16384,      // atanh(2^-17)
+    8192,       // atanh(2^-18)
+    4096,       // atanh(2^-19)
+    2048,       // atanh(2^-20)
+    1024,       // atanh(2^-21)
+    512,        // atanh(2^-22)
+    256,        // atanh(2^-23)
+    128,        // atanh(2^-24)
+    64,         // atanh(2^-25)
+    32,         // atanh(2^-26)
+    16,         // atanh(2^-27)
+    8,          // atanh(2^-28)
+    4,          // atanh(2^-29)
+    2,          // atanh(2^-30)
+];
+
+/// `1 / G` for the hyperbolic CORDIC gain `G = Π sqrt(1 - 2^-2j)` (`≈ 0.82815936`), in Q30.
+///
+/// It exceeds `1.0`, so it cannot be a Q31 constant; the pre-scaling below runs in `i64`.
+const HYP_GAIN_INV_Q30: i64 = 1_296_540_104;
+
+/// Computes `(sqrt(x² - y²), atanh(y/x))` by hyperbolic CORDIC vectoring mode.
+///
+/// The mathematical counterpart of [`cordic_cartesian_to_polar_q15`]: where the circular
+/// vectoring mode replaces `(x, y)` with `(hypot(x, y), atan2(y, x) / π)` — the Euclidean norm and
+/// angle — this replaces it with the hyperbolic norm and angle. Useful for hyperbolic geometry
+/// and for computing `atanh` and `sqrt` without a divider or a hardware multiplier.
+///
+/// # Domain
+/// `x > 0` and `|y| < x`, i.e. a point inside the unit hyperbola's right branch. Convergence
+/// needs `|y| <= 0.806 · x`; the angle additionally saturates at `±1.0` once
+/// `|y| >= tanh(1) · x ≈ 0.7616 · x`, because Q31 cannot represent `atanh` beyond 1. Inputs
+/// outside the domain return `(0, 0)`.
+pub fn cordic_sqrt_atanh2_q31(x: q31, y: q31) -> (q31, q31) {
+    let mut xi = x.to_bits() as i64;
+    let mut yi = y.to_bits() as i64;
+
+    if xi <= 0 || yi.abs() >= xi {
+        return (q31::ZERO, q31::ZERO);
+    }
+
+    // Pre-apply the inverse gain so the vectoring result is the true `sqrt(x² - y²)` rather than
+    // the `0.8282`-shrunken one. `i64` carries the overshoot past `i32::MAX`; the rotation gives
+    // it back.
+    xi = (xi * HYP_GAIN_INV_Q30) >> 30;
+    yi = (yi * HYP_GAIN_INV_Q30) >> 30;
+
+    let mut z: i64 = 0;
+    let mut j = 1usize;
+    // Hyperbolic CORDIC repeats the rotations at j = 4, 13, 40, ... for convergence.
+    let mut repeat_at = 4usize;
+    while j <= HYP_ITERATIONS {
+        let repeats = if j == repeat_at {
+            repeat_at = 3 * j + 1;
+            2
+        } else {
+            1
+        };
+        let a = HYP_ATANH_TABLE_Q31[j - 1] as i64;
+        for _ in 0..repeats {
+            // `dx` comes from `y` and `dy` from `x` (both read before either is updated).
+            let dx = yi >> j;
+            let dy = xi >> j;
+            if yi <= 0 {
+                xi += dx;
+                yi += dy;
+                z -= a;
+            } else {
+                xi -= dx;
+                yi -= dy;
+                z += a;
+            }
+        }
+        j += 1;
+    }
+
+    let mag = xi.clamp(0, i32::MAX as i64) as i32;
+    let ang = z.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    (q31::from_bits(mag), q31::from_bits(ang))
+}
+
+/// Computes `atanh(y / x)` in Q31 radians by hyperbolic CORDIC vectoring mode.
+///
+/// See [`cordic_sqrt_atanh2_q31`] for the domain; the result saturates at `±1.0`.
+pub fn cordic_atanh_q31(y: q31, x: q31) -> q31 {
+    cordic_sqrt_atanh2_q31(x, y).1
+}

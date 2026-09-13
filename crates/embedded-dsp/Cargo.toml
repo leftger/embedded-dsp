@@ -428,3 +428,8 @@ required-features = ["libm", "filter-analysis", "filter-design"]
 name = "swept_sine_inverse_filter"
 path = "tests/swept_sine_inverse_filter.rs"
 required-features = ["libm", "synthesis", "transform"]
+
+[[test]]
+name = "cordic_hyperbolic"
+path = "tests/cordic_hyperbolic.rs"
+required-features = ["libm", "cordic"]
