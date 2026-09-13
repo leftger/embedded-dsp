@@ -97,6 +97,28 @@ mod tests {
     extern crate std;
     use super::*;
 
+    /// `generate_sin_table` is a `const fn` evaluated at build time, so it carries no runtime
+    /// coverage. Call it through a `black_box`ed function pointer and check the table really is
+    /// a sine, including the upper-half angle reduction that the comments call out.
+    #[test]
+    fn compile_time_sine_table_is_a_sine() {
+        let generate: fn() -> [i16; 256] = core::hint::black_box(generate_sin_table);
+        let table = generate();
+
+        assert_eq!(table[0], 0); // sin(0)
+        assert_eq!(table[64], i16::MAX); // sin(pi/2) saturates to 32767
+        assert!(table[128].abs() <= 32); // sin(pi)
+        assert!(table[192] <= -32760); // sin(3pi/2)
+
+        for (i, &v) in table.iter().enumerate() {
+            let angle = i as f32 * 2.0 * PI / 256.0;
+            assert!(
+                (v as f32 / 32768.0 - angle.sin()).abs() < 0.02,
+                "table[{i}] = {v} deviates from sin({angle})"
+            );
+        }
+    }
+
     fn ref_sin(a: f32) -> f32 {
         a.sin()
     }

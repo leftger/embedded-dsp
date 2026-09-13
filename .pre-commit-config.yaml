@@ -18,7 +18,10 @@ repos:
 
       - id: cargo-check-no-std
         name: cargo check (no_std)
-        entry: cargo check --lib --no-default-features --features libm,full --target thumbv7em-none-eabihf
+        # Scoped with `-p`: the `embedded-dsp-studio` member enables `embedded-dsp`'s `std`
+        # feature, and an unscoped check unifies that across the workspace, which cannot build
+        # for a bare-metal target. CI already scopes this the same way.
+        entry: cargo check -p embedded-dsp --lib --no-default-features --features libm,full --target thumbv7em-none-eabihf
         language: system
         types: [rust]
         pass_filenames: false
