@@ -642,11 +642,20 @@ fn ekf_update_apply<const N: usize, const M: usize>(
 // Square-Root Covariance Kalman Filter (SRKF)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Square-Root Covariance Kalman Filter (SRKF) for $N$-state, $M$-measurement linear systems.
+/// Square-root covariance Kalman filter for $N$-state, $M$-measurement linear systems.
 ///
-/// Propagates the lower-triangular Cholesky factor $S$ of the covariance matrix ($P = S S^T$).
-/// By operating directly on the square-root factors via orthogonal Givens transformations,
-/// the filter **guarantees numerical positive-definiteness and never diverges** due to roundoff error.
+/// Keeps the lower-triangular Cholesky factor $S$ of the covariance ($P = S S^T$) instead of the
+/// covariance itself, so the $P = S S^T$ it reports is positive semi-definite by construction.
+///
+/// Note what it does *not* do. Prediction forms $F S (F S)^T + S_Q S_Q^T$ as a full matrix and
+/// re-factorizes it, and the correction rebuilds $P$ from $S$, applies the Joseph form and
+/// re-factorizes that. The arithmetic therefore runs on $P$, not on the factor, so this is a
+/// factor-*storing* filter rather than a true square-root filter: it does not carry the
+/// orthogonal-transformation (Givens/Householder) update that bounds the rounding error of the
+/// factor itself, and it makes no "never diverges" guarantee. Where it does beat the plain form is
+/// in retaining covariance directions that a `P⁺ = (I - KH)P` update rounds to zero, and in
+/// reporting exactly symmetric output — see `examples/sr_spike.rs`, which measures both against
+/// an `f64` reference.
 #[derive(Debug, Clone)]
 pub struct SquareRootKalmanFilter<const N: usize, const M: usize> {
     /// State estimate vector $\hat{x} \in \mathbb{R}^N$.
@@ -803,6 +812,14 @@ impl<const N: usize, const M: usize> SquareRootKalmanFilter<N, M> {
 }
 
 /// Compute lower-triangular Cholesky factor $L$ in-place such that $A = L L^T$.
+///
+/// A pivot that is not strictly positive means `A` is only positive *semi*-definite, or is
+/// negative in a direction that roundoff should have made zero. Either way that direction is
+/// **zeroed**, never clamped to a constant: the previous `max(1e-12)` clamp pushed any pivot below
+/// `1e-12` back up to it, so a filter tracking an uncertainty smaller than `1e-12` reported a
+/// covariance of about `1e-12` no matter what the truth was — and a non-positive-definite input
+/// was indistinguishable from a healthy one. Zeroing instead keeps
+/// $P = L L^T$ exact for the semi-definite case and leaves the rank deficiency visible.
 fn cholesky_inplace_lower<const N: usize>(a: &mut [[f32; N]; N]) {
     for i in 0..N {
         for j in 0..=i {
@@ -811,10 +828,12 @@ fn cholesky_inplace_lower<const N: usize>(a: &mut [[f32; N]; N]) {
                 sum -= a[i][k] * a[j][k];
             }
             if i == j {
-                a[i][j] = sum.max(1e-12).sqrt();
+                a[i][j] = sum.max(0.0).sqrt();
+            } else if a[j][j] > 0.0 {
+                a[i][j] = sum / a[j][j];
             } else {
-                let diag = a[j][j].max(1e-12);
-                a[i][j] = sum / diag;
+                // Rank-deficient direction: the column below it is zero as well.
+                a[i][j] = 0.0;
             }
         }
         for j in (i + 1)..N {
