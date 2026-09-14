@@ -76,6 +76,20 @@ impl<const STAGES: usize> CicDecimator<STAGES> {
     }
 }
 
+/// The stateless-`SplitProcess` bridge for [`CicDecimator`], kept next to the type so the
+/// pipeline layer does not have to reach outward to wrap it. Decimation only produces an output
+/// every `R` samples, a genuine type change (`i32 -> Option<i32>`), so this reaches `Process` but
+/// not [`DspNode`](crate::pipeline::DspNode), which requires the input and output types to match.
+#[cfg(feature = "pipeline")]
+impl<const STAGES: usize> crate::pipeline::SplitProcess<i32, Option<i32>, ()>
+    for CicDecimator<STAGES>
+{
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), input: i32) -> Option<i32> {
+        CicDecimator::process_sample(self, input)
+    }
+}
+
 /// Cascaded Integrator-Comb (CIC) Interpolator for upsampling signals in integer arithmetic.
 pub struct CicInterpolator<const STAGES: usize> {
     r: usize, // Interpolation factor
@@ -277,6 +291,41 @@ where
             });
             Some(self.zoh)
         }
+    }
+}
+
+/// The stateless-`SplitProcess` bridge for [`CicFilter::process_interpolate`], kept next to the
+/// type so the pipeline layer does not have to reach outward to wrap it. Input is `Option<T>`
+/// (`Some` only on the slow-rate tick), a genuine type change from the `T` output, so this reaches
+/// `Process` but not [`DspNode`](crate::pipeline::DspNode), which requires matching types.
+#[cfg(feature = "pipeline")]
+impl<T, const N: usize, const M: usize> crate::pipeline::SplitProcess<Option<T>, T, ()>
+    for CicFilter<T, N, M>
+where
+    T: Copy + Default + core::ops::Add<Output = T> + core::ops::Sub<Output = T>,
+{
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), x: Option<T>) -> T {
+        CicFilter::process_interpolate(self, x)
+    }
+}
+
+/// The stateless-`SplitProcess` bridge for [`CicFilter::process_decimate`] (see
+/// `process_interpolate`'s bridge above). This is a different trait instantiation (`T ->
+/// Option<T>` rather than `Option<T> -> T`), so it coexists on the same type without conflict.
+#[cfg(feature = "pipeline")]
+impl<T, const N: usize, const M: usize> crate::pipeline::SplitProcess<T, Option<T>, ()>
+    for CicFilter<T, N, M>
+where
+    T: Copy
+        + Default
+        + core::ops::Add<Output = T>
+        + core::ops::Sub<Output = T>
+        + core::ops::AddAssign,
+{
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), x: T) -> Option<T> {
+        CicFilter::process_decimate(self, x)
     }
 }
 
@@ -541,13 +590,13 @@ macro_rules! linear_phase_fir {
                 + core::ops::Add<Output = T>
                 + core::ops::Mul<C, Output = T>,
         {
-            fn process(&self, state: &mut [T; N], x: T) -> T {
+            fn process_with_state(&mut self, state: &mut [T; N], x: T) -> T {
                 let mut y = T::default();
-                self.block(state, core::slice::from_ref(&x), core::slice::from_mut(&mut y));
+                self.block_with_state(state, core::slice::from_ref(&x), core::slice::from_mut(&mut y));
                 y
             }
 
-            fn block(&self, state: &mut [T; N], x: &[T], y: &mut [T]) {
+            fn block_with_state(&mut self, state: &mut [T; N], x: &[T], y: &mut [T]) {
                 const { assert!(N > 2 * M - 1 + $odd as usize) };
                 let chunk = N - (2 * M - 1 + $odd as usize);
                 for (x, y) in x.chunks(chunk).zip(y.chunks_mut(chunk)) {
@@ -568,7 +617,7 @@ macro_rules! linear_phase_fir {
                 + core::ops::Add<Output = T>
                 + core::ops::Mul<C, Output = T>,
         {
-            fn inplace(&self, state: &mut [T; N], xy: &mut [T]) {
+            fn inplace_with_state(&mut self, state: &mut [T; N], xy: &mut [T]) {
                 const { assert!(N > 2 * M - 1 + $odd as usize) };
                 let chunk = N - (2 * M - 1 + $odd as usize);
                 for xy in xy.chunks_mut(chunk) {
@@ -748,30 +797,47 @@ impl<const M: usize> HbfDec<M> {
         self.state.fill(0.0);
     }
 
+    /// Process one pair of high-rate input samples, producing one decimated output.
+    pub fn process_pair(&mut self, pair: [f32; 2]) -> f32 {
+        let state_len = 4 * M;
+
+        // Shift state by 2 samples and ingest 2 new input samples.
+        self.state.copy_within(2..state_len, 0);
+        self.state[state_len - 2] = pair[0];
+        self.state[state_len - 1] = pair[1];
+
+        // Unity center tap plus folded symmetric odd taps.
+        let center = self.state[2 * M - 1];
+        let mut acc = center;
+        for k in 0..M {
+            let s_left = self.state[2 * k];
+            let s_right = self.state[4 * M - 2 - 2 * k];
+            acc += self.coeffs[k] * (s_left + s_right);
+        }
+
+        0.5 * acc
+    }
+
     /// Process a block of samples, decimating by a factor of 2.
     ///
     /// `src.len()` must be twice `dst.len()`.
     pub fn process(&mut self, src: &[f32], dst: &mut [f32]) {
         let n_out = dst.len().min(src.len() / 2);
-        let state_len = 4 * M;
-
-        for i in 0..n_out {
-            // Shift state by 2 samples and ingest 2 new input samples.
-            self.state.copy_within(2..state_len, 0);
-            self.state[state_len - 2] = src[2 * i];
-            self.state[state_len - 1] = src[2 * i + 1];
-
-            // Unity center tap plus folded symmetric odd taps.
-            let center = self.state[2 * M - 1];
-            let mut acc = center;
-            for k in 0..M {
-                let s_left = self.state[2 * k];
-                let s_right = self.state[4 * M - 2 - 2 * k];
-                acc += self.coeffs[k] * (s_left + s_right);
-            }
-
-            dst[i] = 0.5 * acc;
+        for (i, out) in dst[..n_out].iter_mut().enumerate() {
+            *out = self.process_pair([src[2 * i], src[2 * i + 1]]);
         }
+    }
+}
+
+/// The stateless-`SplitProcess` bridge for [`HbfDec::process_pair`], kept next to the type so the
+/// pipeline layer does not have to reach outward to wrap it. The fixed 2:1 ratio is a genuine type
+/// change (`[f32; 2] -> f32`), so this reaches `Process` but not
+/// [`DspNode`](crate::pipeline::DspNode), which requires matching input/output types.
+#[cfg(feature = "pipeline")]
+impl<const M: usize> crate::pipeline::SplitProcess<[f32; 2], f32, ()> for HbfDec<M> {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), pair: [f32; 2]) -> f32 {
+        HbfDec::process_pair(self, pair)
     }
 }
 
@@ -800,28 +866,48 @@ impl<const M: usize> HbfInt<M> {
         self.state.fill(0.0);
     }
 
+    /// Process one input sample, producing one pair of interpolated high-rate outputs.
+    pub fn process_sample(&mut self, x: f32) -> [f32; 2] {
+        let state_len = 2 * M;
+
+        // Shift state by 1 and insert new sample.
+        self.state.copy_within(1..state_len, 0);
+        self.state[state_len - 1] = x;
+
+        // Even output sample: direct center path.
+        let even = self.state[M];
+
+        // Odd output sample: filtered interpolation tap sum.
+        let mut acc = 0.0f32;
+        for k in 0..M {
+            let s_left = self.state[k];
+            let s_right = self.state[2 * M - 1 - k];
+            acc += self.coeffs[k] * (s_left + s_right);
+        }
+
+        [even, acc]
+    }
+
     /// Process a block of samples, interpolating by a factor of 2.
     pub fn process(&mut self, src: &[f32], dst: &mut [f32]) {
         let n_in = src.len().min(dst.len() / 2);
-        let state_len = 2 * M;
-
-        for i in 0..n_in {
-            // Shift state by 1 and insert new sample.
-            self.state.copy_within(1..state_len, 0);
-            self.state[state_len - 1] = src[i];
-
-            // Even output sample: direct center path.
-            dst[2 * i] = self.state[M];
-
-            // Odd output sample: filtered interpolation tap sum.
-            let mut acc = 0.0f32;
-            for k in 0..M {
-                let s_left = self.state[k];
-                let s_right = self.state[2 * M - 1 - k];
-                acc += self.coeffs[k] * (s_left + s_right);
-            }
-            dst[2 * i + 1] = acc;
+        for (i, x) in src[..n_in].iter().enumerate() {
+            let [even, odd] = self.process_sample(*x);
+            dst[2 * i] = even;
+            dst[2 * i + 1] = odd;
         }
+    }
+}
+
+/// The stateless-`SplitProcess` bridge for [`HbfInt::process_sample`], kept next to the type so
+/// the pipeline layer does not have to reach outward to wrap it. The fixed 1:2 ratio is a genuine
+/// type change (`f32 -> [f32; 2]`), so this reaches `Process` but not
+/// [`DspNode`](crate::pipeline::DspNode), which requires matching input/output types.
+#[cfg(feature = "pipeline")]
+impl<const M: usize> crate::pipeline::SplitProcess<f32, [f32; 2], ()> for HbfInt<M> {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), x: f32) -> [f32; 2] {
+        HbfInt::process_sample(self, x)
     }
 }
 
@@ -1246,6 +1332,18 @@ impl GardnerSymbolSync {
             self.nco += self.sps * 0.5 - self.kp * e;
             Some(y)
         }
+    }
+}
+
+/// The stateless-`SplitProcess` bridge for [`GardnerSymbolSync`], kept next to the type so the
+/// pipeline layer does not have to reach outward to wrap it. A decision strobe only fires on a
+/// late sample, a genuine type change (`f32 -> Option<f32>`), so this reaches `Process` but not
+/// [`DspNode`](crate::pipeline::DspNode), which requires the input and output types to match.
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f32, Option<f32>, ()> for GardnerSymbolSync {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), x: f32) -> Option<f32> {
+        GardnerSymbolSync::push(self, x)
     }
 }
 

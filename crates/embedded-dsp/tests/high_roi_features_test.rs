@@ -210,9 +210,10 @@ fn test_lockin_amplifier() {
 
     // Also test SplitProcess Lockin<C>
     let biquad_lp = PidBuilder::new().kp(0.05).build(0.001);
-    let lockin_filter = Lockin::new(biquad_lp);
+    let mut lockin_filter = Lockin::new(biquad_lp);
     let mut filter_states = [DirectForm1::<f32>::new(), DirectForm1::<f32>::new()];
-    let mixed = lockin_filter.process(&mut filter_states, (1.0f32, Complex::new(0.8f32, 0.6f32)));
+    let mixed = lockin_filter
+        .process_with_state(&mut filter_states, (1.0f32, Complex::new(0.8f32, 0.6f32)));
     assert!(mixed.real > 0.0);
 }
 
@@ -349,27 +350,27 @@ fn test_accu_wrapping_and_algebra() {
 #[test]
 fn test_linear_phase_fir_impulse_responses() {
     // Type I (odd symmetric, center = 1): taps [0.5, 1, 0.5]
-    let fir = OddSymmetric([0.5f32]);
+    let mut fir = OddSymmetric([0.5f32]);
     let mut state = [0.0f32; 8];
     let x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
     let mut y = [0.0f32; 6];
-    fir.block(&mut state, &x, &mut y);
+    fir.block_with_state(&mut state, &x, &mut y);
     assert_eq!(y[..3], [0.5, 1.0, 0.5]);
     assert_eq!(y[3..], [0.0, 0.0, 0.0]);
 
     // Type II (even symmetric, no center): taps [0.25, 0.5, 0.5, 0.25]
-    let fir = EvenSymmetric([0.25f32, 0.5]);
+    let mut fir = EvenSymmetric([0.25f32, 0.5]);
     let mut state = [0.0f32; 8];
     let mut y = [0.0f32; 5];
-    fir.block(&mut state, &x, &mut y);
+    fir.block_with_state(&mut state, &x, &mut y);
     assert_eq!(y[..4], [0.25, 0.5, 0.5, 0.25]);
     assert_eq!(y[4], 0.0);
 
     // In-place path must agree with the out-of-place path.
-    let fir = OddSymmetric([0.5f32]);
+    let mut fir = OddSymmetric([0.5f32]);
     let mut state = [0.0f32; 8];
     let mut xy = x;
-    fir.inplace(&mut state, &mut xy);
+    fir.inplace_with_state(&mut state, &mut xy);
     assert_eq!(xy[..3], [0.5, 1.0, 0.5]);
 }
 
@@ -391,6 +392,33 @@ fn test_hbf_interpolator_cascade_dc() {
     cascade.process(&src, &mut dst);
     // The M=23 first stage needs its full state to fill before settling.
     assert!(dst[480..512].iter().all(|&y| (y - 1.0).abs() < 1e-3));
+}
+
+#[test]
+fn test_hbf_interpolator_cascade_every_stage_count_settles_to_unity_dc() {
+    // Exercise every early-return branch in HbfIntCascade::process (STAGES = 1..=5), not just the
+    // depth-3 case above.
+    let src = [1.0f32; 64];
+
+    let mut c1 = HbfIntCascade::<1>::new();
+    let mut d1 = [0.0f32; 128];
+    c1.process(&src, &mut d1);
+    assert!(d1[110..128].iter().all(|&y| (y - 1.0).abs() < 1e-3));
+
+    let mut c2 = HbfIntCascade::<2>::default();
+    let mut d2 = [0.0f32; 256];
+    c2.process(&src, &mut d2);
+    assert!(d2[230..256].iter().all(|&y| (y - 1.0).abs() < 1e-3));
+
+    let mut c4 = HbfIntCascade::<4>::new();
+    let mut d4 = [0.0f32; 1024];
+    c4.process(&src, &mut d4);
+    assert!(d4[960..1024].iter().all(|&y| (y - 1.0).abs() < 1e-3));
+
+    let mut c5 = HbfIntCascade::<5>::new();
+    let mut d5 = [0.0f32; 2048];
+    c5.process(&src, &mut d5);
+    assert!(d5[1920..2048].iter().all(|&y| (y - 1.0).abs() < 1e-3));
 }
 
 #[test]
@@ -425,10 +453,21 @@ fn test_hbf_decimator_cascade_stopband() {
 }
 
 #[test]
+fn test_hbf_decimator_cascade_stages_one_settles_to_unity_dc() {
+    // Exercises HbfDecCascade::process's STAGES == 1 early-return branch (STAGES 2/3/4/5 are
+    // already covered above and elsewhere).
+    let mut cascade = HbfDecCascade::<1>::new();
+    let src = [1.0f32; 128];
+    let mut dst = [0.0f32; 64];
+    cascade.process(&src, &mut dst);
+    assert!(dst[48..64].iter().all(|&y| (y - 1.0).abs() < 1e-3));
+}
+
+#[test]
 fn test_wdf_allpass_against_reference() {
     // Single section, g = 0.25 (Tpa::B). The allpass transfer is
     // H(z) = (a + z^-1) / (1 + a z^-1) with a = -g = -0.25.
-    let wdf = Wdf::<1, 0xB>::quantize(&[0.25]).expect("g=0.25 fits Tpa::B");
+    let mut wdf = Wdf::<1, 0xB>::quantize(&[0.25]).expect("g=0.25 fits Tpa::B");
     let mut state = WdfState::<1>::default();
 
     // Reference: direct-form allpass y = a*x + x1 - a*y1.
@@ -438,7 +477,7 @@ fn test_wdf_allpass_against_reference() {
 
     for n in 0..16 {
         let x = if n == 0 { 1 << 29 } else { 0 };
-        let y_wdf = wdf.process(&mut state, x) as f64 / (1 << 30) as f64;
+        let y_wdf = wdf.process_with_state(&mut state, x) as f64 / (1 << 30) as f64;
         let y_ref = a * (x as f64 / (1 << 30) as f64) + x1 - a * y1;
         assert!(
             (y_wdf - y_ref).abs() < 1e-6,

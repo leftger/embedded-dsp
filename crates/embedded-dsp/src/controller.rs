@@ -4,28 +4,119 @@
 use crate::math::FloatMath;
 use crate::types::*;
 
-// --- PID Controller (f32) ---
+// --- PID Controller ---
 
-/// Instance structure for the floating-point PID Control.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct PidInstanceF32 {
+/// PID controller instance, generic over the sample width.
+///
+/// Direct-form recurrence `out = state[2] + a0*x + a1*state[0] + a2*state[1]`, with `a0`/`a1`/`a2`
+/// derived once from `kp`/`ki`/`kd` at construction (see the per-width `new`/`init` constructors:
+/// coefficient synthesis needs saturating add/negate/double, which isn't part of
+/// [`DspSample::Coeff`]'s surface, so it stays per-width behind the generic type — the same split
+/// [`crate::filtering::SinglePoleFilter`] uses). [`DspSample::wrapping_madd`] carries the
+/// fixed-point kernels' documented per-term wrapping (not saturating) behavior; see
+/// [`PidInstance::process`].
+pub struct PidInstance<T: DspSample> {
     /// PID coefficient `a0`.
-    pub a0: f32,
+    pub a0: T::Coeff,
     /// PID coefficient `a1`.
-    pub a1: f32,
+    pub a1: T::Coeff,
     /// PID coefficient `a2`.
-    pub a2: f32,
+    pub a2: T::Coeff,
     /// Filter state buffer.
-    pub state: [f32; 3],
+    pub state: [T; 3],
     /// Proportional gain.
-    pub kp: f32,
+    pub kp: T::Coeff,
     /// Integral gain.
-    pub ki: f32,
+    pub ki: T::Coeff,
     /// Derivative gain.
-    pub kd: f32,
+    pub kd: T::Coeff,
 }
 
-impl PidInstanceF32 {
+impl<T: DspSample> Copy for PidInstance<T> {}
+
+impl<T: DspSample> Clone for PidInstance<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: DspSample + core::fmt::Debug> core::fmt::Debug for PidInstance<T>
+where
+    T::Coeff: core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PidInstance")
+            .field("a0", &self.a0)
+            .field("a1", &self.a1)
+            .field("a2", &self.a2)
+            .field("state", &self.state)
+            .field("kp", &self.kp)
+            .field("ki", &self.ki)
+            .field("kd", &self.kd)
+            .finish()
+    }
+}
+
+impl<T: DspSample> PartialEq for PidInstance<T>
+where
+    T::Coeff: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.a0 == other.a0
+            && self.a1 == other.a1
+            && self.a2 == other.a2
+            && self.state == other.state
+            && self.kp == other.kp
+            && self.ki == other.ki
+            && self.kd == other.kd
+    }
+}
+
+impl<T: DspSample> Default for PidInstance<T>
+where
+    T::Coeff: Default,
+{
+    fn default() -> Self {
+        Self {
+            a0: T::Coeff::default(),
+            a1: T::Coeff::default(),
+            a2: T::Coeff::default(),
+            state: [T::ZERO; 3],
+            kp: T::Coeff::default(),
+            ki: T::Coeff::default(),
+            kd: T::Coeff::default(),
+        }
+    }
+}
+
+impl<T: DspSample> PidInstance<T> {
+    /// Resets the internal state.
+    pub fn reset(&mut self) {
+        self.state = [T::ZERO; 3];
+    }
+
+    /// Processes a single input sample.
+    ///
+    /// For fixed-point widths, each MAC term wraps individually at the sample's native width (via
+    /// [`DspSample::wrapping_madd`]) and only the final sum saturates. At the extreme edge where a
+    /// coefficient and its paired value are both exactly the type's `MIN` (`-1.0`), the term wraps
+    /// to `MIN` instead of the mathematically exact positive value, which can flip that term's
+    /// sign in the final sum. This only affects that single boundary input combination, and floats
+    /// have nothing to wrap.
+    pub fn process(&mut self, in_val: T) -> T {
+        let acc = T::accum_from_shifted(self.state[2], 0);
+        let acc = T::wrapping_madd(acc, in_val, self.a0);
+        let acc = T::wrapping_madd(acc, self.state[0], self.a1);
+        let acc = T::wrapping_madd(acc, self.state[1], self.a2);
+        let out = T::from_accum_shifted(acc, 0);
+        self.state[1] = self.state[0];
+        self.state[0] = in_val;
+        self.state[2] = out;
+        out
+    }
+}
+
+impl PidInstance<f32> {
     /// Creates a new instance.
     pub fn new(kp: f32, ki: f32, kd: f32) -> Self {
         let mut pid = Self {
@@ -50,50 +141,9 @@ impl PidInstanceF32 {
             self.reset();
         }
     }
-
-    /// Resets the internal state.
-    pub fn reset(&mut self) {
-        self.state = [0.0; 3];
-    }
-
-    /// Processes a single input sample.
-    pub fn process(&mut self, in_val: f32) -> f32 {
-        let out =
-            self.state[2] + self.a0 * in_val + self.a1 * self.state[0] + self.a2 * self.state[1];
-        self.state[1] = self.state[0];
-        self.state[0] = in_val;
-        self.state[2] = out;
-        out
-    }
 }
 
-/// PID control update (`f32`).
-pub fn pid_f32(instance: &mut PidInstanceF32, in_val: f32) -> f32 {
-    instance.process(in_val)
-}
-
-// --- PID Controller (Q31) ---
-
-#[derive(Debug, Clone, PartialEq, Default)]
-/// PID controller instance.
-pub struct PidInstanceQ31 {
-    /// PID coefficient `a0`.
-    pub a0: q31,
-    /// PID coefficient `a1`.
-    pub a1: q31,
-    /// PID coefficient `a2`.
-    pub a2: q31,
-    /// Filter state buffer.
-    pub state: [q31; 3],
-    /// Proportional gain.
-    pub kp: q31,
-    /// Integral gain.
-    pub ki: q31,
-    /// Derivative gain.
-    pub kd: q31,
-}
-
-impl PidInstanceQ31 {
+impl PidInstance<q31> {
     /// Creates a new instance.
     pub fn new(kp: q31, ki: q31, kd: q31) -> Self {
         let mut pid = Self {
@@ -118,59 +168,9 @@ impl PidInstanceQ31 {
             self.reset();
         }
     }
-
-    /// Resets the internal state.
-    pub fn reset(&mut self) {
-        self.state = [q31::ZERO; 3];
-    }
-
-    /// Each MAC term wraps individually (`i32`-wide, not the wider
-    /// intermediate a naive i64 accumulator would allow), and only the final
-    /// sum saturates. At the extreme edge where a coefficient and its paired
-    /// value are both exactly Q31 `MIN` (`-1.0`), the term wraps to `MIN`
-    /// instead of the mathematically exact `+2^31`, which can flip that
-    /// term's sign in the final sum. This only affects that single boundary
-    /// input combination.
-    pub fn process(&mut self, in_val: q31) -> q31 {
-        let t0 = self.a0.wrapping_mul(in_val).to_bits();
-        let t1 = self.a1.wrapping_mul(self.state[0]).to_bits();
-        let t2 = self.a2.wrapping_mul(self.state[1]).to_bits();
-        let acc = (self.state[2].to_bits() as i64) + (t0 as i64) + (t1 as i64) + (t2 as i64);
-        let out = q31::from_bits(acc.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-        self.state[1] = self.state[0];
-        self.state[0] = in_val;
-        self.state[2] = out;
-        out
-    }
 }
 
-/// PID control update (`q31`).
-pub fn pid_q31(instance: &mut PidInstanceQ31, in_val: q31) -> q31 {
-    instance.process(in_val)
-}
-
-// --- PID Controller (Q15) ---
-
-#[derive(Debug, Clone, PartialEq, Default)]
-/// PID controller instance.
-pub struct PidInstanceQ15 {
-    /// PID coefficient `a0`.
-    pub a0: q15,
-    /// PID coefficient `a1`.
-    pub a1: q15,
-    /// PID coefficient `a2`.
-    pub a2: q15,
-    /// Filter state buffer.
-    pub state: [q15; 3],
-    /// Proportional gain.
-    pub kp: q15,
-    /// Integral gain.
-    pub ki: q15,
-    /// Derivative gain.
-    pub kd: q15,
-}
-
-impl PidInstanceQ15 {
+impl PidInstance<q15> {
     /// Creates a new instance.
     pub fn new(kp: q15, ki: q15, kd: q15) -> Self {
         let mut pid = Self {
@@ -195,32 +195,39 @@ impl PidInstanceQ15 {
             self.reset();
         }
     }
+}
 
-    /// Resets the internal state.
-    pub fn reset(&mut self) {
-        self.state = [q15::ZERO; 3];
-    }
+/// `f32` PID instance (see [`PidInstance`]).
+pub type PidInstanceF32 = PidInstance<f32>;
+/// `q31` PID instance (see [`PidInstance`]).
+pub type PidInstanceQ31 = PidInstance<q31>;
+/// `q15` PID instance (see [`PidInstance`]).
+pub type PidInstanceQ15 = PidInstance<q15>;
 
-    /// Same per-term wrapping caveat as [`PidInstanceQ31::process`]: at the
-    /// extreme edge where a coefficient and its paired value are both
-    /// exactly Q15 `MIN` (`-1.0`), that term wraps to `MIN` instead of the
-    /// mathematically exact `+2^15`.
-    pub fn process(&mut self, in_val: q15) -> q15 {
-        let t0 = self.a0.wrapping_mul(in_val).to_bits();
-        let t1 = self.a1.wrapping_mul(self.state[0]).to_bits();
-        let t2 = self.a2.wrapping_mul(self.state[1]).to_bits();
-        let acc = (self.state[2].to_bits() as i32) + (t0 as i32) + (t1 as i32) + (t2 as i32);
-        let out = q15::from_bits(acc.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
-        self.state[1] = self.state[0];
-        self.state[0] = in_val;
-        self.state[2] = out;
-        out
-    }
+/// PID control update (`f32`).
+pub fn pid_f32(instance: &mut PidInstanceF32, in_val: f32) -> f32 {
+    instance.process(in_val)
+}
+
+/// PID control update (`q31`).
+pub fn pid_q31(instance: &mut PidInstanceQ31, in_val: q31) -> q31 {
+    instance.process(in_val)
 }
 
 /// PID control update (`q15`).
 pub fn pid_q15(instance: &mut PidInstanceQ15, in_val: q15) -> q15 {
     instance.process(in_val)
+}
+
+/// The stateless-`SplitProcess` bridge for [`PidInstance`], kept next to the type so the pipeline
+/// layer does not have to reach outward to wrap it. `Process` and
+/// [`DspNode`](crate::pipeline::DspNode) follow from the pipeline blankets.
+#[cfg(feature = "pipeline")]
+impl<T: DspSample> crate::pipeline::SplitProcess<T, T, ()> for PidInstance<T> {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), in_val: T) -> T {
+        PidInstance::process(self, in_val)
+    }
 }
 
 // --- Clarke Transform ---

@@ -70,6 +70,7 @@ impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascade<COEFFS_LEN, 
     pub fn process(&mut self, src: &[f32], dst: &mut [f32]) {
         let mut instance = BiquadCascadeInstanceF32 {
             num_stages: self.num_stages,
+            post_shift: 0,
             coeffs: &self.coeffs,
             state: &mut self.state,
         };

@@ -2,9 +2,10 @@
 
 use embedded_dsp::complex_math::{
     cmplx_add_f32, cmplx_add_q15, cmplx_add_q31, cmplx_conj_f32, cmplx_conj_q15, cmplx_conj_q31,
-    cmplx_dot_prod_f32, cmplx_mag_f32, cmplx_mag_q15, cmplx_mag_q31, cmplx_mag_squared_f32,
-    cmplx_mult_cmplx_f32, cmplx_mult_cmplx_q15, cmplx_mult_cmplx_q31, cmplx_mult_real_f32,
-    cmplx_sub_f32, cmplx_sub_q15, cmplx_sub_q31,
+    cmplx_dot_prod_f32, cmplx_dot_prod_q15, cmplx_dot_prod_q31, cmplx_mag_f32, cmplx_mag_q15,
+    cmplx_mag_q31, cmplx_mag_squared_f32, cmplx_mag_squared_q31, cmplx_mult_cmplx_f32,
+    cmplx_mult_cmplx_q15, cmplx_mult_cmplx_q31, cmplx_mult_real_f32, cmplx_sub_f32, cmplx_sub_q15,
+    cmplx_sub_q31,
 };
 use embedded_dsp::distance::{
     bray_curtis_distance_f32, bray_curtis_distance_q15, canberra_distance_f32,
@@ -131,6 +132,13 @@ fn interpolation_coverage() {
     assert_eq!(spline.interpolate(-1.0), 1.0);
     assert_eq!(spline.interpolate(5.0), 8.0);
     let _ = spline.interpolate(1.5);
+
+    let empty_spline = SplineInstanceF32 {
+        x: &[],
+        y: &[],
+        coeffs: &[],
+    };
+    assert_eq!(empty_spline.interpolate(0.0), 0.0);
 }
 
 #[test]
@@ -218,6 +226,114 @@ fn complex_math_f32_and_fixed_point() {
     cmplx_mult_cmplx_q15(&q15a, &q15b, &mut q15out);
     cmplx_mag_q15(&q15a, &mut [q15::ZERO; 2]);
     cmplx_conj_q15(&q15a, &mut q15out);
+}
+
+#[test]
+fn cmplx_conj_saturates_fixed_point_min_and_preserves_signed_zero() {
+    // Negating `MIN` overflows for a signed fixed-point type (there is no `+1.0` counterpart);
+    // the generic `cmplx_conj` must saturate to `MAX` here, not wrap back to `MIN`.
+    let q15_min = [q15::ZERO, q15::from_bits(i16::MIN)];
+    let mut q15_out = [q15::ZERO; 2];
+    cmplx_conj_q15(&q15_min, &mut q15_out);
+    assert_eq!(q15_out[1], q15::from_bits(i16::MAX));
+
+    let q31_min = [q31::ZERO, q31::from_bits(i32::MIN)];
+    let mut q31_out = [q31::ZERO; 2];
+    cmplx_conj_q31(&q31_min, &mut q31_out);
+    assert_eq!(q31_out[1], q31::from_bits(i32::MAX));
+
+    // Floats have nothing to saturate, but the generic path must still be plain negation
+    // (`-x`), not `0.0 - x`: at `x = +0.0` those differ in the sign of the zero result.
+    let f32_zero = [0.0f32, 0.0f32];
+    let mut f32_out = [0.0f32; 2];
+    cmplx_conj_f32(&f32_zero, &mut f32_out);
+    assert!(f32_out[1].is_sign_negative(), "conj(+0.0) must be -0.0");
+}
+
+#[test]
+fn cmplx_mag_matches_known_values_and_leaves_the_dst_tail_untouched() {
+    // 3-4-5 triangle: magnitude of (3, 4) is exactly 5.
+    let src = [3.0f32, 4.0];
+    let mut dst = [0.0f32, -1.0, -2.0]; // dst is longer than num_samples (1)
+    cmplx_mag_f32(&src, &mut dst);
+    assert!((dst[0] - 5.0).abs() < 1e-5);
+    // `cmplx_mag_f32` must only touch `dst[..num_samples]`; the tail is the caller's data.
+    assert_eq!(dst[1], -1.0);
+    assert_eq!(dst[2], -2.0);
+
+    let mut mag_sq = [0.0f32];
+    cmplx_mag_squared_f32(&src, &mut mag_sq);
+    assert!((mag_sq[0] - 25.0).abs() < 1e-5);
+
+    // q31: check the generic `cmplx_mag_squared` against the hand-written kernel's exact formula
+    // (each term shifted by `FRAC + 2 = 33` individually, then summed) rather than a naively
+    // expected physical value — this library's q31 mag-squared is deliberately scaled down by two
+    // extra bits from a "true" `r^2 + im^2` for headroom, a pre-existing convention this refactor
+    // preserves bit-for-bit rather than changes.
+    let q_src = [q31::saturating_from_num(0.3), q31::saturating_from_num(0.4)];
+    let r = q_src[0].to_bits() as i64;
+    let im = q_src[1].to_bits() as i64;
+    let expected = ((r * r) >> 33) + ((im * im) >> 33);
+    let mut q_mag_sq = [q31::ZERO];
+    cmplx_mag_squared_q31(&q_src, &mut q_mag_sq);
+    assert_eq!(
+        q_mag_sq[0],
+        q31::from_bits(expected.clamp(0, i32::MAX as i64) as i32)
+    );
+
+    let mut q_dst = [q31::ZERO];
+    cmplx_mag_q31(&q_src, &mut q_dst);
+    let mut expected_mag = q31::ZERO;
+    let _ = embedded_dsp::fast_math::sqrt_q31(q_mag_sq[0], &mut expected_mag);
+    assert_eq!(q_dst[0], expected_mag);
+}
+
+#[test]
+fn cmplx_dot_prod_matches_the_hand_written_per_width_formulas() {
+    let a = [1.0f32, 2.0, 3.0, 4.0];
+    let b = [5.0f32, 6.0, 7.0, 8.0];
+    let dot = cmplx_dot_prod_f32(&a, &b);
+    // (1*5 - 2*6) + (3*7 - 4*8) = -7 + -11 = -18; (1*6 + 2*5) + (3*8 + 4*7) = 16 + 52 = 68.
+    assert!((dot.real - (-18.0)).abs() < 1e-5);
+    assert!((dot.imag - 68.0).abs() < 1e-5);
+
+    let qa = [
+        q31::from_bits(1_000_000),
+        q31::from_bits(2_000_000),
+        q31::from_bits(3_000_000),
+        q31::from_bits(4_000_000),
+    ];
+    let qb = [
+        q31::from_bits(10_000),
+        q31::from_bits(20_000),
+        q31::from_bits(30_000),
+        q31::from_bits(40_000),
+    ];
+    let expected_real: i64 = ((1_000_000i64 * 10_000 - 2_000_000 * 20_000) >> 14)
+        + ((3_000_000i64 * 30_000 - 4_000_000 * 40_000) >> 14);
+    let expected_imag: i64 = ((1_000_000i64 * 20_000 + 2_000_000 * 10_000) >> 14)
+        + ((3_000_000i64 * 40_000 + 4_000_000 * 30_000) >> 14);
+    let qdot = cmplx_dot_prod_q31(&qa, &qb);
+    assert_eq!(qdot.real, expected_real);
+    assert_eq!(qdot.imag, expected_imag);
+
+    let q15a = [
+        q15::from_bits(100),
+        q15::from_bits(200),
+        q15::from_bits(300),
+        q15::from_bits(400),
+    ];
+    let q15b = [
+        q15::from_bits(10),
+        q15::from_bits(20),
+        q15::from_bits(30),
+        q15::from_bits(40),
+    ];
+    let expected_real: i64 = (100i32 * 10 - 200 * 20) as i64 + (300i32 * 30 - 400 * 40) as i64;
+    let expected_imag: i64 = (100i32 * 20 + 200 * 10) as i64 + (300i32 * 40 + 400 * 30) as i64;
+    let q15dot = cmplx_dot_prod_q15(&q15a, &q15b);
+    assert_eq!(q15dot.real, expected_real);
+    assert_eq!(q15dot.imag, expected_imag);
 }
 
 #[allow(dead_code)]

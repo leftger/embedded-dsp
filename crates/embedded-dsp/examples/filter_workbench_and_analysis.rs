@@ -169,6 +169,7 @@ fn main() {
     let mut df1_state = [0.0f32; 8];
     let mut df1_inst = BiquadCascadeInstanceF32 {
         num_stages: 2,
+        post_shift: 0,
         coeffs: &butter_coeffs,
         state: &mut df1_state,
     };
@@ -179,6 +180,7 @@ fn main() {
     let mut df2t_state = [0.0f32; 4];
     let mut df2t_inst = BiquadCascadeDf2tInstanceF32 {
         num_stages: 2,
+        post_shift: 0,
         coeffs: &butter_coeffs,
         state: &mut df2t_state,
     };

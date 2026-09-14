@@ -14,7 +14,7 @@ use embedded_dsp::fast_math::{
     IntPhaseUnwrapper, Unwrapper, cossin_f32, fast_atan2_f32, overflowing_sub_i32,
     saturating_scale_i32, vsqrt_f32,
 };
-use embedded_dsp::filtering::SinglePoleFilterQ15;
+use embedded_dsp::filtering::SinglePoleFilter;
 use embedded_dsp::math::FloatMath;
 use embedded_dsp::pipeline::DspNode;
 use embedded_dsp::snapshot::SnapshotBuffer;
@@ -121,9 +121,9 @@ fn small_utility_types_are_usable() {
     assert_eq!(buf.samples().len(), 0);
     assert!(!buf.is_full());
 
-    let mut filter = SinglePoleFilterQ15::lowpass(q15::from_bits(16384));
+    let mut filter = SinglePoleFilter::<q15>::lowpass(q15::from_bits(16384));
     let out =
-        <SinglePoleFilterQ15 as DspNode<q15>>::process_sample(&mut filter, q15::from_bits(8192));
+        <SinglePoleFilter<q15> as DspNode<q15>>::process_sample(&mut filter, q15::from_bits(8192));
     assert_ne!(out.to_bits(), 0);
 }
 

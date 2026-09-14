@@ -63,8 +63,8 @@ fn main() {
     // 2. Real-Time Current Filtering (O(1) Recursive Moving Average)
     // -----------------------------------------------------------------------------------------
     println!("\n--- 2. Stator Current Feedback Filtering (O(1) Recursive Moving Average) ---");
-    let mut ma_filter_ia = RecursiveMovingAverage::<8>::new();
-    let mut ma_filter_ib = RecursiveMovingAverage::<8>::new();
+    let mut ma_filter_ia = RecursiveMovingAverage::<f32, 8>::new();
+    let mut ma_filter_ib = RecursiveMovingAverage::<f32, 8>::new();
     let mut ia_filtered = [0.0f32; NUM_CONTROL_CYCLES];
     let mut ib_filtered = [0.0f32; NUM_CONTROL_CYCLES];
 

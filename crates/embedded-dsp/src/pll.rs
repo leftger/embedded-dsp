@@ -135,6 +135,17 @@ impl SogiPll {
     }
 }
 
+/// The stateless-`SplitProcess` bridge for [`SogiPll`], kept next to the type so the pipeline
+/// layer does not have to reach outward to wrap it. `Process` and
+/// [`DspNode`](crate::pipeline::DspNode) follow from the pipeline blankets.
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f32, f32, ()> for SogiPll {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), input: f32) -> f32 {
+        SogiPll::process(self, input)
+    }
+}
+
 /// Costas Loop for BPSK / QPSK carrier phase and frequency tracking.
 ///
 /// # Structure
@@ -270,6 +281,17 @@ impl CostasLoop {
     }
 }
 
+/// The stateless-`SplitProcess` bridge for [`CostasLoop`]. The output is `(f32, f32)`, a genuine
+/// type change from the `f32` input, so this reaches `Process` but not
+/// [`DspNode`](crate::pipeline::DspNode), which requires the input and output types to match.
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f32, (f32, f32), ()> for CostasLoop {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), sample: f32) -> (f32, f32) {
+        CostasLoop::process_sample(self, sample)
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Integer PLLs (ported from idsp)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -367,6 +389,18 @@ impl IntPll {
         state.f = state.f.wrapping_add(state.f0);
 
         state.y
+    }
+}
+
+/// The `SplitProcess` bridge for [`IntPll`]: the coefficients (`self`) are the shared,
+/// rarely-changed configuration and [`IntPllState`] is the explicit per-instance runtime state —
+/// exactly the split this trait is for, so no adapter is needed. Wrap in
+/// [`Split`](crate::pipeline::Split) to get a self-contained `Process`/`DspNode`.
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<i32, i32, IntPllState> for IntPll {
+    #[inline(always)]
+    fn process_with_state(&mut self, state: &mut IntPllState, input_phase: i32) -> i32 {
+        IntPll::process(self, state, input_phase)
     }
 }
 
@@ -510,5 +544,18 @@ impl Rpll {
         }
 
         (self.y, self.f)
+    }
+}
+
+/// The `SplitProcess` bridge for [`Rpll`]/[`RpllConfig`]. The roles are reversed from
+/// [`IntPll`]'s bridge: here [`RpllConfig`] is the shared, rarely-changed configuration (`self`)
+/// and [`Rpll`] is the explicit per-instance runtime state, matching how
+/// [`Rpll::process`] already takes `cfg: &RpllConfig` alongside `&mut self`. Wrap in
+/// [`Split`](crate::pipeline::Split) to get a self-contained `Process`.
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<Option<i32>, (i32, u32), Rpll> for RpllConfig {
+    #[inline(always)]
+    fn process_with_state(&mut self, state: &mut Rpll, timestamp: Option<i32>) -> (i32, u32) {
+        state.process(self, timestamp)
     }
 }

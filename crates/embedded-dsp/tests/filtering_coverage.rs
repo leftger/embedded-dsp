@@ -5,11 +5,11 @@ use embedded_dsp::filtering::{
     BiquadCascadeDf2tInstanceF32, BiquadCascadeDf2tInstanceQ15, BiquadCascadeDf2tInstanceQ31,
     BiquadCascadeInstanceF32, BiquadCascadeInstanceQ15, BiquadCascadeInstanceQ31, CircularBuffer,
     DcBlockerQ15, FirInstanceF32, FirInstanceQ15, FirInstanceQ31, LmsInstanceF32, NlmsInstanceF32,
-    RecursiveMovingAverage, RecursiveMovingAverageQ15, SinglePoleFilter, SinglePoleFilterQ15,
-    biquad_cascade_df1_f32, biquad_cascade_df1_q15, biquad_cascade_df1_q31,
-    biquad_cascade_df2t_f32, biquad_cascade_df2t_q15, biquad_cascade_df2t_q31, conv_f32, conv_q7,
-    conv_q15, conv_q31, correlate_f32, correlate_q15, correlate_q31, fir_f32, fir_q15, fir_q31,
-    lms_f32, lms_leaky_f32, nlms_f32,
+    RecursiveMovingAverage, RecursiveMovingAverageQ15, SinglePoleFilter, biquad_cascade_df1_f32,
+    biquad_cascade_df1_q15, biquad_cascade_df1_q31, biquad_cascade_df2t_f32,
+    biquad_cascade_df2t_q15, biquad_cascade_df2t_q31, conv_f32, conv_q7, conv_q15, conv_q31,
+    correlate_f32, correlate_q15, correlate_q31, fir_f32, fir_q15, fir_q31, lms_f32, lms_leaky_f32,
+    nlms_f32,
 };
 use embedded_dsp::types::{q7, q15, q31};
 
@@ -84,12 +84,12 @@ fn biquad_cascade_variants_run() {
     ];
     let mut qstate = [q31::ZERO; 4];
     let mut qdst = [q31::ZERO; 4];
-    let mut qinst = BiquadCascadeInstanceQ31::init(1, &qcoeffs, &mut qstate, 0);
+    let mut qinst = BiquadCascadeInstanceQ31::with_post_shift(1, &qcoeffs, &mut qstate, 0);
     biquad_cascade_df1_q31(&mut qinst, &qsrc, &mut qdst);
 
     let mut qstate2 = [q31::ZERO; 2];
     let mut qdst2 = [q31::ZERO; 4];
-    let mut qinst2 = BiquadCascadeDf2tInstanceQ31::init(1, &qcoeffs, &mut qstate2, 0);
+    let mut qinst2 = BiquadCascadeDf2tInstanceQ31::with_post_shift(1, &qcoeffs, &mut qstate2, 0);
     biquad_cascade_df2t_q31(&mut qinst2, &qsrc, &mut qdst2);
 
     let q15coeffs = [
@@ -107,13 +107,127 @@ fn biquad_cascade_variants_run() {
     ];
     let mut q15state = [q15::ZERO; 4];
     let mut q15dst = [q15::ZERO; 4];
-    let mut q15inst = BiquadCascadeInstanceQ15::init(1, &q15coeffs, &mut q15state, 0);
+    let mut q15inst = BiquadCascadeInstanceQ15::with_post_shift(1, &q15coeffs, &mut q15state, 0);
     biquad_cascade_df1_q15(&mut q15inst, &q15src, &mut q15dst);
 
     let mut q15state2 = [q15::ZERO; 2];
     let mut q15dst2 = [q15::ZERO; 4];
-    let mut q15inst2 = BiquadCascadeDf2tInstanceQ15::init(1, &q15coeffs, &mut q15state2, 0);
+    let mut q15inst2 =
+        BiquadCascadeDf2tInstanceQ15::with_post_shift(1, &q15coeffs, &mut q15state2, 0);
     biquad_cascade_df2t_q15(&mut q15inst2, &q15src, &mut q15dst2);
+}
+
+/// The generic biquad cascades must reproduce the hand-written per-width kernels bit for bit,
+/// including the `post_shift` narrowing — not just track them within a tolerance.
+#[test]
+fn generic_biquad_cascades_match_reference_bit_for_bit() {
+    let coeffs = [
+        q15::from_bits(1000),
+        q15::from_bits(-200),
+        q15::from_bits(300),
+        q15::from_bits(4000),
+        q15::from_bits(-500),
+    ];
+    let src: [q15; 8] =
+        core::array::from_fn(|i| q15::from_bits(((i as i32 * 1237 + 11) % 20_000 - 10_000) as i16));
+
+    for &post_shift in &[0u8, 1u8] {
+        let shift = 15u32.saturating_sub(post_shift as u32).min(31);
+        let b: [i64; 5] = core::array::from_fn(|k| coeffs[k].to_bits() as i64);
+
+        // Reference Direct Form I (the pre-genericization kernel).
+        let (mut x1, mut x2, mut y1, mut y2) = (0i64, 0i64, 0i64, 0i64);
+        let mut want_df1 = [q15::ZERO; 8];
+        for (i, &s) in src.iter().enumerate() {
+            let in_val = s.to_bits() as i64;
+            let acc = b[0] * in_val + b[1] * x1 + b[2] * x2 + b[3] * y1 + b[4] * y2;
+            let out = (acc >> shift).clamp(i16::MIN as i64, i16::MAX as i64);
+            x2 = x1;
+            x1 = in_val;
+            y2 = y1;
+            y1 = out;
+            want_df1[i] = q15::from_bits(out as i16);
+        }
+        let mut st = [q15::ZERO; 4];
+        let mut inst = BiquadCascadeInstanceQ15::with_post_shift(1, &coeffs, &mut st, post_shift);
+        let mut got_df1 = [q15::ZERO; 8];
+        biquad_cascade_df1_q15(&mut inst, &src, &mut got_df1);
+        assert_eq!(got_df1, want_df1, "DF1 diverged at post_shift {post_shift}");
+
+        // Reference transposed Direct Form II.
+        let (mut s1, mut s2) = (0i64, 0i64);
+        let mut want_df2t = [q15::ZERO; 8];
+        for (i, &s) in src.iter().enumerate() {
+            let in_val = s.to_bits() as i64;
+            let y = (b[0] * in_val + (s1 << shift)).clamp(i64::MIN >> 1, i64::MAX >> 1) >> shift;
+            let out = y.clamp(i16::MIN as i64, i16::MAX as i64);
+            let s1_new = (b[1] * in_val + b[3] * out + (s2 << shift)) >> shift;
+            let s2_new = (b[2] * in_val + b[4] * out) >> shift;
+            s1 = s1_new.clamp(i16::MIN as i64, i16::MAX as i64);
+            s2 = s2_new.clamp(i16::MIN as i64, i16::MAX as i64);
+            want_df2t[i] = q15::from_bits(out as i16);
+        }
+        let mut st2 = [q15::ZERO; 2];
+        let mut inst2 =
+            BiquadCascadeDf2tInstanceQ15::with_post_shift(1, &coeffs, &mut st2, post_shift);
+        let mut got_df2t = [q15::ZERO; 8];
+        biquad_cascade_df2t_q15(&mut inst2, &src, &mut got_df2t);
+        assert_eq!(
+            got_df2t, want_df2t,
+            "DF2T diverged at post_shift {post_shift}"
+        );
+    }
+}
+
+/// The generic FIR must reproduce the per-term high-multiply recurrence bit for bit.
+#[test]
+fn generic_fir_matches_per_term_reference_bit_for_bit() {
+    // q15: `acc += (state * coeff) >> 15`, then saturate.
+    let coeffs = [
+        q15::from_bits(1000),
+        q15::from_bits(-200),
+        q15::from_bits(50),
+    ];
+    let src: [q15; 8] =
+        core::array::from_fn(|i| q15::from_bits(((i as i32 * 1237 + 11) % 20_000 - 10_000) as i16));
+    let mut want = [q15::ZERO; 8];
+    let mut state = [0i32; 3];
+    for (i, &s) in src.iter().enumerate() {
+        state[2] = state[1];
+        state[1] = state[0];
+        state[0] = s.to_bits() as i32;
+        let mut acc = 0i32;
+        for k in 0..3 {
+            acc += (state[k] * coeffs[k].to_bits() as i32) >> 15;
+        }
+        want[i] = q15::from_bits(acc.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
+    }
+    let mut st = [q15::ZERO; 3];
+    let mut got = [q15::ZERO; 8];
+    let mut inst = FirInstanceQ15::init(3, &coeffs, &mut st);
+    fir_q15(&mut inst, &src, &mut got);
+    assert_eq!(got, want, "q15 FIR diverged from the per-term reference");
+
+    // f32: plain dot product.
+    let fcoeffs = [0.25f32, -0.5, 0.125];
+    let fsrc: [f32; 8] = core::array::from_fn(|i| ((i as f32) * 0.017 - 1.3).sin());
+    let mut fwant = [0.0f32; 8];
+    let mut fstate = [0.0f32; 3];
+    for (i, &s) in fsrc.iter().enumerate() {
+        fstate[2] = fstate[1];
+        fstate[1] = fstate[0];
+        fstate[0] = s;
+        let mut acc = 0.0f32;
+        for k in 0..3 {
+            acc += fstate[k] * fcoeffs[k];
+        }
+        fwant[i] = acc;
+    }
+    let mut fst = [0.0f32; 3];
+    let mut fgot = [0.0f32; 8];
+    let mut finst = FirInstanceF32::init(3, &fcoeffs, &mut fst);
+    fir_f32(&mut finst, &fsrc, &mut fgot);
+    assert_eq!(fgot, fwant, "f32 FIR diverged from the reference");
 }
 
 #[test]
@@ -175,22 +289,22 @@ fn convolution_correlation_and_misc_filters() {
     let mut q15corr = [q15::ZERO; 4];
     correlate_q15(&q15a, &q15b, &mut q15corr);
 
-    let mut sp = SinglePoleFilter::lowpass(0.5);
+    let mut sp = SinglePoleFilter::<f32>::lowpass(0.5);
     sp.process(1.0);
     sp.reset();
-    let mut sp2 = SinglePoleFilter::highpass(0.5);
+    let mut sp2 = SinglePoleFilter::<f32>::highpass(0.5);
     sp2.process(1.0);
 
-    let mut spq = SinglePoleFilterQ15::lowpass(q15::from_bits(1 << 14));
+    let mut spq = SinglePoleFilter::<q15>::lowpass(q15::from_bits(1 << 14));
     spq.process(q15::from_bits(100));
     spq.reset();
-    let mut spq2 = SinglePoleFilterQ15::highpass_from_f32(0.5);
+    let mut spq2 = SinglePoleFilter::<q15>::highpass_from_f32(0.5);
     spq2.process(q15::from_bits(100));
     let mut dc = DcBlockerQ15::new(q15::from_bits(1 << 14));
     dc.process(q15::from_bits(100));
     dc.reset();
 
-    let mut avg = RecursiveMovingAverage::<4>::default();
+    let mut avg = RecursiveMovingAverage::<f32, 4>::default();
     avg.process(1.0);
     avg.reset();
     let mut avgq = RecursiveMovingAverageQ15::<4>::default();

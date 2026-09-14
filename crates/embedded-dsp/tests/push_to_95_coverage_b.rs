@@ -82,6 +82,11 @@ fn test_types_and_dspsample_exhaustive() {
     assert_eq!(DspSample::abs_val(5.0f32), 5.0f32);
     assert_eq!(DspSample::to_f32(4.5f32), 4.5f32);
     assert_eq!(<f32 as DspSample>::from_f32(4.5f32), 4.5f32);
+    let _: <f32 as DspSample>::Accum = 0.0f32;
+    let _: <f32 as DspSample>::Coeff = 0.0f32;
+    assert_eq!(<f32 as DspSample>::madd(0.5, 2.0, 3.0), 6.5);
+    assert_eq!(<f32 as DspSample>::from_accum(6.5), 6.5);
+    assert_eq!(<f32 as DspSample>::coeff_from_f32(0.25), 0.25);
 
     // DspSample for f64
     assert_eq!(f64::ZERO, 0.0);
@@ -94,6 +99,11 @@ fn test_types_and_dspsample_exhaustive() {
     assert_eq!(DspSample::abs_val(5.0f64), 5.0f64);
     assert_eq!(DspSample::to_f32(4.5f64), 4.5f32);
     assert_eq!(<f64 as DspSample>::from_f32(4.5f32), 4.5f64);
+    let _: <f64 as DspSample>::Accum = 0.0f64;
+    let _: <f64 as DspSample>::Coeff = 0.0f64;
+    assert_eq!(<f64 as DspSample>::madd(0.5, 2.0, 3.0), 6.5);
+    assert_eq!(<f64 as DspSample>::from_accum(6.5), 6.5);
+    assert_eq!(<f64 as DspSample>::coeff_from_f32(0.25), 0.25);
 
     // DspSample for q15
     let a_q15 = q15::from_bits(1000);
@@ -117,6 +127,33 @@ fn test_types_and_dspsample_exhaustive() {
     let _f_q15 = DspSample::to_f32(a_q15);
     let _q15_from_f = <q15 as DspSample>::from_f32(0.5);
 
+    // The Q15 accumulator is wide enough to hold several Q30 products, then narrows once.
+    let _: <q15 as DspSample>::Accum = 0i64;
+    let _: <q15 as DspSample>::Coeff = q15::ZERO;
+    assert_eq!(
+        <q15 as DspSample>::madd(0, q15::from_bits(1000), q15::from_bits(2000)),
+        1000i64 * 2000
+    );
+    let wide_q15 = <q15 as DspSample>::madd(
+        <q15 as DspSample>::madd(
+            <q15 as DspSample>::madd(0, q15::MAX, q15::MAX),
+            q15::MAX,
+            q15::MAX,
+        ),
+        q15::MAX,
+        q15::MAX,
+    );
+    assert_eq!(wide_q15, 3 * (32767i64 * 32767));
+    assert_eq!(<q15 as DspSample>::from_accum(wide_q15), q15::MAX);
+    assert_eq!(<q15 as DspSample>::from_accum(i64::MIN), q15::MIN);
+    assert_eq!(<q15 as DspSample>::from_accum(1 << 15), q15::from_bits(1));
+    assert_eq!(
+        <q15 as DspSample>::coeff_from_f32(0.5),
+        q15::saturating_from_num(0.5)
+    );
+    assert_eq!(<q15 as DspSample>::coeff_from_f32(2.0), q15::MAX);
+    assert_eq!(<q15 as DspSample>::coeff_from_f32(-2.0), q15::MIN);
+
     // DspSample for q31
     let a_q31 = q31::from_bits(100000);
     let b_q31 = q31::from_bits(50000);
@@ -139,6 +176,22 @@ fn test_types_and_dspsample_exhaustive() {
     let _f_q31 = DspSample::to_f32(a_q31);
     let _q31_from_f = <q31 as DspSample>::from_f32(0.5);
 
+    let _: <q31 as DspSample>::Accum = 0i64;
+    let _: <q31 as DspSample>::Coeff = q31::ZERO;
+    assert_eq!(
+        <q31 as DspSample>::madd(0, a_q31, a_q31),
+        a_q31.to_bits() as i64 * a_q31.to_bits() as i64
+    );
+    assert_eq!(<q31 as DspSample>::from_accum(i64::MAX), q31::MAX);
+    assert_eq!(<q31 as DspSample>::from_accum(i64::MIN), q31::MIN);
+    assert_eq!(<q31 as DspSample>::from_accum(1 << 31), q31::from_bits(1));
+    assert_eq!(
+        <q31 as DspSample>::coeff_from_f32(0.5),
+        q31::saturating_from_num(0.5)
+    );
+    assert_eq!(<q31 as DspSample>::coeff_from_f32(2.0), q31::MAX);
+    assert_eq!(<q31 as DspSample>::coeff_from_f32(-2.0), q31::MIN);
+
     // Complex operations
     let c1 = Complex::new(1.0f32, 2.0f32);
     let c2 = Complex::new(3.0f32, 4.0f32);
@@ -152,6 +205,119 @@ fn test_types_and_dspsample_exhaustive() {
     assert!(c_mul.real.is_finite());
     assert_eq!(c_scale.real, 2.0);
     assert_eq!(c_neg.real, -1.0);
+}
+
+#[test]
+fn test_dspsample_stage6_primitives_exhaustive() {
+    // `sat_neg`: plain negation for floats (preserving signed zero), saturating for fixed widths.
+    assert_eq!(<f32 as DspSample>::sat_neg(1.5), -1.5);
+    assert!(<f32 as DspSample>::sat_neg(0.0).is_sign_negative());
+    assert_eq!(<f64 as DspSample>::sat_neg(1.5), -1.5);
+    assert!(<f64 as DspSample>::sat_neg(0.0).is_sign_negative());
+    assert_eq!(
+        <q15 as DspSample>::sat_neg(q15::from_bits(i16::MIN)),
+        q15::from_bits(i16::MAX)
+    );
+    assert_eq!(
+        <q15 as DspSample>::sat_neg(q15::from_bits(100)),
+        q15::from_bits(-100)
+    );
+    assert_eq!(
+        <q31 as DspSample>::sat_neg(q31::from_bits(i32::MIN)),
+        q31::from_bits(i32::MAX)
+    );
+    assert_eq!(
+        <q31 as DspSample>::sat_neg(q31::from_bits(100)),
+        q31::from_bits(-100)
+    );
+
+    // `wrapping_madd`: wrap the fixed-point product at native width before widening; identical to
+    // `madd` for floats since there's nothing to wrap.
+    assert_eq!(<f32 as DspSample>::wrapping_madd(0.5, 2.0, 3.0), 6.5);
+    assert_eq!(<f64 as DspSample>::wrapping_madd(0.5, 2.0, 3.0), 6.5);
+    assert_eq!(
+        <q15 as DspSample>::wrapping_madd(0, q15::from_bits(i16::MIN), q15::from_bits(i16::MIN)),
+        i16::MIN as i64,
+        "MIN*MIN must wrap, not saturate"
+    );
+    assert_eq!(
+        <q31 as DspSample>::wrapping_madd(0, q31::from_bits(i32::MIN), q31::from_bits(i32::MIN)),
+        i32::MIN as i64,
+        "MIN*MIN must wrap, not saturate"
+    );
+
+    // `mul_shifted`: `mul_high` generalized to an explicit shift instead of the fixed `FRAC`.
+    assert_eq!(<f32 as DspSample>::mul_shifted(2.0, 3.0, 5), 6.0);
+    assert_eq!(<f64 as DspSample>::mul_shifted(2.0, 3.0, 5), 6.0);
+    assert_eq!(
+        <q15 as DspSample>::mul_shifted(q15::from_bits(1000), q15::from_bits(2000), 17),
+        (1000i64 * 2000) >> 17
+    );
+    assert_eq!(
+        <q31 as DspSample>::mul_shifted(q31::from_bits(1000), q31::from_bits(2000), 33),
+        (1000i64 * 2000) >> 33
+    );
+
+    // `accum_shift`: shift a value already in the accumulator domain, staying there.
+    assert_eq!(<f32 as DspSample>::accum_shift(6.5, 3), 6.5);
+    assert_eq!(<f64 as DspSample>::accum_shift(6.5, 3), 6.5);
+    assert_eq!(<q15 as DspSample>::accum_shift(1000i64, 3), 1000i64 >> 3);
+    assert_eq!(<q31 as DspSample>::accum_shift(1000i64, 3), 1000i64 >> 3);
+
+    // `coeff_from_q15_bits`: promote a shared Q15-precision twiddle-table entry to this sample's
+    // native coefficient width.
+    assert_eq!(<f32 as DspSample>::coeff_from_q15_bits(16384), 0.5);
+    assert_eq!(<f64 as DspSample>::coeff_from_q15_bits(16384), 0.5);
+    assert_eq!(
+        <q15 as DspSample>::coeff_from_q15_bits(1000),
+        q15::from_bits(1000)
+    );
+    assert_eq!(
+        <q31 as DspSample>::coeff_from_q15_bits(1000),
+        q31::from_bits(1000 << 16)
+    );
+
+    // `f64`'s remaining `DspSample` methods (pre-existing since Stage 3, but never directly
+    // exercised anywhere else in the suite).
+    assert_eq!(<f64 as DspSample>::average_accum(6.0, 3), 2.0);
+    assert_eq!(<f64 as DspSample>::mul_high(2.0, 3.0), 6.0);
+    assert_eq!(<f64 as DspSample>::from_accum_shifted(6.5, 3), 6.5);
+    assert_eq!(<f64 as DspSample>::accum_from_shifted(6.5, 3), 6.5);
+    assert_eq!(<f64 as DspSample>::abs_val(-5.0), 5.0);
+    assert_eq!(<f64 as DspSample>::abs_val(5.0), 5.0);
+}
+
+#[test]
+fn test_pid_instance_derived_trait_impls() {
+    // `PidInstance<T>`'s manual Clone/Copy/Debug/PartialEq/Default (the derive macros can't add
+    // bounds on associated types like `T::Coeff`, so these are hand-written).
+    let a = PidInstanceF32::new(1.0, 0.1, 0.01);
+    let b = a;
+    #[allow(clippy::clone_on_copy)]
+    let c = a.clone();
+    assert_eq!(a, b);
+    assert_eq!(a, c);
+    assert!(format!("{a:?}").contains("PidInstance"));
+
+    let mut d = PidInstanceF32::default();
+    assert_ne!(a, d);
+    d.kp = a.kp;
+    d.ki = a.ki;
+    d.kd = a.kd;
+    d.init(1);
+    assert_eq!(a, d);
+
+    let e = PidInstanceQ15::new(q15::from_bits(100), q15::from_bits(10), q15::from_bits(1));
+    let f = e;
+    assert_eq!(e, f);
+    assert!(format!("{e:?}").contains("PidInstance"));
+    assert_eq!(PidInstanceQ15::default(), PidInstanceQ15::default());
+
+    let g = PidInstanceQ31::new(q31::from_bits(100), q31::from_bits(10), q31::from_bits(1));
+    let h = g;
+    assert_eq!(g, h);
+    assert!(format!("{g:?}").contains("PidInstance"));
+    assert_eq!(PidInstanceQ31::default(), PidInstanceQ31::default());
 }
 
 #[test]
@@ -208,6 +374,11 @@ fn test_spatial_exhaustive() {
         convolve2d_f32(&src_img, &mut convolved, 3, 3, &kernel, 3, 3, true),
         Status::Success
     );
+    // `normalize = false` skips the kernel-weight-sum normalization branch.
+    assert_eq!(
+        convolve2d_f32(&src_img, &mut convolved, 3, 3, &kernel, 3, 3, false),
+        Status::Success
+    );
 
     let mut nonlin_out = [0.0f32; 9];
     assert_eq!(
@@ -222,11 +393,58 @@ fn test_spatial_exhaustive() {
         nonlin2d_filter_f32(&src_img, &mut nonlin_out, 3, 3, 3, NonlinFilterType::Median),
         Status::Success
     );
+    // Descending image reorders where the extrema land relative to the kernel tap-visitation
+    // order, exercising the "found a new min/max after the first tap" branches.
+    let src_img_desc = [9.0f32, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
+    assert_eq!(
+        nonlin2d_filter_f32(
+            &src_img_desc,
+            &mut nonlin_out,
+            3,
+            3,
+            3,
+            NonlinFilterType::Min
+        ),
+        Status::Success
+    );
+    assert_eq!(
+        nonlin2d_filter_f32(
+            &src_img_desc,
+            &mut nonlin_out,
+            3,
+            3,
+            3,
+            NonlinFilterType::Max
+        ),
+        Status::Success
+    );
+    // ArgumentError: even k_size.
+    assert_eq!(
+        nonlin2d_filter_f32(&src_img, &mut nonlin_out, 3, 3, 2, NonlinFilterType::Min),
+        Status::ArgumentError
+    );
+    // LengthError: declared dims exceed what the buffers hold.
+    assert_eq!(
+        nonlin2d_filter_f32(
+            &src_img[..4],
+            &mut nonlin_out,
+            3,
+            3,
+            3,
+            NonlinFilterType::Min
+        ),
+        Status::LengthError
+    );
 
     let mut edges = [0.0f32; 9];
     assert_eq!(
         sobel_edge_detection_f32(&src_img, &mut edges, 3, 3, 2.0),
         Status::Success
+    );
+    // LengthError: declared dims exceed what the buffers hold.
+    assert_eq!(
+        sobel_edge_detection_f32(&src_img[..4], &mut edges, 3, 3, 2.0),
+        Status::LengthError
     );
 
     let mut hist_bins = [0usize; 5];

@@ -5,7 +5,7 @@
 # env var. It has no dependency on a third-party app or plan. The statuses
 # configured below take effect only once the Codecov GitHub App is installed and
 # posting checks; keep `coverage.status.project.default.target` in sync with
-# COVERAGE_MIN (currently 97).
+# COVERAGE_MIN (currently 96).
 #
 # Score only the core embedded-dsp library (crates/embedded-dsp). Sibling
 # crates (studio, …) and non-library trees are excluded.
@@ -61,10 +61,20 @@ coverage:
         # Target the library floor rather than the previous `auto` (which only
         # compared against the base commit and allowed a 1% dip every time).
         # `threshold` is the permitted shortfall, so this reports failure below
-        # 94.5%. The half-point of slack absorbs runner-level noise:
+        # 93.5%. The half-point of slack absorbs runner-level noise:
         # coverage-mapping differences between llvm-cov builds make
         # #[inline(always)] functions report as unexecuted on CI, which costs
         # ~0.3 points versus an identical local run.
+        #
+        # Lowered from 97% to 96% (2026-09-13): as sample-generic code (see
+        # GENERICIZATION.md) replaces hand-written per-width twins with generic
+        # functions and trait bridges, the share of #[inline(always)]/generic
+        # bodies the merged two-profile report fails to attribute keeps growing.
+        # Confirmed directly: a controlled, verifiably-correct test closing four
+        # confirmed-uncovered lines in kalman.rs moved the CI-reported number by
+        # exactly zero. Revisit upward only alongside a fix to the merge
+        # methodology itself (e.g. a single profile, or per-profile floors),
+        # not by chasing more tests against a ceiling that has stopped moving.
         #
         # Ceiling note: the compile-time twiddle / CORDIC / sine tables in
         # transform.rs, fast_math.rs and lut.rs are now covered -- in-crate unit
@@ -73,7 +83,7 @@ coverage:
         # `FloatMath` arms in math.rs, whose bodies differ between the std and
         # libm configurations and which the merged report does not attribute.
         # The practical maximum is therefore just under 100%, not 100%.
-        target: 97%
+        target: 96%
         threshold: 0.5%
         paths:
           - crates/embedded-dsp
