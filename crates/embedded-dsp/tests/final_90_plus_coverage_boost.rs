@@ -116,6 +116,26 @@ fn test_filter_design_all_windowed_sinc() {
         Status::Success
     );
 
+    // Invalid tap-length/cutoff arguments propagate as ArgumentError, including through
+    // highpass/bandstop's delegation into lowpass/bandpass.
+    let mut even_taps = [0.0f32; 4];
+    assert_eq!(
+        fir_windowed_sinc_highpass(0.2, &mut even_taps),
+        Status::ArgumentError
+    );
+    assert_eq!(
+        fir_windowed_sinc_bandpass(0.3, 0.1, &mut bp_taps),
+        Status::ArgumentError
+    );
+    assert_eq!(
+        fir_windowed_sinc_bandstop(0.3, 0.1, &mut bs_taps),
+        Status::ArgumentError
+    );
+    assert_eq!(
+        fir_windowed_sinc_bandstop(0.1, 0.3, &mut even_taps),
+        Status::ArgumentError
+    );
+
     let mut biquad_q31 = [q31::ZERO; 5];
     assert!(
         biquad_quantize_and_scale_q31(

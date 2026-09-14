@@ -129,4 +129,18 @@ fn test_quantization_and_scaling_strategies() {
         fir_quantize_q15(&taps_f32, &mut bad_q15[..2]),
         Err(Status::LengthError)
     );
+
+    // More than 26 biquad stages (130 elements) overflows the internal 128-element scratch
+    // buffer, an ArgumentError distinct from the length-mismatch case above.
+    let big_sos = [0.1f32; 130];
+    let mut big_q15 = [q15::ZERO; 130];
+    let mut big_q31 = [q31::ZERO; 130];
+    assert_eq!(
+        biquad_quantize_and_scale_q15(&big_sos, &mut big_q15, ScalingStrategy::Direct),
+        Err(Status::ArgumentError)
+    );
+    assert_eq!(
+        biquad_quantize_and_scale_q31(&big_sos, &mut big_q31, ScalingStrategy::Direct),
+        Err(Status::ArgumentError)
+    );
 }

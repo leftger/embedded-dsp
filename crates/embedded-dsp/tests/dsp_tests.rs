@@ -1899,6 +1899,41 @@ fn test_fir_custom_frequency_sampling_matches_impulse_case() {
 }
 
 #[test]
+fn test_fir_custom_frequency_sampling_rejects_bad_arguments() {
+    let fft_len = 8;
+    let desired_real = [1.0f32; 5];
+    let desired_imag = [0.0f32; 5];
+
+    // Even tap count.
+    let mut even_taps = [0.0f32; 4];
+    assert_eq!(
+        fir_custom_frequency_sampling(&desired_real, &desired_imag, fft_len, &mut even_taps),
+        Status::ArgumentError
+    );
+
+    // fft_len not a power of two.
+    let mut taps = [0.0f32; 5];
+    assert_eq!(
+        fir_custom_frequency_sampling(&desired_real, &desired_imag, 6, &mut taps),
+        Status::ArgumentError
+    );
+
+    // fft_len smaller than out_taps.
+    assert_eq!(
+        fir_custom_frequency_sampling(&desired_real, &desired_imag, 4, &mut taps),
+        Status::ArgumentError
+    );
+
+    // Spectrum shorter than fft_len / 2 + 1.
+    let short_real = [1.0f32; 2];
+    let short_imag = [0.0f32; 2];
+    assert_eq!(
+        fir_custom_frequency_sampling(&short_real, &short_imag, fft_len, &mut taps),
+        Status::LengthError
+    );
+}
+
+#[test]
 fn test_fir_custom_frequency_sampling_approximates_lowpass() {
     // Build a desired lowpass magnitude response (1 below cutoff, 0 above), zero phase.
     let fft_len = 64;
