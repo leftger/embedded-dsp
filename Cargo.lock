@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "embedded-dsp"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "bytemuck",
  "defmt",
@@ -1041,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "embedded-dsp-studio"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "eframe",
  "egui_extras",

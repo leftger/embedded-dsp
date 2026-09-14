@@ -141,13 +141,13 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 # Standard std environment (all modules enabled)
-embedded-dsp = "0.5.1"
+embedded-dsp = "0.6.0"
 
 # Bare-metal #![no_std] with libm
-embedded-dsp = { version = "0.5.1", default-features = false, features = ["libm", "full"] }
+embedded-dsp = { version = "0.6.0", default-features = false, features = ["libm", "full"] }
 
 # Minimal firmware footprint (only FIR/Biquad filtering + basic math)
-embedded-dsp = { version = "0.5.1", default-features = false, features = ["libm", "filtering", "basic-math"] }
+embedded-dsp = { version = "0.6.0", default-features = false, features = ["libm", "filtering", "basic-math"] }
 ```
 
 ### Basic Example

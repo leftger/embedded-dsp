@@ -10,7 +10,7 @@ members = [
 exclude = ["fuzz", "crates/embedded-dsp-ffi"]
 
 [workspace.package]
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.93"
 authors = ["Gerzain Mata <leftger@gmail.com>"]
@@ -34,7 +34,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(docsrs)"] }
 needless_range_loop = "allow"
 
 [workspace.dependencies]
-embedded-dsp = { path = "crates/embedded-dsp", version = "0.5.1", default-features = false }
+embedded-dsp = { path = "crates/embedded-dsp", version = "0.6.0", default-features = false }
 fixed = { version = "1.31.0", default-features = false }
 libm = { version = "0.2.11" }
 defmt = { version = "1.1", default-features = false }
