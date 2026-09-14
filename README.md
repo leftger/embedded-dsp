@@ -17,11 +17,11 @@ A high-performance **`#![no_std]` Rust Digital Signal Processing library** desig
 ## Highlights
 
 - **`#![no_std]` First**: Pure `core` compatibility with zero heap allocations.
-- **Fixed & Float Parity**: CMSIS-style `f32`, `f64`, and `q7`/`q15`/`q31` — interoperable with the [`fixed`](https://crates.io/crates/fixed) crate (optional `fixed` feature, enabled by default) with zero-dependency fallback newtypes — plus the polymorphic `DspSample` trait.
+- **Fixed & Float Parity**: CMSIS-style `f32`, `f64`, and `q7`/`q15`/`q31` — interoperable with the [`fixed`](https://crates.io/crates/fixed) crate (optional `fixed` feature, enabled by default) with zero-dependency fallback newtypes — plus the polymorphic `DspSample` trait. Filters, PID, Hilbert transform, CFFT/BFP and complex-math are implemented once as generic `DspSample` code and verified bit-exact against the per-width kernels they replace; the old `F32`/`Q15`/`Q31` names remain as type aliases.
 - **Hardware Acceleration**: ARM Cortex-M assembly intrinsics (`smlad`, `smlald`, `ssat`, `qadd16`) via `cortex-m-dsp`, with portable SWAR vector fallbacks.
 - **Pure-Integer CORDIC Engine**: Shift-and-add `sin`, `cos`, `atan2`, polar conversion, and `sqrt` requiring no hardware multipliers.
 - **Streaming Pipelines**: Zero-allocation [`DspNode`](crates/embedded-dsp/src/pipeline.rs) composable processing chains (`Chain`, `Gain`, `Limiter`).
-- **Production Tested**: CI runs the full test suite on the host and `cargo check --all-targets --all-features` plus a `no_std` build on six embedded/WebAssembly targets (`thumbv6m-none-eabi`, `thumbv7em-none-eabi`, `thumbv7em-none-eabihf`, `thumbv8m.main-none-eabihf`, `riscv32imc-unknown-none-elf`, `wasm32-unknown-unknown`), and enforces a **97% line-coverage floor** on the library.
+- **Production Tested**: CI runs the full test suite on the host and `cargo check --all-targets --all-features` plus a `no_std` build on six embedded/WebAssembly targets (`thumbv6m-none-eabi`, `thumbv7em-none-eabi`, `thumbv7em-none-eabihf`, `thumbv8m.main-none-eabihf`, `riscv32imc-unknown-none-elf`, `wasm32-unknown-unknown`), and enforces a **96% line-coverage floor** on the library.
 
 ---
 
@@ -47,14 +47,12 @@ cargo run -p embedded-dsp-studio
 
 ## Comparison with `idsp`
 
-[`idsp`](https://crates.io/crates/idsp) (0.22, by Robert Jördens / QUARTIQ) is the other well-established
-`#![no_std]`, integer-first DSP crate; [Stabilizer](https://github.com/quartiq/stabilizer) is its
-comprehensive production user. `embedded-dsp` ports and re-verifies `idsp`'s fixed-point and integer
-algorithms, so for the algorithms the two share it is a superset — and it adds transforms, audio and
-vision, sensor fusion, control, and tooling on top.
-
-The table is checked against `idsp` `0.22.1`. Honest differences are marked, including the places where
-`idsp` still has more to offer; those are also called out below the table.
+[`idsp`](https://crates.io/crates/idsp) (0.22, by Robert Jördens / QUARTIQ) is the other established
+`#![no_std]`, integer-first DSP crate, used in production by
+[Stabilizer](https://github.com/quartiq/stabilizer). `embedded-dsp` ports and re-verifies `idsp`'s
+fixed-point/integer algorithms — a superset where they overlap — and adds transforms, audio/vision,
+sensor fusion, control, and tooling on top. The table below is checked against `idsp` 0.22.1; honest
+gaps are marked and explained after the table.
 
 | Feature | `embedded-dsp` | `idsp` |
 | :--- | :---: | :---: |
@@ -96,50 +94,23 @@ The table is checked against `idsp` `0.22.1`. Honest differences are marked, inc
 
 Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · ❌ not provided.
 
-**Where `idsp` still leads.** It publishes Python bindings for offline analysis and filter design.
-Everything else in the table is either at parity or an `embedded-dsp` advantage — including the typed
-view framework, the chunk bridges and the gated `Buffer`, which this crate now carries natively
-rather than depending on `dsp-process` for. The one piece deliberately not mirrored is `Major`; see
-the note below.
+**Where `idsp` still leads:** Python bindings for offline analysis and filter design. Everything else
+is at parity or an `embedded-dsp` advantage — including the typed view framework, chunk bridges, and
+gated `Buffer`, all carried natively rather than depending on `dsp-process` — except `Major`, below.
 
-**Note on the extra CORDIC modes.** `idsp` also advertises linear (`mul`/`div`) and hyperbolic
-rotation (`cosh_sinh`) modes. Measured against `idsp` 0.22.1, pinned by `tests/idsp_cordic_probe.rs`:
+**CORDIC modes.** `idsp`'s linear `mul` and hyperbolic `cosh_sinh` are correct only inside a `±0.5`/
+`±0.3` band (an upstream sign bug); `div` and the circular/hyperbolic modes this crate ports are fine
+and bit-matched, pinned by `tests/idsp_cordic_probe.rs`. `embedded-dsp` implements hyperbolic
+**vectoring** instead of rotation: both outputs are representable across their full domain, measure to
+~`6e-9`, and have no band or panicking input — reaching `|z| ≈ 0.63` at Q1.31 full scale, about twice
+what `idsp`'s rotation mode manages.
 
-- `div` — correct (`z + y/x`). Not ported: a fixed-point divide is one instruction here.
-- `mul` — correct only for `|z| ≤ 0.5`, folding to `y + x(1 − z)` above it.
-- `cosh_sinh` — correct only to `|z| ≈ 0.3`, sign-flipping past `0.5`.
-
-The band is an upstream bug: the linear table's first entry reads `−1.0` where the angle must be
-`+1.0`. Upstream also panics on `idsp::div(i32::MIN, 0, 0)`, since `i32::MIN` is `−1.0` in Q31 and
-every vectoring mode negates `x`. Both reported upstream.
-
-This crate implements hyperbolic **vectoring** instead: both outputs are representable across their
-full domains, measure to ~`6e-9`, and have no band or panicking input. Rotation mode is capped by the
-format, not the algorithm: `cosh` grows like `e^z`, so Q1.31 reaches `|z| ≈ 0.63` at full scale —
-about twice what `idsp` manages.
-
-**Note on `Major`.** `dsp-process` also ships `Major`, which traverses a composition *stage by stage*
-over a whole block, materialising the intermediate signal in explicit scratch, as opposed to the
-default `Minor` where one sample walks through every stage. It is not ported, for three reasons:
-
-- **The composition it needs does not exist here.** Upstream's `Major<P, U>` threads scratch between
-  stages of a *tuple-seq* composition (`Minor<(C0, C1), U>`). Ours is `Chain<A, B>`, homogeneous over
-  one sample type, so the type-level problem it solves — what is the intermediate type between stage
-  *i* and *i+1* — does not arise. Here it is just `&mut [T]`.
-- **The payoff needs stages with real `block` specializations.** Count ours: `Buffer` and
-  `ChunkInOut`. Everything else is a recursive per-sample stage — biquads, single-pole, PLL, AGC, DSM
-  — where sample-major is already optimal, because keeping that stage's state hot in registers is the
-  point.
-- **The capability is already reachable in one line.** `a.block(&x, &mut scratch); b.block(&scratch,
-  &mut y);` *is* stage-major traversal. What the upstream type adds is doing it automatically for a
-  composed tuple and owning the scratch — neither of which is worth a type parameter that propagates
-  through every bound and combinator.
-
-If it is ever built, the shape would be a method taking **caller-owned** scratch rather than a
-`Major<C, U>` wrapper, because scratch length is the cache dial this whole trade-off is about, and
-caller-owned scratch can live in a `static` or in DMA-visible memory. The trigger to build it is
-concrete: a stage gaining a `block` path worth exploiting, which today means the FIRs, whose stages
-are per-sample.
+**`Major` (stage-by-stage block traversal).** Not ported: `Chain<A, B>` is homogeneous over one sample
+type, so the intermediate-type problem `Major` solves doesn't arise here — it's just `&mut [T]`. Only
+`Buffer`/`ChunkInOut` have real block specializations; every other stage is per-sample, where
+sample-major is already optimal. The manual one-liner (`a.block(&x, &mut scratch); b.block(&scratch,
+&mut y)`) already gets the same effect; a caller-owned-scratch helper is worth adding only once a
+block-capable stage — most likely the FIRs — needs it.
 
 ---
 
@@ -148,7 +119,7 @@ are per-sample.
 | Category | Key Algorithms & Structs |
 | :--- | :--- |
 | **Filtering & Design** | FIR, Biquad IIR (DF-I & Transposed DF-II), LMS/NLMS, Butterworth/Chebyshev/elliptic design, Kaiser-windowed sinc FIR, RRC/RC/GMSK-TX pulses, Windowed-Sinc, $L_\infty/L_2$ SOS Quantization & SQNR analysis, DC Blocker. |
-| **Spectral & Transforms** | CFFT, RFFT (packed), Block Floating-Point FFT (`cfft_bfp_q15/q31`), Hilbert Transform FIR & Analytic Signal (`HilbertTransformF32/Q15`), Real Cepstrum, DCT-IV, FWHT, Haar, Hartley, Daubechies-4 DWT, Welch & Burg AR PSD. |
+| **Spectral & Transforms** | CFFT, RFFT (packed), Block Floating-Point FFT (`cfft_bfp_q15/q31`), Hilbert Transform FIR & Analytic Signal (generic `HilbertTransform<T>`, `F32`/`Q15` aliases), Real Cepstrum, DCT-IV, FWHT, Haar, Hartley, Daubechies-4 DWT, Welch & Burg AR PSD. |
 | **Audio & Voice** | Goertzel tone detector, Mel & Generalized filterbanks, MFCC, Q15 VAD, Dynamics Compressor with soft knee, Noise Gate, streaming AGC. |
 | **Control & Power** | FOC current/speed PID, Clarke & Park transforms, SOGI-PLL (grid synchronization/resolvers), Costas Loop carrier recovery. |
 | **Analog modem** | FM phase-accum mod/demod, DSB-AM envelope, SSB USB/LSB (reuses Hilbert transformer). |
