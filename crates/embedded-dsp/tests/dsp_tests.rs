@@ -908,6 +908,19 @@ fn test_kalman_update_singular_leaves_state() {
     assert_eq!(kf.p, p_before);
 }
 
+#[test]
+fn test_kalman_update_rejects_degenerate_measurement_dimensions() {
+    // M == 0: no measurements to update with.
+    let mut kf0 = KalmanFilter::<2, 0>::from_variances([0.0, 0.0], 1.0, 0.01, 0.1);
+    assert_eq!(kf0.update(&[], &[]), Status::SizeMismatch);
+
+    // M > 16: exceeds the internal 16x16 matrix-inversion scratch buffer.
+    let mut kf17 = KalmanFilter::<2, 17>::from_variances([0.0, 0.0], 1.0, 0.01, 0.1);
+    let h17 = [[0.0f32; 2]; 17];
+    let z17 = [0.0f32; 17];
+    assert_eq!(kf17.update(&h17, &z17), Status::ArgumentError);
+}
+
 // =========================================================================================
 // 19. CONST GENERICS TESTS
 // =========================================================================================
