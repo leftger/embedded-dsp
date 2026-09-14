@@ -1325,32 +1325,41 @@ pub fn hilbert_fir_design_f32(dst_coeffs: &mut [f32]) -> Status {
     Status::Success
 }
 
-/// Stateful FIR Hilbert Transformer for floating-point 32-bit (`f32`).
+/// Stateful FIR Hilbert Transformer, generic over the sample width.
 ///
 /// Produces the 90-degree phase-shifted (quadrature) output and time-aligned
 /// in-phase signal `I[n] = x[n - M]` to generate the true analytic signal
 /// `z[n] = I[n] + j Q[n]` with zero heap allocations.
-pub struct HilbertTransformF32<'a> {
+///
+/// Accumulates via [`DspSample::madd`] (the full-width raw product, summed before a single
+/// narrowing shift in [`DspSample::from_accum`]) — the same shape [`crate::filtering::fir`]
+/// itself was built from before Stage 3 moved it to the per-term-shifted [`DspSample::mul_high`].
+/// This matters here: the hand-written `HilbertTransformQ15` this type replaces accumulated in
+/// `i32`, which a filter with more than two or three near-full-scale taps can overflow (the same
+/// risk Stage 1's `Accum = i64` for both fixed widths exists to close). Genericizing widens the
+/// accumulator to `i64` and removes that overflow — a deliberate fix, not a silent behavior
+/// change carried over from the twin.
+pub struct HilbertTransform<'a, T: DspSample> {
     /// Number of filter taps.
     pub num_taps: usize,
     /// Filter coefficients.
-    pub coeffs: &'a [f32],
+    pub coeffs: &'a [T::Coeff],
     /// Filter state buffer.
-    pub state: &'a mut [f32],
+    pub state: &'a mut [T],
 }
 
-impl<'a> HilbertTransformF32<'a> {
+impl<'a, T: DspSample> HilbertTransform<'a, T> {
     /// Creates a new Hilbert transformer instance.
     ///
     /// # Errors
     /// Returns `Status::ArgumentError` if `coeffs.len() < 3`, `coeffs.len() % 2 == 0`,
     /// or `coeffs.len() != state.len()`.
-    pub fn new(coeffs: &'a [f32], state: &'a mut [f32]) -> Result<Self, Status> {
+    pub fn new(coeffs: &'a [T::Coeff], state: &'a mut [T]) -> Result<Self, Status> {
         let n = coeffs.len();
         if n < 3 || (n & 1) == 0 || n != state.len() {
             return Err(Status::ArgumentError);
         }
-        state.fill(0.0);
+        state.fill(T::ZERO);
         Ok(Self {
             num_taps: n,
             coeffs,
@@ -1361,7 +1370,7 @@ impl<'a> HilbertTransformF32<'a> {
     /// Resets internal filter delay state to zero.
     #[inline]
     pub fn reset(&mut self) {
-        self.state.fill(0.0);
+        self.state.fill(T::ZERO);
     }
 
     /// Returns the group delay in samples: `(num_taps - 1) / 2`.
@@ -1375,7 +1384,7 @@ impl<'a> HilbertTransformF32<'a> {
     /// The in-phase sample is delayed by `group_delay()` samples to align exactly
     /// with the quadrature Hilbert FIR output.
     #[inline]
-    pub fn process_sample(&mut self, x: f32) -> (f32, f32) {
+    pub fn process_sample(&mut self, x: T) -> (T, T) {
         let n = self.num_taps;
         for k in (1..n).rev() {
             self.state[k] = self.state[k - 1];
@@ -1385,22 +1394,23 @@ impl<'a> HilbertTransformF32<'a> {
         let delay = self.group_delay();
         let in_phase = self.state[delay];
 
-        let mut quad = 0.0f32;
+        let mut acc = T::Accum::default();
         for k in 0..n {
-            quad += self.state[k] * self.coeffs[k];
+            acc = T::madd(acc, self.state[k], self.coeffs[k]);
         }
+        let quad = T::from_accum(acc);
         (in_phase, quad)
     }
 
     /// Processes a single input sample `x`, returning the complex analytic sample `I + j Q`.
     #[inline]
-    pub fn process_analytic_sample(&mut self, x: f32) -> Complex<f32> {
+    pub fn process_analytic_sample(&mut self, x: T) -> Complex<T> {
         let (i, q) = self.process_sample(x);
         Complex { real: i, imag: q }
     }
 
     /// Processes a block of input samples, writing the 90-degree phase-shifted quadrature signal to `dst_quad`.
-    pub fn process_block(&mut self, src: &[f32], dst_quad: &mut [f32]) -> Status {
+    pub fn process_block(&mut self, src: &[T], dst_quad: &mut [T]) -> Status {
         let len = src.len().min(dst_quad.len());
         for i in 0..len {
             let (_, q) = self.process_sample(src[i]);
@@ -1412,8 +1422,8 @@ impl<'a> HilbertTransformF32<'a> {
     /// Processes a block of input samples, generating the analytic signal `I[n] + j Q[n]` in `dst_analytic`.
     pub fn process_analytic_block(
         &mut self,
-        src: &[f32],
-        dst_analytic: &mut [Complex<f32>],
+        src: &[T],
+        dst_analytic: &mut [Complex<T>],
     ) -> Status {
         let len = src.len().min(dst_analytic.len());
         for i in 0..len {
@@ -1423,93 +1433,22 @@ impl<'a> HilbertTransformF32<'a> {
     }
 }
 
-/// Stateful FIR Hilbert Transformer for Q15 fixed-point arithmetic.
-pub struct HilbertTransformQ15<'a> {
-    /// Number of filter taps.
-    pub num_taps: usize,
-    /// Filter coefficients.
-    pub coeffs: &'a [q15],
-    /// Filter state buffer.
-    pub state: &'a mut [q15],
-}
-
-impl<'a> HilbertTransformQ15<'a> {
-    /// Creates a new Q15 Hilbert transformer instance.
-    pub fn new(coeffs: &'a [q15], state: &'a mut [q15]) -> Result<Self, Status> {
-        let n = coeffs.len();
-        if n < 3 || (n & 1) == 0 || n != state.len() {
-            return Err(Status::ArgumentError);
-        }
-        state.fill(q15::ZERO);
-        Ok(Self {
-            num_taps: n,
-            coeffs,
-            state,
-        })
-    }
-
-    /// Resets internal delay line to zero.
-    #[inline]
-    pub fn reset(&mut self) {
-        self.state.fill(q15::ZERO);
-    }
-
-    /// Returns group delay in samples.
-    #[inline]
-    pub fn group_delay(&self) -> usize {
-        (self.num_taps - 1) / 2
-    }
-
-    /// Processes a single Q15 sample, returning `(in_phase, quadrature)` with saturating accumulation.
-    #[inline]
-    pub fn process_sample(&mut self, x: q15) -> (q15, q15) {
-        let n = self.num_taps;
-        for k in (1..n).rev() {
-            self.state[k] = self.state[k - 1];
-        }
-        self.state[0] = x;
-
-        let delay = self.group_delay();
-        let in_phase = self.state[delay];
-
-        let mut acc: i32 = 0;
-        for k in 0..n {
-            acc += (self.state[k].to_bits() as i32) * (self.coeffs[k].to_bits() as i32);
-        }
-        let quad = q15::from_bits((acc >> 15).clamp(i16::MIN as i32, i16::MAX as i32) as i16);
-        (in_phase, quad)
-    }
-
-    /// Processes a single Q15 sample, returning complex analytic sample.
-    #[inline]
-    pub fn process_analytic_sample(&mut self, x: q15) -> Complex<q15> {
-        let (i, q) = self.process_sample(x);
-        Complex { real: i, imag: q }
-    }
-
-    /// Processes block of Q15 samples to quadrature output.
-    pub fn process_block(&mut self, src: &[q15], dst_quad: &mut [q15]) -> Status {
-        let len = src.len().min(dst_quad.len());
-        for i in 0..len {
-            let (_, q) = self.process_sample(src[i]);
-            dst_quad[i] = q;
-        }
-        Status::Success
-    }
-
-    /// Processes block of Q15 samples to analytic signal.
-    pub fn process_analytic_block(
-        &mut self,
-        src: &[q15],
-        dst_analytic: &mut [Complex<q15>],
-    ) -> Status {
-        let len = src.len().min(dst_analytic.len());
-        for i in 0..len {
-            dst_analytic[i] = self.process_analytic_sample(src[i]);
-        }
-        Status::Success
+/// The stateless-`SplitProcess` bridge for [`HilbertTransform`], kept next to the type so the
+/// pipeline layer does not have to reach outward to wrap it. The output `(T, T)` is a genuine
+/// type change from the `T` input, so this reaches `Process` but not
+/// [`DspNode`](crate::pipeline::DspNode), which requires the input and output types to match.
+#[cfg(feature = "pipeline")]
+impl<'a, T: DspSample> crate::pipeline::SplitProcess<T, (T, T), ()> for HilbertTransform<'a, T> {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), x: T) -> (T, T) {
+        HilbertTransform::process_sample(self, x)
     }
 }
+
+/// `f32` Hilbert transformer (see [`HilbertTransform`]).
+pub type HilbertTransformF32<'a> = HilbertTransform<'a, f32>;
+/// `q15` Hilbert transformer (see [`HilbertTransform`]).
+pub type HilbertTransformQ15<'a> = HilbertTransform<'a, q15>;
 
 /// Computes the instantaneous envelope (magnitude) of an analytic signal: `sqrt(I^2 + Q^2)`.
 pub fn analytic_envelope_f32(analytic: &[Complex<f32>], dst_env: &mut [f32]) {
