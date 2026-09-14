@@ -160,7 +160,7 @@ impl FilterPipeline {{
 
 #![no_std]
 
-use embedded_dsp::filtering::{{biquad_cascade_df1_f32, BiquadCascadeInstanceF32}};
+use embedded_dsp::filtering::{{biquad_cascade_df1, BiquadCascadeInstance}};
 
 // Precomputed Direct Form I Biquad coefficients: [b0, b1, b2, a1, a2]
 pub static BIQUAD_COEFFS: [f32; 5] = [
@@ -183,8 +183,8 @@ impl FilterPipeline {{
     }}
 
     pub fn process_block(&mut self, input: &[f32], output: &mut [f32]) {{
-        let mut instance = BiquadCascadeInstanceF32::init(1, &BIQUAD_COEFFS, &mut self.state);
-        biquad_cascade_df1_f32(&mut instance, input, output);
+        let mut instance = BiquadCascadeInstance::init(1, &BIQUAD_COEFFS, &mut self.state);
+        biquad_cascade_df1(&mut instance, input, output);
     }}
 }}
 "#,

@@ -140,6 +140,28 @@ jobs:
             echo "::endgroup::"
           done
 
+  hack:
+    name: Feature powerset (cargo-hack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-hack
+      - uses: Swatinem/rust-cache@v2
+      # `--features libm` keeps the always-on base (the crate requires `std` or
+      # `libm`), then every feature is checked individually on top of it.
+      - run: cargo hack check -p embedded-dsp --each-feature --no-dev-deps --features libm
+
+  machete:
+    name: Unused dependencies (cargo-machete)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-machete --locked
+      - run: cargo machete
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -174,10 +196,51 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: bash .github/scripts/ci_docs.sh
 
+  ffi:
+    name: C ABI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: bash .github/scripts/ci_ffi.sh
+
+  python:
+    name: Python bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+      - run: bash .github/scripts/ci_python.sh
+
+  miri:
+    name: Miri (UB)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri, rust-src
+      - uses: Swatinem/rust-cache@v2
+      - run: bash .github/scripts/ci_miri.sh
+
+  fuzz:
+    name: Fuzz (bounded)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-fuzz --locked
+      - run: bash .github/scripts/ci_fuzz.sh
+
   publish-dry-run:
     name: Publish dry-run
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

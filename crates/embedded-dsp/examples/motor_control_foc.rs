@@ -183,7 +183,7 @@ fn main() {
     // -----------------------------------------------------------------------------------------
     println!("\n--- 5. Vector Current Regulators (Dual PID Loops for Id & Iq) ---");
     // Outer Velocity Loop: Target 3000 RPM, Actual 2950 RPM -> Error = 50 RPM
-    let mut speed_pid = PidInstanceF32::new(0.08, 0.005, 0.001);
+    let mut speed_pid = PidInstance::<f32>::new(0.08, 0.005, 0.001);
     let speed_error_rpm = 50.0f32;
     let demanded_iq = speed_pid.process(speed_error_rpm).clamp(-15.0, 15.0);
     println!(
@@ -194,8 +194,8 @@ fn main() {
     // Inner Current Regulators:
     // Id controller: Setpoint = 0.0 A (Zero d-axis current for Maximum Torque Per Ampere)
     // Iq controller: Setpoint = demanded_iq
-    let mut id_pid = PidInstanceF32::new(2.5, 0.15, 0.0);
-    let mut iq_pid = PidInstanceF32::new(2.5, 0.15, 0.0);
+    let mut id_pid = PidInstance::<f32>::new(2.5, 0.15, 0.0);
+    let mut iq_pid = PidInstance::<f32>::new(2.5, 0.15, 0.0);
 
     let id_setpoint = 0.0f32;
     let iq_setpoint = demanded_iq;

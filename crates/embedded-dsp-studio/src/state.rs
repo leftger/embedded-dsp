@@ -5,7 +5,7 @@ use embedded_dsp::filter_design::{
     biquad_bandpass_coeffs, biquad_highpass_coeffs, biquad_lowpass_coeffs, biquad_notch_coeffs,
     biquad_peaking_coeffs,
 };
-use embedded_dsp::filtering::{BiquadCascadeInstanceF32, biquad_cascade_df1_f32};
+use embedded_dsp::filtering::{BiquadCascadeInstance, biquad_cascade_df1};
 use embedded_dsp::snapshot::{ImpulseResponseInfo, SnapshotBuffer, analyze_impulse_response};
 use embedded_dsp::svf::StateVariableFilter;
 use embedded_dsp::synthesis::{
@@ -604,8 +604,8 @@ impl StudioState {
         let mut state = [0.0f32; 4];
         let start = Instant::now();
         for _ in 0..iterations {
-            let mut inst = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state);
-            biquad_cascade_df1_f32(&mut inst, &in_buf, &mut out_buf);
+            let mut inst = BiquadCascadeInstance::<f32>::init(1, &coeffs, &mut state);
+            biquad_cascade_df1(&mut inst, &in_buf, &mut out_buf);
         }
         let dur_biquad = start.elapsed();
         let biquad_per_block_us = dur_biquad.as_secs_f64() * 1e6 / (iterations as f64);
@@ -811,32 +811,32 @@ fn run_dsp_processor(config: &ProcessorConfig, sample_rate: f32, src: &[f32], ds
         ProcessorMode::BiquadLowpass => {
             let coeffs = biquad_lowpass_coeffs(cutoff, sample_rate, q);
             let mut state = [0.0f32; 4];
-            let mut inst = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state);
-            biquad_cascade_df1_f32(&mut inst, &src[..n], &mut dst[..n]);
+            let mut inst = BiquadCascadeInstance::<f32>::init(1, &coeffs, &mut state);
+            biquad_cascade_df1(&mut inst, &src[..n], &mut dst[..n]);
         }
         ProcessorMode::BiquadHighpass => {
             let coeffs = biquad_highpass_coeffs(cutoff, sample_rate, q);
             let mut state = [0.0f32; 4];
-            let mut inst = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state);
-            biquad_cascade_df1_f32(&mut inst, &src[..n], &mut dst[..n]);
+            let mut inst = BiquadCascadeInstance::<f32>::init(1, &coeffs, &mut state);
+            biquad_cascade_df1(&mut inst, &src[..n], &mut dst[..n]);
         }
         ProcessorMode::BiquadBandpass => {
             let coeffs = biquad_bandpass_coeffs(cutoff, sample_rate, q);
             let mut state = [0.0f32; 4];
-            let mut inst = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state);
-            biquad_cascade_df1_f32(&mut inst, &src[..n], &mut dst[..n]);
+            let mut inst = BiquadCascadeInstance::<f32>::init(1, &coeffs, &mut state);
+            biquad_cascade_df1(&mut inst, &src[..n], &mut dst[..n]);
         }
         ProcessorMode::BiquadNotch => {
             let coeffs = biquad_notch_coeffs(cutoff, sample_rate, q);
             let mut state = [0.0f32; 4];
-            let mut inst = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state);
-            biquad_cascade_df1_f32(&mut inst, &src[..n], &mut dst[..n]);
+            let mut inst = BiquadCascadeInstance::<f32>::init(1, &coeffs, &mut state);
+            biquad_cascade_df1(&mut inst, &src[..n], &mut dst[..n]);
         }
         ProcessorMode::BiquadPeaking => {
             let coeffs = biquad_peaking_coeffs(cutoff, sample_rate, q, config.gain_db);
             let mut state = [0.0f32; 4];
-            let mut inst = BiquadCascadeInstanceF32::init(1, &coeffs, &mut state);
-            biquad_cascade_df1_f32(&mut inst, &src[..n], &mut dst[..n]);
+            let mut inst = BiquadCascadeInstance::<f32>::init(1, &coeffs, &mut state);
+            biquad_cascade_df1(&mut inst, &src[..n], &mut dst[..n]);
         }
         ProcessorMode::SvfLowpass => {
             let mut svf = StateVariableFilter::new(sample_rate);

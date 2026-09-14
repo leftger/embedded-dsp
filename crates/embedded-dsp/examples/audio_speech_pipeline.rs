@@ -99,7 +99,7 @@ fn main() {
     cascade_coeffs[5..].copy_from_slice(&peaking_coeffs);
 
     let mut eq_state = [0.0f32; 4 * 2]; // 4 state variables per biquad stage
-    let mut eq_cascade = BiquadCascadeInstanceF32 {
+    let mut eq_cascade = BiquadCascadeInstance::<f32> {
         num_stages: 2,
         post_shift: 0,
         coeffs: &cascade_coeffs,
@@ -107,7 +107,7 @@ fn main() {
     };
 
     let mut equalized_audio = [0.0f32; NUM_SAMPLES];
-    biquad_cascade_df1_f32(&mut eq_cascade, &dc_blocked_f32, &mut equalized_audio);
+    biquad_cascade_df1(&mut eq_cascade, &dc_blocked_f32, &mut equalized_audio);
 
     println!(
         "  Notch Filter Coeffs: b0={:.4}, b1={:.4}, b2={:.4}, a1={:.4}, a2={:.4}",

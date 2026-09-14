@@ -1,0 +1,26 @@
+[package]
+name = "embedded-dsp-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+embedded-dsp = { path = "../crates/embedded-dsp", features = ["std", "full", "fixed"] }
+
+[[bin]]
+name = "fir_differential"
+path = "fuzz_targets/fir_differential.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "biquad_differential"
+path = "fuzz_targets/biquad_differential.rs"
+test = false
+doc = false
+bench = false

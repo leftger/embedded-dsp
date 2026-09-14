@@ -1,0 +1,40 @@
+name: Mutants
+
+# Weekly mutation testing over the always-compiled core. Informational: it runs on
+# a schedule, never on pull requests.
+#
+# `cargo-mutants` discovers modules from the `mod` declarations it can see. This
+# crate declares its feature modules through the `gated_mod!` macro, which it
+# cannot follow, so only `math`, `types`, and `intrinsics` are mutable today;
+# widen `--file` once discovery covers the feature modules.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays, 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    name: Mutation testing (shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/8", "2/8", "3/8", "4/8", "5/8", "6/8", "7/8", "8/8"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-mutants --locked
+      - name: Mutate
+        run: |
+          cargo mutants -p embedded-dsp \
+            --file crates/embedded-dsp/src/math.rs \
+            --file crates/embedded-dsp/src/types.rs \
+            --file crates/embedded-dsp/src/intrinsics.rs \
+            --shard "${{ matrix.shard }}" \
+            --timeout 120

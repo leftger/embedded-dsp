@@ -22,8 +22,8 @@ Execute high-frequency (20–50 kHz) current loop control in pure Q15 or floatin
 use embedded_dsp::*;
 
 // Setup controller states
-let mut id_pid = PidInstanceQ15::new(8000, 2000, 0);   // D-axis flux PID
-let mut iq_pid = PidInstanceQ15::new(12000, 3000, 0);  // Q-axis torque PID
+let mut id_pid = PidInstance::<q15>::new(8000, 2000, 0);   // D-axis flux PID
+let mut iq_pid = PidInstance::<q15>::new(12000, 3000, 0);  // Q-axis torque PID
 
 // ADC current measurements (Phase A, B, C) in Q15 format
 let i_a: q15 = 12000;
@@ -46,8 +46,8 @@ park_q15(i_alpha, i_beta, sin_theta, cos_theta, &mut i_d, &mut i_q);
 // 4. Current Loop PID Regulators
 let target_i_d: q15 = 0;      // Zero d-axis current (maximum torque per ampere)
 let target_i_q: q15 = 15000;  // Commanded torque
-let v_d = pid_q15(&mut id_pid, target_i_d.saturating_sub(i_d));
-let v_q = pid_q15(&mut iq_pid, target_i_q.saturating_sub(i_q));
+let v_d = id_pid.process(target_i_d.saturating_sub(i_d));
+let v_q = iq_pid.process(target_i_q.saturating_sub(i_q));
 
 // 5. Inverse Park Transform (rotating dq -> stationary αβ voltage commands)
 let mut v_alpha: q15 = 0;
@@ -77,7 +77,7 @@ let post_shift = biquad_quantize_and_scale_q15(
 
 // 3. Initialise DMA block processor
 let mut biquad_state = [0i16; 4];
-let mut biquad = BiquadCascadeInstanceQ15::init(1, &q15_coeffs, &mut biquad_state, post_shift);
+let mut biquad = BiquadCascadeInstance::<q15>::with_post_shift(1, &q15_coeffs, &mut biquad_state, post_shift);
 let mut dc_blocker = DcBlockerQ15::new(32112); // R ≈ 0.98
 
 // In DMA callback / audio loop
@@ -85,7 +85,7 @@ fn process_dma_buffer(
     dma_rx: &[q15],
     dma_tx: &mut [q15],
     dc_blocker: &mut DcBlockerQ15,
-    biquad: &mut BiquadCascadeInstanceQ15,
+    biquad: &mut BiquadCascadeInstance<'_, q15>,
 ) {
     let mut temp = [0i16; 64];
     let len = dma_rx.len().min(temp.len());
@@ -96,7 +96,7 @@ fn process_dma_buffer(
     }
 
     // Step B: Biquad Filtering
-    biquad_cascade_df1_q15(biquad, &temp[..len], &mut dma_tx[..len]);
+    biquad_cascade_df1(biquad, &temp[..len], &mut dma_tx[..len]);
 }
 ```
 

@@ -3,9 +3,14 @@
 All notable changes to this project are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.6.0] - 2026-09-13
 
 ### Added
+
+- **C ABI** (`embedded-dsp-ffi`): a standalone `staticlib`/`cdylib` exposing FIR, Direct Form I biquad cascades, the complex FFT, and the audio-EQ designer to C and C++, with a hand-maintained header and a C smoke test that compiles, links, and runs against it in CI.
+- **Python bindings** (`embedded-dsp-py`): a PyO3 stable-ABI (`abi3-py39`) extension module (`embedded_dsp`) exposing the audio-EQ designer, FIR, and biquad cascades, with maturin wheel metadata.
+- **Verification CI**: a Miri undefined-behaviour job, bounded `cargo-fuzz` differential targets (`fuzz/`, `f32` against in-process `f64`) backed by an always-on randomized differential test, a scheduled sharded `cargo-mutants` run over the always-compiled core, `cargo-hack` per-feature builds, and `cargo-machete`.
+- **Unified audio-EQ builder, `IHo`, and WebAudio export** (`filter_design`): `EqFilter` + `EqShape` + `BiquadType` design every RBJ Audio EQ Cookbook response from one fluent, validating builder — including the `IHo` (integrator-over-harmonic-oscillator) section `idsp` had and this crate lacked — and `WebAudioFilter` mirrors a `BiquadFilterNode`'s `type`/`frequency`/`detune`/`Q`/`gain`. Coefficients are bit-checked against `idsp`'s `iir::coefficients` across all nine response types.
 
 - **RBJ EQ parameter conversions**: `biquad_q_from_bw` and `biquad_q_from_shelf_slope` turn an octave bandwidth or a shelf slope into the `q` the biquad designers take. The bandwidth relation is bilinear-transform corrected, so a band keeps its octave width as the centre approaches Nyquist. Also corrected the `biquad_bandpass_coeffs` doc, which named the wrong variant.
 - **Swept-sine inverse filter**: `Sweep::inverse_filter` deconvolves an exponential sweep in one complex multiply per bin, recovering an impulse response at `t = 0`. Matches `idsp` 0.22.1.
@@ -38,6 +43,25 @@ All notable changes to this project are documented in this file. The format foll
 - **FIR and the biquad cascades are generic over `DspSample`**: `FirInstance<'a, T>`, `BiquadCascadeInstance<'a, T>`, and `BiquadCascadeDf2tInstance<'a, T>` replace nine `*F32`/`*Q15`/`*Q31` twins. The old names remain as type aliases and `fir_f32`/`fir_q15`/`biquad_cascade_df1_q15`/… as thin wrappers, so existing call sites are unchanged; the fixed-point cascades gained `with_post_shift` (`init` is the zero-headroom form). Each generic loop is bit-for-bit identical to the kernel it replaces.
 - **LMS/NLMS and the recursive moving average are generic over `DspSample`**: `LmsInstance`/`NlmsInstance` (built on `AdaptiveSample`) and `RecursiveMovingAverage<T, N>` replace four width twins, again keeping the old names as aliases/wrappers. The q15 paths are bit-exact with the kernels they replace; `RecursiveMovingAverage::<N>` becomes `RecursiveMovingAverage::<f32, N>`.
 - **One composition vocabulary (`pipeline`)**: `Process`/`Inplace` are now blanket-derived from `SplitProcess`/`SplitInplace` — a stateless stage implements `SplitProcess<X, Y, ()>` once and inherits `Process` (and, through the second blanket, `DspNode`) — so `Split`, `Chain`, `Gain`, `Limiter`, `Offset`, `Identity`, `Buffer`, `SinglePoleFilter<T>`, `PidInstanceF32/Q15`, and `DcBlockerQ15` lost their hand-written bridges. The split vocabulary's receivers became `&mut self` and its methods were renamed to keep method resolution unambiguous: `SplitProcess::process`/`block` → `process_with_state`/`block_with_state`, `SplitInplace::inplace` → `inplace_with_state`, `SplitViewProcess::process_view` → `process_view_with_state`, `SplitViewInplace::inplace_view` → `inplace_view_with_state`. `DspNode::process_block`'s shorter-buffer clamp and the specialised `Buffer`/`ChunkInOut` block/in-place paths are preserved.
+
+### Removed
+
+- **The duplicate `filtering::Dsm` and `filtering::XorShift32` are gone.** They shadowed the dedicated `dsm::Dsm` / `dither::XorShift32` modules, so only one of each could be re-exported at the crate root. The dedicated modules are now the single implementation, re-exported at the crate root as before, and `filtering` re-exports neither name. `dsm::Dsm` is `Default` + `process()` + `reset()` — the historical `new()`/`process_sample()` names are deliberately **not** carried over. `dither::XorShift32` gains the `next_f32()` / `tpdf_dither_f32()` helpers that only the removed duplicate had.
+
+- **The sample-genericization compatibility layer is removed.** The width-suffixed instance aliases (`FirInstanceF32/Q31/Q15`, `BiquadCascadeInstanceF32/Q15/Q31`, `BiquadCascadeDf2tInstanceF32/Q15/Q31`, `LmsInstanceF32/Q15`, `NlmsInstanceF32/Q15`, `PidInstanceF32/Q31/Q15`, `HilbertTransformF32/Q15`, `RecursiveMovingAverageQ15`) and their thin width wrappers (`fir_f32/q31/q15`, `biquad_cascade_df1_*`, `biquad_cascade_df2t_*`, `lms_*`, `lms_leaky_*`, `nlms_*`, `pid_f32/q31/q15`) are gone. Call the generic API directly instead: `FirInstance<f32>`, `BiquadCascadeInstance<q15>`, `LmsInstance<f32>`, `HilbertTransform<'_, f32>`, `RecursiveMovingAverage<q15, N>`, and the free functions `fir` / `biquad_cascade_df1` / `biquad_cascade_df2t` / `lms` / `lms_leaky` / `nlms`; PID updates are `PidInstance::<T>::process`.
+
+### Changed
+
+- **`filtering` is split into family submodules** (`fir`, `biquad`, `convolution`, `adaptive`, `recursive`, `lockin`, `int_filters`, `normal_form`, `wdf`) behind a re-exporting facade; `embedded_dsp::filtering::*` and the crate-root glob are unchanged. The integration-test suite is likewise consolidated from 46 files into 36 domain-named files, with every test and its `required-features` preserved.
+- **docs.rs shows feature-gate badges** for every module (`#[cfg_attr(docsrs, doc(cfg(...)))]`).
+
+## [0.5.1] - 2026-09-06
+
+### Changed
+
+- **The `fixed` dependency is now optional**, pulled in only by the fixed-point features; default builds no longer compile it.
+- **Dependency bumps**: `defmt` 0.3 → 1.1, plus Dependabot action updates.
+- **CI**: Codecov coverage, a `cargo-deny` audit, Dependabot, and a release workflow.
 
 ## [0.5.0] - 2026-09-01
 

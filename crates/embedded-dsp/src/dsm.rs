@@ -42,6 +42,8 @@ impl<const K: usize> Default for Dsm<K> {
 
 impl<const K: usize> Dsm<K> {
     /// Process one input sample, returning the noise-shaped output.
+    ///
+    /// This is the name upstream `idsp` uses for the same operation.
     pub fn process(&mut self, x: u32) -> i8 {
         if K == 0 {
             return 0;

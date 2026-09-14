@@ -297,7 +297,7 @@ pub fn gaussian_noise_f32(dst: &mut [f32], mean: f32, std_dev: f32, seed: &mut u
 /// Quantize f32 biquad SOS coeffs (`[b0,b1,b2,a1,a2]` per stage) to Q15.
 ///
 /// Stores `coeff / 2^{post_shift} * 2^{15}` so values with magnitude `>= 1` fit in Q15.
-/// [`crate::filtering::BiquadCascadeInstanceQ15`].
+/// [`crate::filtering::BiquadCascadeInstance`].
 pub fn biquad_coeffs_f32_to_q15(src: &[f32], dst: &mut [q15], post_shift: u8) -> Status {
     if src.len() != dst.len() || src.is_empty() || !src.len().is_multiple_of(5) {
         return Status::LengthError;

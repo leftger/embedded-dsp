@@ -28,7 +28,7 @@ pub fn fir_frequency_response(taps: &[f32], freq_norm: f32) -> Complex<f32> {
 
 /// Evaluates the frequency response `H(e^{jω})` of a single Direct Form I biquad section
 /// `[b0, b1, b2, a1, a2]` (as produced by [`crate::filter_design`] and consumed by
-/// [`crate::filtering::biquad_cascade_df1_f32`], where `y(n) = b0 x(n) + b1 x(n-1) + b2 x(n-2)
+/// [`crate::filtering::biquad_cascade_df1`], where `y(n) = b0 x(n) + b1 x(n-1) + b2 x(n-2)
 /// + a1 y(n-1) + a2 y(n-2)`) at a single normalized frequency `freq_norm` (cycles/sample,
 /// `0.0..=0.5`).
 pub fn biquad_frequency_response(coeffs: &[f32; 5], freq_norm: f32) -> Complex<f32> {

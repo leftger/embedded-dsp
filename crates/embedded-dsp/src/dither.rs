@@ -38,6 +38,20 @@ impl XorShift32 {
         self.0 = x;
         x
     }
+
+    /// Produce the next uniform float in `[0.0, 1.0)`.
+    #[inline]
+    pub fn next_f32(&mut self) -> f32 {
+        (self.next_u32() >> 8) as f32 * (1.0 / 16777216.0)
+    }
+
+    /// Triangular Probability Density Function (TPDF) dither sample in `[-1.0, 1.0]`.
+    #[inline]
+    pub fn tpdf_dither_f32(&mut self) -> f32 {
+        let r1 = self.next_f32();
+        let r2 = self.next_f32();
+        r1 - r2
+    }
 }
 
 impl Iterator for XorShift32 {

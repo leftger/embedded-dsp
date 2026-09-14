@@ -1233,7 +1233,7 @@ pub fn hilbert_fir_design_f32(dst_coeffs: &mut [f32]) -> Status {
 /// Accumulates via [`DspSample::madd`] (the full-width raw product, summed before a single
 /// narrowing shift in [`DspSample::from_accum`]) — the same shape [`crate::filtering::fir`]
 /// itself was built from before Stage 3 moved it to the per-term-shifted [`DspSample::mul_high`].
-/// This matters here: the hand-written `HilbertTransformQ15` this type replaces accumulated in
+/// This matters here: the hand-written `HilbertTransform` this type replaces accumulated in
 /// `i32`, which a filter with more than two or three near-full-scale taps can overflow (the same
 /// risk Stage 1's `Accum = i64` for both fixed widths exists to close). Genericizing widens the
 /// accumulator to `i64` and removes that overflow — a deliberate fix, not a silent behavior
@@ -1344,10 +1344,7 @@ impl<'a, T: DspSample> crate::pipeline::SplitProcess<T, (T, T), ()> for HilbertT
     }
 }
 
-/// `f32` Hilbert transformer (see [`HilbertTransform`]).
-pub type HilbertTransformF32<'a> = HilbertTransform<'a, f32>;
-/// `q15` Hilbert transformer (see [`HilbertTransform`]).
-pub type HilbertTransformQ15<'a> = HilbertTransform<'a, q15>;
+
 
 /// Computes the instantaneous envelope (magnitude) of an analytic signal: `sqrt(I^2 + Q^2)`.
 pub fn analytic_envelope_f32(analytic: &[Complex<f32>], dst_env: &mut [f32]) {

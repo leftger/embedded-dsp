@@ -25,15 +25,15 @@ fn main() {
     // 3. FIR Filtering
     let coeffs = [0.25f32, 0.5, 0.25]; // 3-tap moving average filter
     let mut state = [0.0f32; 3 + 4 - 1];
-    let mut fir = FirInstanceF32::init(3, &coeffs, &mut state);
+    let mut fir_inst = FirInstance::<f32>::init(3, &coeffs, &mut state);
 
     let input_signal = [1.0f32, 2.0, 3.0, 4.0];
     let mut filtered_signal = [0.0f32; 4];
-    fir_f32(&mut fir, &input_signal, &mut filtered_signal);
+    fir(&mut fir_inst, &input_signal, &mut filtered_signal);
     println!("FIR Filter Output: {:?}", filtered_signal);
 
     // 4. PID Motor Controller
-    let mut pid = PidInstanceF32::new(2.0, 0.1, 0.05);
+    let mut pid = PidInstance::<f32>::new(2.0, 0.1, 0.05);
     let control_output = pid.process(10.0);
     println!("PID Control Signal: {}", control_output);
 

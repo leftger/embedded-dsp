@@ -197,27 +197,7 @@ impl PidInstance<q15> {
     }
 }
 
-/// `f32` PID instance (see [`PidInstance`]).
-pub type PidInstanceF32 = PidInstance<f32>;
-/// `q31` PID instance (see [`PidInstance`]).
-pub type PidInstanceQ31 = PidInstance<q31>;
-/// `q15` PID instance (see [`PidInstance`]).
-pub type PidInstanceQ15 = PidInstance<q15>;
 
-/// PID control update (`f32`).
-pub fn pid_f32(instance: &mut PidInstanceF32, in_val: f32) -> f32 {
-    instance.process(in_val)
-}
-
-/// PID control update (`q31`).
-pub fn pid_q31(instance: &mut PidInstanceQ31, in_val: q31) -> q31 {
-    instance.process(in_val)
-}
-
-/// PID control update (`q15`).
-pub fn pid_q15(instance: &mut PidInstanceQ15, in_val: q15) -> q15 {
-    instance.process(in_val)
-}
 
 /// The stateless-`SplitProcess` bridge for [`PidInstance`], kept next to the type so the pipeline
 /// layer does not have to reach outward to wrap it. `Process` and

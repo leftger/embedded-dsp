@@ -1,7 +1,7 @@
 //! AM, FM, and Hilbert-based SSB modem tests.
 
 use embedded_dsp::modem::{AmDsb, FmDemod, FmMod, SsbDemod, SsbMod, SsbSideband};
-use embedded_dsp::transform::{HilbertTransformF32, hilbert_fir_design_f32};
+use embedded_dsp::transform::{HilbertTransform, hilbert_fir_design_f32};
 use embedded_dsp::types::Status;
 
 #[test]
@@ -54,8 +54,8 @@ fn ssb_usb_roundtrip_lsb_cancelled() {
         let mut st_tx = [0.0f32; N];
         let mut st_rx = [0.0f32; N];
         let mut i_delay = [0.0f32; N];
-        let ht_tx = HilbertTransformF32::new(&h, &mut st_tx).unwrap();
-        let ht_rx = HilbertTransformF32::new(&h, &mut st_rx).unwrap();
+        let ht_tx = HilbertTransform::<f32>::new(&h, &mut st_tx).unwrap();
+        let ht_rx = HilbertTransform::<f32>::new(&h, &mut st_rx).unwrap();
         let mut tx = SsbMod::new(ht_tx, SsbSideband::Usb, 0.7, true).unwrap();
         let mut rx = SsbDemod::new(ht_rx, &mut i_delay, SsbSideband::Usb, 0.7).unwrap();
         let delay = tx.group_delay() + rx.group_delay();
@@ -80,8 +80,8 @@ fn ssb_usb_roundtrip_lsb_cancelled() {
         let mut st_tx = [0.0f32; N];
         let mut st_lsb = [0.0f32; N];
         let mut i_delay = [0.0f32; N];
-        let ht_tx = HilbertTransformF32::new(&h, &mut st_tx).unwrap();
-        let ht_lsb = HilbertTransformF32::new(&h, &mut st_lsb).unwrap();
+        let ht_tx = HilbertTransform::<f32>::new(&h, &mut st_tx).unwrap();
+        let ht_lsb = HilbertTransform::<f32>::new(&h, &mut st_lsb).unwrap();
         let mut tx = SsbMod::new(ht_tx, SsbSideband::Usb, 0.7, true).unwrap();
         let mut rx_lsb = SsbDemod::new(ht_lsb, &mut i_delay, SsbSideband::Lsb, 0.7).unwrap();
         let mut leak = 0.0;
@@ -102,14 +102,14 @@ fn ssb_usb_roundtrip_lsb_cancelled() {
 
     let mut st = [0.0f32; N];
     let mut short = [0.0f32; 3];
-    let ht = HilbertTransformF32::new(&h, &mut st).unwrap();
+    let ht = HilbertTransform::<f32>::new(&h, &mut st).unwrap();
     assert_eq!(
         SsbDemod::new(ht, &mut short, SsbSideband::Usb, 0.7).err(),
         Some(Status::LengthError)
     );
 
     let mut st2 = [0.0f32; N];
-    let ht2 = HilbertTransformF32::new(&h, &mut st2).unwrap();
+    let ht2 = HilbertTransform::<f32>::new(&h, &mut st2).unwrap();
     assert_eq!(
         SsbMod::new(ht2, SsbSideband::Lsb, 0.0, false).err(),
         Some(Status::ArgumentError)
@@ -117,14 +117,14 @@ fn ssb_usb_roundtrip_lsb_cancelled() {
 
     let mut st3 = [0.0f32; N];
     let mut i_delay = [0.0f32; N];
-    let ht3 = HilbertTransformF32::new(&h, &mut st3).unwrap();
+    let ht3 = HilbertTransform::<f32>::new(&h, &mut st3).unwrap();
     assert_eq!(
         SsbDemod::new(ht3, &mut i_delay, SsbSideband::Usb, 0.0).err(),
         Some(Status::ArgumentError)
     );
 
     let mut st_lsb = [0.0f32; N];
-    let ht_lsb = HilbertTransformF32::new(&h, &mut st_lsb).unwrap();
+    let ht_lsb = HilbertTransform::<f32>::new(&h, &mut st_lsb).unwrap();
     let mut lsb = SsbMod::new(ht_lsb, SsbSideband::Lsb, 0.5, false).unwrap();
     let y = lsb.modulate(0.2);
     assert!(y.real.is_finite() && y.imag.is_finite());
