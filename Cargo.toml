@@ -4,6 +4,10 @@ members = [
     "crates/embedded-dsp",
     "crates/embedded-dsp-studio",
 ]
+# Standalone link targets, built by their own CI jobs and kept out of
+# `--workspace` builds: `fuzz` needs a nightly toolchain, and the C ABI must not
+# inherit `embedded-dsp`'s `defmt` feature into its cdylib link.
+exclude = ["fuzz", "crates/embedded-dsp-ffi"]
 
 [workspace.package]
 version = "0.5.1"
@@ -16,6 +20,11 @@ readme = "README.md"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
+# `docsrs` is set by `[package.metadata.docs.rs].rustdoc-args` (see the crate
+# manifest) so `#[cfg_attr(docsrs, doc(cfg(...)))]` adds feature-gate badges on
+# docs.rs only. Declaring the custom cfg keeps `unexpected_cfgs` quiet under
+# `-D warnings` on stable, where the cfg is never set.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(docsrs)"] }
 
 [workspace.lints.clippy]
 # The DSP kernels are written as index loops over parallel arrays; many index

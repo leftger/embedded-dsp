@@ -1,5 +1,8 @@
 #![no_std]
 #![warn(missing_docs)]
+// `doc(cfg(...))` badges are a nightly feature; `docsrs` is only set by the
+// `rustdoc-args` in `[package.metadata.docs.rs]`, so stable builds are inert.
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 //! # embedded-dsp
 //!
@@ -47,6 +50,7 @@ extern crate std;
 macro_rules! gated_mod {
     ($feature:literal, $module:ident) => {
         #[cfg(feature = $feature)]
+        #[cfg_attr(docsrs, doc(cfg(feature = $feature)))]
         #[doc = concat!("The `", stringify!($module), "` module.")]
         pub mod $module;
         #[cfg(feature = $feature)]
@@ -54,6 +58,10 @@ macro_rules! gated_mod {
     };
     (math $feature:literal, $module:ident) => {
         #[cfg(all(feature = $feature, any(feature = "std", feature = "libm")))]
+        #[cfg_attr(
+                    docsrs,
+                    doc(cfg(all(feature = $feature, any(feature = "std", feature = "libm"))))
+                )]
         #[doc = concat!("The `", stringify!($module), "` module.")]
         pub mod $module;
         #[cfg(all(feature = $feature, any(feature = "std", feature = "libm")))]
@@ -70,10 +78,8 @@ gated_mod!("const-generics", const_generics);
 gated_mod!("controller", controller);
 gated_mod!("cordic", cordic);
 gated_mod!("distance", distance);
-#[cfg(feature = "dither")]
-pub mod dither;
-#[cfg(feature = "dsm")]
-pub mod dsm;
+gated_mod!("dither", dither);
+gated_mod!("dsm", dsm);
 gated_mod!(math "dynamics", dynamics);
 gated_mod!("fec", fec);
 gated_mod!("fast-math", fast_math);

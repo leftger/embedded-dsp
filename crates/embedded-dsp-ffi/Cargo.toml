@@ -1,0 +1,29 @@
+[package]
+name = "embedded-dsp-ffi"
+version = "0.5.1"
+edition = "2024"
+rust-version = "1.93"
+authors = ["Gerzain Mata <leftger@gmail.com>"]
+description = "C ABI (staticlib + cdylib) for embedded-dsp: FIR, biquad cascades, complex FFT, and the audio-EQ designer."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/leftger/embedded-dsp"
+# Not published to crates.io: it is a C link target, not a Rust dependency.
+publish = false
+
+# Standalone workspace: the C ABI is built by its own CI job, so it is never
+# swept into a `--workspace --all-features` build (which would unify
+# embedded-dsp's `defmt` feature into the cdylib link and fail).
+[workspace]
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[lints.rust]
+# Raw-pointer dereferencing is the whole point of an FFI layer.
+unsafe_code = "allow"
+
+[lints.clippy]
+needless_range_loop = "allow"
+
+[dependencies]
+embedded-dsp = { path = "../embedded-dsp", features = ["std", "full", "fixed"] }

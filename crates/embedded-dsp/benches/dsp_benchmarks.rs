@@ -219,10 +219,10 @@ fn bench_fir_q15(rec: &mut Recorder) {
 
         let mut state = [q15::ZERO; TAPS];
         let mut dst = [q15::ZERO; SAMPLES];
-        let mut fir = FirInstanceQ15::init(TAPS as u16, &coeffs, &mut state);
+        let mut instance = FirInstance::<q15>::init(TAPS as u16, &coeffs, &mut state);
         let start = Instant::now();
         for _ in 0..iterations {
-            fir_q15(&mut fir, black_box(&src), &mut dst);
+            fir(&mut instance, black_box(&src), &mut dst);
             black_box(&dst);
         }
         let elapsed = start.elapsed();
@@ -317,7 +317,7 @@ fn bench_mult_q31(rec: &mut Recorder) {
 }
 
 fn bench_pid_q31(rec: &mut Recorder) {
-    let mut pid = PidInstanceQ31::new(
+    let mut pid = PidInstance::<q31>::new(
         q31::from_bits(i32::MAX / 4),
         q31::from_bits(i32::MAX / 20),
         q31::from_bits(i32::MAX / 100),
@@ -333,7 +333,7 @@ fn bench_pid_q31(rec: &mut Recorder) {
     let elapsed = start.elapsed();
     let ops_per_sec = iterations as f64 / elapsed.as_secs_f64();
     println!(
-        "PidInstanceQ31::process: {:.2} MOps/s ({:?} for {} iterations, sum={})",
+        "PidInstance::<q31>::process: {:.2} MOps/s ({:?} for {} iterations, sum={})",
         ops_per_sec / 1e6,
         elapsed,
         iterations,

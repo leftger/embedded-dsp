@@ -1,0 +1,24 @@
+[package]
+name = "embedded-dsp-py"
+version = "0.5.1"
+edition = "2024"
+rust-version = "1.93"
+authors = ["Gerzain Mata <leftger@gmail.com>"]
+description = "Python bindings for embedded-dsp (PyO3, abi3): FIR, biquad cascades, and the audio-EQ designer."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/leftger/embedded-dsp"
+# Built into wheels by maturin; not a crates.io dependency.
+publish = false
+
+# Standalone workspace, built by its own CI job and never swept into
+# `--workspace --all-features` (which would unify `defmt` into the cdylib link).
+[workspace]
+
+[lib]
+name = "embedded_dsp"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"] }
+# Renamed so the dependency does not collide with the `embedded_dsp` module name.
+embedded_dsp_core = { package = "embedded-dsp", path = "../embedded-dsp", features = ["std", "full", "fixed"] }

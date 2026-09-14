@@ -560,7 +560,7 @@ fn saturating_div_q31(a: q31, b: q31) -> q31 {
 /// The arithmetic surface here used to be entirely `Self -> Self -> Self`: a coefficient had the
 /// same type as a sample and a product never widened. That makes two of the most common DSP designs
 /// inexpressible, and it is the reason the fixed-point stages historically shipped a hand-written
-/// twin per width (`SinglePoleFilterQ15`, `FirInstanceQ15`, ...):
+/// twin per width (`SinglePoleFilterQ15`, `FirInstance`, ...):
 ///
 /// 1. **Wider accumulators.** A Q15 recurrence sums several Q30 products before shifting back down,
 ///    which neither a Q15 nor a single Q30 word holds. [`Accum`](Self::Accum) is the domain those

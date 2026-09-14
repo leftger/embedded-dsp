@@ -1,12 +1,12 @@
 //! Analog-style AM, FM, and SSB at complex baseband.
 //!
 //! Frequency modulation uses a phase accumulator (no sine LUT). AM-DSB is
-//! envelope modulation. SSB reuses [`HilbertTransformF32`] for the analytic
+//! envelope modulation. SSB reuses [`HilbertTransform`] for the analytic
 //! signal (USB = `I + jQ`, LSB = `I − jQ`).
 
 #[allow(unused_imports)]
 use crate::math::FloatMath;
-use crate::transform::HilbertTransformF32;
+use crate::transform::HilbertTransform;
 use crate::types::{Complex, Status};
 
 /// Frequency modulator: `s = exp(j · φ)`, `φ += 2π kf m`.
@@ -141,9 +141,9 @@ pub enum SsbSideband {
     Lsb,
 }
 
-/// SSB modulator using a caller-owned [`HilbertTransformF32`].
+/// SSB modulator using a caller-owned [`HilbertTransform`].
 pub struct SsbMod<'a> {
-    ht: HilbertTransformF32<'a>,
+    ht: HilbertTransform<'a, f32>,
     mod_index: f32,
     sideband: SsbSideband,
     suppressed_carrier: bool,
@@ -152,7 +152,7 @@ pub struct SsbMod<'a> {
 impl<'a> SsbMod<'a> {
     /// Wraps an existing Hilbert transformer. `mod_index` must be `> 0`.
     pub fn new(
-        ht: HilbertTransformF32<'a>,
+        ht: HilbertTransform<'a, f32>,
         sideband: SsbSideband,
         mod_index: f32,
         suppressed_carrier: bool,
@@ -202,7 +202,7 @@ impl<'a> SsbMod<'a> {
 ///
 /// `i_delay` must be the same length as the Hilbert tap/state buffers.
 pub struct SsbDemod<'a> {
-    ht: HilbertTransformF32<'a>,
+    ht: HilbertTransform<'a, f32>,
     i_delay: &'a mut [f32],
     mod_index: f32,
     sideband: SsbSideband,
@@ -211,7 +211,7 @@ pub struct SsbDemod<'a> {
 impl<'a> SsbDemod<'a> {
     /// Wraps a Hilbert transformer and an I-channel delay line of equal length.
     pub fn new(
-        ht: HilbertTransformF32<'a>,
+        ht: HilbertTransform<'a, f32>,
         i_delay: &'a mut [f32],
         sideband: SsbSideband,
         mod_index: f32,

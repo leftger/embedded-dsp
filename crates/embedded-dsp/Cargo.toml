@@ -140,167 +140,25 @@ idsp = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true
+# Activates `#[cfg_attr(docsrs, doc(cfg(feature = "..."))) ]` in `src/lib.rs`,
+# so every feature-gated module carries a badge saying which feature unlocks
+# it. Requires nightly, which is what docs.rs builds with.
+rustdoc-args = ["--cfg", "docsrs"]
 
 # Integration tests are declared explicitly so each can carry `required-features`.
 # Without this, `cargo test --no-default-features --features <subset>` failed to
 # compile tests that reference modules outside the selected subset.
-[[test]]
-name = "basic_math_coverage"
-path = "tests/basic_math_coverage.rs"
-required-features = ["libm", "basic-math"]
-
-[[test]]
-name = "filtering_coverage"
-path = "tests/filtering_coverage.rs"
-required-features = ["libm", "filtering"]
-
-[[test]]
-name = "fixed_basic_types_transform"
-path = "tests/fixed_basic_types_transform.rs"
-required-features = ["libm", "basic-math", "transform"]
-
-[[test]]
-name = "high_roi_features_test"
-path = "tests/high_roi_features_test.rs"
-required-features = [
-    "libm",
-    "controller",
-    "fast-math",
-    "filter-analysis",
-    "filtering",
-    "pipeline",
-    "pll",
-    "resampling",
-    "synthesis",
-]
-
 [[test]]
 name = "matrix_window_support_fastmath"
 path = "tests/matrix_window_support_fastmath.rs"
 required-features = ["libm", "fast-math", "matrix", "support", "window"]
 
 [[test]]
-name = "push_to_95_coverage_b"
-path = "tests/push_to_95_coverage_b.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "push_to_95_coverage_d"
-path = "tests/push_to_95_coverage_d.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "split_process_biquad_quickcheck"
-path = "tests/split_process_biquad_quickcheck.rs"
-required-features = ["libm", "filtering", "pipeline"]
-
-[[test]]
 name = "miniconf_config"
 path = "tests/miniconf_config.rs"
 required-features = ["libm", "miniconf"]
 
-[[test]]
-name = "stats_interp_distance_complex_coverage"
-path = "tests/stats_interp_distance_complex_coverage.rs"
-required-features = [
-    "libm",
-    "complex-math",
-    "distance",
-    "interpolation",
-    "statistics",
-]
-
 # Broad coverage tests that glob-import the crate root need every module.
-[[test]]
-name = "coverage_boost_tests"
-path = "tests/coverage_boost_tests.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "dsp_tests"
-path = "tests/dsp_tests.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "final_90_plus_coverage_boost"
-path = "tests/final_90_plus_coverage_boost.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "microcontroller_features_tests"
-path = "tests/microcontroller_features_tests.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "more_coverage_boost"
-path = "tests/more_coverage_boost.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "push_to_95_coverage_a"
-path = "tests/push_to_95_coverage_a.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "push_to_95_coverage_c"
-path = "tests/push_to_95_coverage_c.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "push_to_95_coverage_e"
-path = "tests/push_to_95_coverage_e.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "snapshot_tests"
-path = "tests/snapshot_tests.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "synthesis_tests"
-path = "tests/synthesis_tests.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "validation_tests"
-path = "tests/validation_tests.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "dither_dsm_pipeline_coverage"
-path = "tests/dither_dsm_pipeline_coverage.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "biquad_and_cic_coverage"
-path = "tests/biquad_and_cic_coverage.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "stats_window_matrix_coverage"
-path = "tests/stats_window_matrix_coverage.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "pll_kalman_coverage"
-path = "tests/pll_kalman_coverage.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "types_controller_coverage"
-path = "tests/types_controller_coverage.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "misc_modules_coverage"
-path = "tests/misc_modules_coverage.rs"
-required-features = ["libm", "full"]
-
-[[test]]
-name = "filtering_resampling_extras"
-path = "tests/filtering_resampling_extras.rs"
-required-features = ["libm", "full"]
-
 [[test]]
 name = "kissfft_extract"
 path = "tests/kissfft_extract.rs"
@@ -335,11 +193,6 @@ required-features = ["sequence"]
 name = "analog_modem"
 path = "tests/analog_modem.rs"
 required-features = ["libm", "modem"]
-
-[[test]]
-name = "module_extras_coverage"
-path = "tests/module_extras_coverage.rs"
-required-features = ["libm", "full"]
 
 [[test]]
 name = "costas_loop_tracking"
@@ -400,46 +253,6 @@ path = "benches/dsp_benchmarks.rs"
 required-features = ["libm", "full"]
 
 [[test]]
-name = "edge_branch_coverage"
-path = "tests/edge_branch_coverage.rs"
-required-features = [
-    "libm",
-    "beamforming",
-    "filter-analysis",
-    "resampling",
-    "support",
-    "validation",
-]
-
-[[test]]
-name = "utility_api_coverage"
-path = "tests/utility_api_coverage.rs"
-required-features = [
-    "libm",
-    "companding",
-    "cordic",
-    "fast-math",
-    "filtering",
-    "pipeline",
-    "snapshot",
-]
-
-[[test]]
-name = "filter_design_eq_params"
-path = "tests/filter_design_eq_params.rs"
-required-features = ["libm", "filter-analysis", "filter-design"]
-
-[[test]]
-name = "voxengo_oracle"
-path = "tests/voxengo_oracle.rs"
-required-features = ["libm", "filter-analysis", "filter-design"]
-
-[[test]]
-name = "swept_sine_inverse_filter"
-path = "tests/swept_sine_inverse_filter.rs"
-required-features = ["libm", "synthesis", "transform"]
-
-[[test]]
 name = "cordic_hyperbolic"
 path = "tests/cordic_hyperbolic.rs"
 required-features = ["libm", "cordic"]
@@ -450,6 +263,117 @@ path = "tests/kalman_compose.rs"
 required-features = ["libm", "kalman"]
 
 [[test]]
-name = "cfft_fixed_collapse_regression"
-path = "tests/cfft_fixed_collapse_regression.rs"
+name = "cross_module"
+path = "tests/cross_module.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "filters_and_resampling"
+path = "tests/filters_and_resampling.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "control_and_estimation"
+path = "tests/control_and_estimation.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "modules_misc"
+path = "tests/modules_misc.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "statistics_and_windows"
+path = "tests/statistics_and_windows.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "dither_dsm_pipeline"
+path = "tests/dither_dsm_pipeline.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "microcontroller"
+path = "tests/microcontroller.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "snapshot"
+path = "tests/snapshot.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "synthesis"
+path = "tests/synthesis.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "validation"
+path = "tests/validation.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "dsp_core"
+path = "tests/dsp_core.rs"
+required-features = ["libm", "full"]
+
+[[test]]
+name = "filter_design_eq"
+path = "tests/filter_design_eq.rs"
+required-features = ["libm", "filter-analysis", "filter-design"]
+
+[[test]]
+name = "basic_math"
+path = "tests/basic_math.rs"
+required-features = ["libm", "basic-math"]
+
+[[test]]
+name = "filtering"
+path = "tests/filtering.rs"
+required-features = ["libm", "filtering"]
+
+[[test]]
+name = "stats_interp_distance_complex"
+path = "tests/stats_interp_distance_complex.rs"
+required-features = ["libm", "complex-math", "distance", "interpolation", "statistics"]
+
+[[test]]
+name = "edge_cases"
+path = "tests/edge_cases.rs"
+required-features = ["libm", "beamforming", "filter-analysis", "resampling", "support", "validation"]
+
+[[test]]
+name = "utility_api"
+path = "tests/utility_api.rs"
+required-features = ["libm", "companding", "cordic", "fast-math", "filtering", "pipeline", "snapshot"]
+
+[[test]]
+name = "high_roi"
+path = "tests/high_roi.rs"
+required-features = ["libm", "controller", "fast-math", "filter-analysis", "filtering", "pipeline", "pll", "resampling", "synthesis"]
+
+[[test]]
+name = "split_process_quickcheck"
+path = "tests/split_process_quickcheck.rs"
+required-features = ["libm", "dither", "dsm", "filtering", "pipeline"]
+
+[[test]]
+name = "fixed_basic_types"
+path = "tests/fixed_basic_types.rs"
+required-features = ["libm", "basic-math", "transform"]
+
+[[test]]
+name = "cfft_fixed_collapse"
+path = "tests/cfft_fixed_collapse.rs"
 required-features = ["libm", "transform"]
+
+[[test]]
+name = "swept_sine_inverse"
+path = "tests/swept_sine_inverse.rs"
+required-features = ["libm", "synthesis", "transform"]
+
+[[test]]
+name = "differential_random"
+path = "tests/differential_random.rs"
+required-features = ["libm", "filtering", "filter-design"]
+

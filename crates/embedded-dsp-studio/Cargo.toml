@@ -7,6 +7,8 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Interactive DSP Workbench & Studio for embedded-dsp (Synthesis, Filter Design, Spectral Analysis, Snapshot & Benchmarking)"
+# Desktop/WASM application, not a library dependency.
+publish = false
 
 [lints]
 workspace = true
@@ -14,6 +16,11 @@ workspace = true
 [[bin]]
 name = "embedded-dsp-studio"
 path = "src/main.rs"
+
+[package.metadata.cargo-machete]
+# Retained for upcoming studio UI work; not referenced yet, so the CI machete
+# job must not fail on them.
+ignored = ["egui_extras", "serde_json"]
 
 [dependencies]
 embedded-dsp = { workspace = true, features = ["std", "full", "fixed", "serde"] }

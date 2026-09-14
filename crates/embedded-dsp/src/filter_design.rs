@@ -653,7 +653,7 @@ pub enum ScalingStrategy {
 /// Quantizes and scales floating-point biquad cascade coefficients into Q15.
 ///
 /// Returns `Ok(post_shift)` on success, which should be passed directly to
-/// [`crate::filtering::BiquadCascadeInstanceQ15`].
+/// [`crate::filtering::BiquadCascadeInstance`].
 pub fn biquad_quantize_and_scale_q15(
     sos_f32: &[f32],
     out_q15: &mut [q15],
@@ -1280,4 +1280,407 @@ pub fn elliptic_lowpass_biquad(
         return Err(Status::NanInf);
     }
     Ok([b0, b1, b2, a1, a2])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unified audio-EQ builder (RBJ Audio EQ Cookbook) & WebAudio export
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Transition/corner shape for the [`EqFilter`] audio-EQ builder.
+///
+/// Defaults to `Q(1/√2)`, the maximally-flat (Butterworth) alignment.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum EqShape {
+    /// Direct quality factor.
+    Q(f32),
+    /// −3 dB bandwidth in octaves, resolved with [`biquad_q_from_bw`].
+    Bandwidth(f32),
+    /// Shelf slope `S` (RBJ; `S = 1` is the steepest monotonic slope), resolved with
+    /// [`biquad_q_from_shelf_slope`].
+    Slope(f32),
+}
+
+impl Default for EqShape {
+    fn default() -> Self {
+        Self::Q(core::f32::consts::FRAC_1_SQRT_2)
+    }
+}
+
+/// Standard audio / WebAudio biquad response type.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum BiquadType {
+    /// Low-pass.
+    #[default]
+    Lowpass,
+    /// High-pass.
+    Highpass,
+    /// Band-pass (constant 0 dB peak gain).
+    Bandpass,
+    /// All-pass.
+    Allpass,
+    /// Band-stop / notch.
+    Notch,
+    /// Peaking EQ.
+    Peaking,
+    /// Low shelf.
+    Lowshelf,
+    /// High shelf.
+    Highshelf,
+    /// Integrator over harmonic oscillator: integrates below the critical frequency and
+    /// is flat at the shelf gain above it.
+    Iho,
+}
+
+impl BiquadType {
+    /// The WebAudio `BiquadFilterNode.type` string.
+    ///
+    /// Returns `None` for [`BiquadType::Iho`], which has no native WebAudio node type.
+    pub const fn webaudio_name(self) -> Option<&'static str> {
+        match self {
+            BiquadType::Lowpass => Some("lowpass"),
+            BiquadType::Highpass => Some("highpass"),
+            BiquadType::Bandpass => Some("bandpass"),
+            BiquadType::Allpass => Some("allpass"),
+            BiquadType::Notch => Some("notch"),
+            BiquadType::Peaking => Some("peaking"),
+            BiquadType::Lowshelf => Some("lowshelf"),
+            BiquadType::Highshelf => Some("highshelf"),
+            BiquadType::Iho => None,
+        }
+    }
+}
+
+/// Validation error for [`EqFilter`] and [`WebAudioFilter`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum EqError {
+    /// A parameter was NaN or infinite.
+    NonFinite(&'static str),
+    /// A parameter had to be strictly positive.
+    NonPositive(&'static str),
+    /// A parameter was outside its valid range.
+    OutOfRange(&'static str),
+}
+
+impl core::fmt::Display for EqError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            EqError::NonFinite(k) => write!(f, "`{k}` must be finite"),
+            EqError::NonPositive(k) => write!(f, "`{k}` must be positive"),
+            EqError::OutOfRange(k) => write!(f, "`{k}` outside its valid range"),
+        }
+    }
+}
+
+impl core::error::Error for EqError {}
+
+/// Fluent biquad designer covering every [`BiquadType`] in the RBJ Audio EQ Cookbook.
+///
+/// One builder resolves the [`EqShape`] against the right RBJ parameter (`Q`, octave
+/// bandwidth, or shelf slope), validates the result, and emits `[b0, b1, b2, a1, a2]` in
+/// this crate's Direct Form I convention — directly usable with
+/// [`BiquadCascadeInstance`](crate::filtering::BiquadCascadeInstance) or
+/// [`Biquad`](crate::filtering::Biquad).
+///
+/// `gain_db` is used by [`BiquadType::Peaking`], the shelves, and [`BiquadType::Iho`].
+///
+/// ```
+/// use embedded_dsp::filter_design::{BiquadType, EqFilter};
+///
+/// let peaking = EqFilter::new(1_000.0, 48_000.0).q(0.707).gain_db(6.0).peaking();
+/// assert!(peaking.iter().all(|c| c.is_finite()));
+///
+/// // The same result through `try_build`, with validation:
+/// let same = EqFilter::new(1_000.0, 48_000.0)
+///     .q(0.707)
+///     .gain_db(6.0)
+///     .try_build(BiquadType::Peaking)
+///     .unwrap();
+/// assert_eq!(peaking, same);
+/// ```
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct EqFilter {
+    /// Corner / center / critical frequency in Hz.
+    pub frequency_hz: f32,
+    /// Sample rate in Hz.
+    pub sample_rate_hz: f32,
+    /// Transition/corner shape.
+    pub shape: EqShape,
+    /// Gain in dB (peaking, shelves, `IHo`).
+    pub gain_db: f32,
+}
+
+impl EqFilter {
+    /// Maximally-flat (`Q = 1/√2`), unity-gain designer at `frequency_hz`.
+    pub const fn new(frequency_hz: f32, sample_rate_hz: f32) -> Self {
+        Self {
+            frequency_hz,
+            sample_rate_hz,
+            shape: EqShape::Q(core::f32::consts::FRAC_1_SQRT_2),
+            gain_db: 0.0,
+        }
+    }
+
+    /// Set a direct quality factor.
+    #[must_use]
+    pub const fn q(mut self, q: f32) -> Self {
+        self.shape = EqShape::Q(q);
+        self
+    }
+
+    /// Set the −3 dB bandwidth in octaves (resolved with [`biquad_q_from_bw`]).
+    #[must_use]
+    pub const fn bandwidth_octaves(mut self, octaves: f32) -> Self {
+        self.shape = EqShape::Bandwidth(octaves);
+        self
+    }
+
+    /// Set the shelf slope `S` (resolved with [`biquad_q_from_shelf_slope`]).
+    #[must_use]
+    pub const fn shelf_slope(mut self, slope: f32) -> Self {
+        self.shape = EqShape::Slope(slope);
+        self
+    }
+
+    /// Set the gain in dB (peaking, shelves, `IHo`).
+    #[must_use]
+    pub const fn gain_db(mut self, db: f32) -> Self {
+        self.gain_db = db;
+        self
+    }
+
+    /// Resolve the configured [`EqShape`] to a quality factor at this frequency.
+    pub fn q_value(&self) -> f32 {
+        match self.shape {
+            EqShape::Q(q) => q,
+            EqShape::Bandwidth(bw) => biquad_q_from_bw(bw, self.frequency_hz, self.sample_rate_hz),
+            EqShape::Slope(s) => biquad_q_from_shelf_slope(s, self.gain_db),
+        }
+    }
+
+    /// Validate every parameter.
+    ///
+    /// `frequency_hz` must lie in `(0, sample_rate_hz / 2)`.
+    pub fn validate(&self) -> Result<(), EqError> {
+        let q = self.q_value();
+        for (name, value) in [
+            ("frequency_hz", self.frequency_hz),
+            ("sample_rate_hz", self.sample_rate_hz),
+            ("gain_db", self.gain_db),
+            ("q", q),
+        ] {
+            if !value.is_finite() {
+                return Err(EqError::NonFinite(name));
+            }
+        }
+        if self.sample_rate_hz <= 0.0 {
+            return Err(EqError::NonPositive("sample_rate_hz"));
+        }
+        if q <= 0.0 {
+            return Err(EqError::NonPositive("q"));
+        }
+        if self.frequency_hz <= 0.0 || self.frequency_hz >= self.sample_rate_hz / 2.0 {
+            return Err(EqError::OutOfRange("frequency_hz"));
+        }
+        Ok(())
+    }
+
+    /// Validate, then build `[b0, b1, b2, a1, a2]` (Direct Form I).
+    pub fn try_build(&self, typ: BiquadType) -> Result<[f32; 5], EqError> {
+        self.validate()?;
+        Ok(self.build_unchecked(typ))
+    }
+
+    /// Build `[b0, b1, b2, a1, a2]`, sanitizing invalid input to the passthrough biquad
+    /// `[1, 0, 0, 0, 0]`.
+    ///
+    /// Use [`EqFilter::try_build`] to surface the error instead.
+    pub fn build(&self, typ: BiquadType) -> [f32; 5] {
+        if self.validate().is_err() {
+            [1.0, 0.0, 0.0, 0.0, 0.0]
+        } else {
+            self.build_unchecked(typ)
+        }
+    }
+
+    /// Build without validating; the caller guarantees the parameters are in range.
+    pub fn build_unchecked(&self, typ: BiquadType) -> [f32; 5] {
+        let (f, fs, q, g) = (
+            self.frequency_hz,
+            self.sample_rate_hz,
+            self.q_value(),
+            self.gain_db,
+        );
+        match typ {
+            BiquadType::Lowpass => biquad_lowpass_coeffs(f, fs, q),
+            BiquadType::Highpass => biquad_highpass_coeffs(f, fs, q),
+            BiquadType::Bandpass => biquad_bandpass_coeffs(f, fs, q),
+            BiquadType::Allpass => biquad_allpass_coeffs(f, fs, q),
+            BiquadType::Notch => biquad_notch_coeffs(f, fs, q),
+            BiquadType::Peaking => biquad_peaking_coeffs(f, fs, q, g),
+            BiquadType::Lowshelf => biquad_lowshelf_coeffs(f, fs, q, g),
+            BiquadType::Highshelf => biquad_highshelf_coeffs(f, fs, q, g),
+            BiquadType::Iho => biquad_iho_coeffs(f, fs, q, g),
+        }
+    }
+
+    /// Low-pass `[b0, b1, b2, a1, a2]`.
+    pub fn lowpass(&self) -> [f32; 5] {
+        self.build(BiquadType::Lowpass)
+    }
+    /// High-pass `[b0, b1, b2, a1, a2]`.
+    pub fn highpass(&self) -> [f32; 5] {
+        self.build(BiquadType::Highpass)
+    }
+    /// Band-pass `[b0, b1, b2, a1, a2]`.
+    pub fn bandpass(&self) -> [f32; 5] {
+        self.build(BiquadType::Bandpass)
+    }
+    /// All-pass `[b0, b1, b2, a1, a2]`.
+    pub fn allpass(&self) -> [f32; 5] {
+        self.build(BiquadType::Allpass)
+    }
+    /// Notch `[b0, b1, b2, a1, a2]`.
+    pub fn notch(&self) -> [f32; 5] {
+        self.build(BiquadType::Notch)
+    }
+    /// Peaking EQ `[b0, b1, b2, a1, a2]` (uses `gain_db`).
+    pub fn peaking(&self) -> [f32; 5] {
+        self.build(BiquadType::Peaking)
+    }
+    /// Low shelf `[b0, b1, b2, a1, a2]` (uses `gain_db`).
+    pub fn lowshelf(&self) -> [f32; 5] {
+        self.build(BiquadType::Lowshelf)
+    }
+    /// High shelf `[b0, b1, b2, a1, a2]` (uses `gain_db`).
+    pub fn highshelf(&self) -> [f32; 5] {
+        self.build(BiquadType::Highshelf)
+    }
+    /// Integrator-over-harmonic-oscillator `[b0, b1, b2, a1, a2]` (uses `gain_db`).
+    pub fn iho(&self) -> [f32; 5] {
+        self.build(BiquadType::Iho)
+    }
+}
+
+/// WebAudio `BiquadFilterNode` parameters, convertible to this crate's coefficients.
+///
+/// Mirrors the node's `type`, `frequency`, `detune`, `Q`, and `gain` properties. A
+/// nonzero `detune_cents` is applied before coefficient design, exactly as the node
+/// computes its effective frequency.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct WebAudioFilter {
+    /// Node type.
+    pub typ: BiquadType,
+    /// Reference frequency in Hz.
+    pub frequency_hz: f32,
+    /// Sample rate in Hz.
+    pub sample_rate_hz: f32,
+    /// Detune in cents (applied as `frequency_hz * 2^(detune_cents / 1200)`).
+    pub detune_cents: f32,
+    /// Quality factor.
+    pub q: f32,
+    /// Gain in dB (peaking, shelves).
+    pub gain_db: f32,
+}
+
+impl Default for WebAudioFilter {
+    fn default() -> Self {
+        Self {
+            typ: BiquadType::Lowpass,
+            frequency_hz: 350.0,
+            sample_rate_hz: 48_000.0,
+            detune_cents: 0.0,
+            q: 1.0,
+            gain_db: 0.0,
+        }
+    }
+}
+
+impl WebAudioFilter {
+    /// Effective frequency after applying `detune_cents`.
+    pub fn effective_frequency_hz(&self) -> f32 {
+        self.frequency_hz * (2.0f32).powf(self.detune_cents / 1200.0)
+    }
+
+    /// The WebAudio `BiquadFilterNode.type` string, or `None` for [`BiquadType::Iho`].
+    pub const fn type_name(&self) -> Option<&'static str> {
+        self.typ.webaudio_name()
+    }
+
+    /// The equivalent [`EqFilter`] (detune folded into the frequency).
+    pub fn filter(&self) -> EqFilter {
+        EqFilter {
+            frequency_hz: self.effective_frequency_hz(),
+            sample_rate_hz: self.sample_rate_hz,
+            shape: EqShape::Q(self.q),
+            gain_db: self.gain_db,
+        }
+    }
+
+    /// Validate every parameter (after applying detune).
+    pub fn validate(&self) -> Result<(), EqError> {
+        for (name, value) in [
+            ("frequency_hz", self.frequency_hz),
+            ("sample_rate_hz", self.sample_rate_hz),
+            ("detune_cents", self.detune_cents),
+            ("q", self.q),
+            ("gain_db", self.gain_db),
+        ] {
+            if !value.is_finite() {
+                return Err(EqError::NonFinite(name));
+            }
+        }
+        if self.sample_rate_hz <= 0.0 {
+            return Err(EqError::NonPositive("sample_rate_hz"));
+        }
+        if self.q <= 0.0 {
+            return Err(EqError::NonPositive("q"));
+        }
+        let f = self.effective_frequency_hz();
+        if f <= 0.0 || f >= self.sample_rate_hz / 2.0 {
+            return Err(EqError::OutOfRange("effective_frequency_hz"));
+        }
+        Ok(())
+    }
+
+    /// Validate, then build `[b0, b1, b2, a1, a2]`.
+    pub fn try_build(&self) -> Result<[f32; 5], EqError> {
+        self.validate()?;
+        Ok(self.filter().build_unchecked(self.typ))
+    }
+
+    /// Build `[b0, b1, b2, a1, a2]`, sanitizing invalid input to the passthrough biquad.
+    pub fn build(&self) -> [f32; 5] {
+        if self.validate().is_err() {
+            [1.0, 0.0, 0.0, 0.0, 0.0]
+        } else {
+            self.filter().build_unchecked(self.typ)
+        }
+    }
+}
+
+/// Computes Direct Form I Biquad coefficients `[b0, b1, b2, a1, a2]` for an
+/// integrator-over-harmonic-oscillator (IHO) section: a notch that integrates below the
+/// critical frequency and is flat at `gain_db` above it.
+///
+/// `gain_db` is the linear shelf gain in dB (`0 dB` leaves the high band at unity) and `q`
+/// sets the notch width. Matches `idsp`'s `Type::IHo`.
+pub fn biquad_iho_coeffs(frequency_hz: f32, sample_rate_hz: f32, q: f32, gain_db: f32) -> [f32; 5] {
+    let w0 = 2.0 * core::f32::consts::PI * frequency_hz / sample_rate_hz;
+    let cos_w0 = w0.cos();
+    let sin_w0 = w0.sin();
+    let alpha = sin_w0 / (2.0 * q);
+    let half_sin = 0.5 * sin_w0;
+    let shelf = (10.0f32).powf(gain_db / 20.0);
+
+    // RBJ `[b, a]` form with unity passband gain: `b = [1+α, -2cos, 1-α]`,
+    // `a = [A + ½sin, -2A, A - ½sin]` with `A = (1+cos)/(2·shelf)`.
+    let a = (1.0 + cos_w0) / (2.0 * shelf);
+    let a0 = a + half_sin;
+    let b0 = (1.0 + alpha) / a0;
+    let b1 = (-2.0 * cos_w0) / a0;
+    let b2 = (1.0 - alpha) / a0;
+    let a1 = (2.0 * a) / a0;
+    let a2 = -(a - half_sin) / a0;
+
+    [b0, b1, b2, a1, a2]
 }

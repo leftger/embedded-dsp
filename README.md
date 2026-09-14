@@ -12,6 +12,8 @@
 
 A high-performance **`#![no_std]` Rust Digital Signal Processing library** designed for microcontrollers (Cortex-M, RISC-V, AVR, Xtensa), bare-metal DSP, and real-time audio/sensor pipelines.
 
+> Upgrading from 0.5? See **[MIGRATING.md](MIGRATING.md)** for the 0.6 breaking changes (removed width-suffixed aliases/wrappers and the duplicate `filtering::Dsm`/`XorShift32`).
+
 ---
 
 ## Highlights
@@ -69,7 +71,7 @@ gaps are marked and explained after the table.
 | Biquad generic integer `i8`/`i16`/`i32`/`i64` | ✅ `BiquadInt<T>` | ✅ |
 | Biquad DF1 wide (`Q32.32`) / dither actions | ✅ | ✅ |
 | Control-plane settings via `miniconf` | ✅ `config::BiquadSettings` | ✅ |
-| Audio EQ builder / WebAudio export | ➖ individual RBJ `biquad_*_coeffs` functions | ✅ `iir::coefficients::{Filter, Shape, Type, WebAudio}` |
+| Audio EQ builder / WebAudio export | ✅ `EqFilter`/`EqShape`/`BiquadType` validating builder, every RBJ type incl. `IHo`, plus `WebAudioFilter` | ✅ `iir::coefficients::{Filter, Shape, Type, WebAudio}` |
 | Normal-form IIR | ✅ arbitrary numerator | ⚠️ forced `p.im·z⁻¹` factor |
 | Wave digital allpass filters | ✅ | ✅ |
 | PI²D² controller builder (per-action limits) | ✅ `PidBuilder` | ✅ |
@@ -89,14 +91,14 @@ gaps are marked and explained after the table.
 | Block/lane block processing | ✅ `DspNode`, `Split`/`SplitProcess`, `Lanes`, `Pair`, `Parallel`, `ByLane`, typed `View`/`ViewMut` (`FrameMajor`/`LaneMajor`, `as_layout`), chunk bridges (`ChunkInOut`, `PerFrame`, `FnSplitProcess`), gated `Buffer` | ✅ same ideas in `dsp-process`; the scratch-buffer `Major` is deliberately not mirrored (see note) |
 | Companding (G.711 µ/A-law) | ✅ | ❌ |
 | In-repo micro-benchmarks | ✅ | ✅ (`tests/embedded`) |
-| Python bindings | ❌ | ✅ (`py` / `numpy`) |
+| Python bindings | ✅ `embedded-dsp-py` (PyO3, abi3) | ✅ (`py` / `numpy`) |
 | Interactive WebAssembly studio | ✅ | ❌ |
 
 Legend: ✅ full support · ➖ partial/alternative coverage · ⚠️ quirk · ❌ not provided.
 
-**Where `idsp` still leads:** Python bindings for offline analysis and filter design. Everything else
-is at parity or an `embedded-dsp` advantage — including the typed view framework, chunk bridges, and
-gated `Buffer`, all carried natively rather than depending on `dsp-process` — except `Major`, below.
+**Where `idsp` still leads:** nowhere in API surface. The one deliberate omission is `Major` (block/lane
+scratch-buffer traversal), argued below; the Python lead is closed by `embedded-dsp-py`, a PyO3 stable-ABI
+module exposing the audio-EQ designer, FIR, and biquad cascades.
 
 **CORDIC modes.** `idsp`'s linear `mul` and hyperbolic `cosh_sinh` are correct only inside a `±0.5`/
 `±0.3` band (an upstream sign bug); `div` and the circular/hyperbolic modes this crate ports are fine

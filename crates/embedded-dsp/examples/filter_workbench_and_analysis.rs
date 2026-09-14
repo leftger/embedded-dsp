@@ -12,7 +12,7 @@
 //!    - FIR Group Delay Calculation (`fir_group_delay`)
 //!    - IIR Pole Radius & Strict Stability Verification (`biquad_pole_radius`, `biquad_is_stable`, `biquad_cascade_is_stable`)
 //! 3. Filter Implementation & Topology Comparisons:
-//!    - Direct Form I (`biquad_cascade_df1_f32`) vs Transposed Direct Form II (`biquad_cascade_df2t_f32`)
+//!    - Direct Form I (`biquad_cascade_df1`) vs Transposed Direct Form II (`biquad_cascade_df2t`)
 //!    - Const-Generic Fixed-Size Wrappers (`FirFilter<33>`, `BiquadCascade<10, 8>`)
 //!    - Q15 Fixed-Point vs F32 Precision & Quantization Noise Analysis
 //! 4. Vector Distance Metrics (Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Canberra, Bray-Curtis)
@@ -167,25 +167,25 @@ fn main() {
 
     // Direct Form I
     let mut df1_state = [0.0f32; 8];
-    let mut df1_inst = BiquadCascadeInstanceF32 {
+    let mut df1_inst = BiquadCascadeInstance::<f32> {
         num_stages: 2,
         post_shift: 0,
         coeffs: &butter_coeffs,
         state: &mut df1_state,
     };
     let mut df1_out = [0.0f32; 10];
-    biquad_cascade_df1_f32(&mut df1_inst, &input_signal, &mut df1_out);
+    biquad_cascade_df1(&mut df1_inst, &input_signal, &mut df1_out);
 
     // Transposed Direct Form II
     let mut df2t_state = [0.0f32; 4];
-    let mut df2t_inst = BiquadCascadeDf2tInstanceF32 {
+    let mut df2t_inst = BiquadCascadeDf2tInstance::<f32> {
         num_stages: 2,
         post_shift: 0,
         coeffs: &butter_coeffs,
         state: &mut df2t_state,
     };
     let mut df2t_out = [0.0f32; 10];
-    biquad_cascade_df2t_f32(&mut df2t_inst, &input_signal, &mut df2t_out);
+    biquad_cascade_df2t(&mut df2t_inst, &input_signal, &mut df2t_out);
 
     // Const-Generic BiquadCascade
     let mut cg_biquad = BiquadCascade::<10, 8>::new(butter_coeffs);

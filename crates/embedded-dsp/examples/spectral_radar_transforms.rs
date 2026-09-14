@@ -3,7 +3,7 @@
 //! Demonstrates:
 //! 1. Multitone RF Radar/SDR Signal Simulation (Chirps + Multi-tone + Narrowband Jammer + White Noise)
 //! 2. Multirate Signal Processing: Cascaded Integrator-Comb (CIC) Decimator & Interpolator (`CicDecimator<3>`, `CicInterpolator<3>`) and Fractional Linear Resampler (`resample_linear_f32`)
-//! 3. Adaptive Filter Noise Cancellation: LMS (`LmsInstanceF32`, `lms_f32`) and Normalized LMS (`NlmsInstanceF32`, `nlms_f32`) for active interference suppression
+//! 3. Adaptive Filter Noise Cancellation: LMS (`LmsInstance`, `lms`) and Normalized LMS (`NlmsInstance`, `nlms`) for active interference suppression
 //! 4. Windowing Comparison: Hanning, Hamming, Blackman, Blackman-Harris, and Flat-Top
 //! 5. Spectral Analysis: High-Resolution Complex FFT (`cfft_f32`, `cfft_q31`), Packed Real FFT (`rfft_f32`, `rfft_q15`), and Welch's PSD (`welch_psd_f32`)
 //! 6. Advanced DSP Transforms:
@@ -109,14 +109,14 @@ fn main() {
     let mut lms_coeffs = [0.0f32; LMS_TAPS];
     let mut lms_state = [0.0f32; LMS_TAPS];
     let mut lms_filter =
-        LmsInstanceF32::init(LMS_TAPS as u16, &mut lms_coeffs, &mut lms_state, 0.005);
+        LmsInstance::<f32>::init(LMS_TAPS as u16, &mut lms_coeffs, &mut lms_state, 0.005);
 
     let mut lms_cancelled_out = [0.0f32; N_SAMPLES];
     let mut lms_error = [0.0f32; N_SAMPLES];
 
     // Reference signal x = jammer reference, Desired d = received signal (target + jammer + noise)
     // Error output e = d - y = target + noise (jammer cancelled!)
-    lms_f32(
+    lms(
         &mut lms_filter,
         &jammer_signal,
         &received_signal,

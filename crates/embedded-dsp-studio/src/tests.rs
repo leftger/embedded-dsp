@@ -198,7 +198,7 @@ mod test_suite {
         let rust_code = crate::views::codegen::generate_rust_code(&state.proc_a, state.sample_rate);
         assert!(rust_code.contains("#![no_std]"));
         assert!(rust_code.contains("pub static BIQUAD_COEFFS: [f32; 5]"));
-        assert!(rust_code.contains("biquad_cascade_df1_f32"));
+        assert!(rust_code.contains("biquad_cascade_df1"));
 
         codegen.target_language = TargetLanguage::CmsisDspC;
         assert_eq!(codegen.target_language, TargetLanguage::CmsisDspC);

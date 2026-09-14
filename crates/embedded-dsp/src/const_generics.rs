@@ -1,9 +1,6 @@
 //! Const generic safe wrappers for compile-time sized FIR filters, Biquads, and Matrices.
 
-use crate::filtering::{
-    BiquadCascadeInstanceF32, BiquadCascadeInstanceQ15, FirInstanceF32, FirInstanceQ15,
-    biquad_cascade_df1_f32, biquad_cascade_df1_q15, fir_f32, fir_q15,
-};
+use crate::filtering::{BiquadCascadeInstance, FirInstance, biquad_cascade_df1, fir};
 use crate::matrix::{
     MatrixInstance, MatrixInstanceMut, mat_add_f32, mat_mult_f32, mat_scale_f32, mat_sub_f32,
     mat_trans_f32,
@@ -30,12 +27,12 @@ impl<const TAPS: usize> FirFilter<TAPS> {
 
     /// Process input slice `src` into output slice `dst`.
     pub fn process(&mut self, src: &[f32], dst: &mut [f32]) {
-        let mut instance = FirInstanceF32 {
+        let mut instance = FirInstance::<f32> {
             num_taps: TAPS as u16,
             coeffs: &self.coeffs,
             state: &mut self.state,
         };
-        fir_f32(&mut instance, src, dst);
+        fir(&mut instance, src, dst);
     }
 
     /// Reset filter state buffer.
@@ -68,13 +65,13 @@ impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascade<COEFFS_LEN, 
 
     /// Process input slice `src` into output slice `dst`.
     pub fn process(&mut self, src: &[f32], dst: &mut [f32]) {
-        let mut instance = BiquadCascadeInstanceF32 {
+        let mut instance = BiquadCascadeInstance::<f32> {
             num_stages: self.num_stages,
             post_shift: 0,
             coeffs: &self.coeffs,
             state: &mut self.state,
         };
-        biquad_cascade_df1_f32(&mut instance, src, dst);
+        biquad_cascade_df1(&mut instance, src, dst);
     }
 
     /// Reset internal filter delay state.
@@ -103,12 +100,12 @@ impl<const TAPS: usize> FirFilterQ15<TAPS> {
 
     /// Processes a single input sample.
     pub fn process(&mut self, src: &[q15], dst: &mut [q15]) {
-        let mut instance = FirInstanceQ15 {
+        let mut instance = FirInstance::<q15> {
             num_taps: TAPS as u16,
             coeffs: &self.coeffs,
             state: &mut self.state,
         };
-        fir_q15(&mut instance, src, dst);
+        fir(&mut instance, src, dst);
     }
 
     /// Resets the internal state.
@@ -143,13 +140,13 @@ impl<const COEFFS_LEN: usize, const STATE_LEN: usize> BiquadCascadeQ15<COEFFS_LE
 
     /// Processes a single input sample.
     pub fn process(&mut self, src: &[q15], dst: &mut [q15]) {
-        let mut instance = BiquadCascadeInstanceQ15 {
+        let mut instance = BiquadCascadeInstance::<q15> {
             num_stages: self.num_stages,
             post_shift: self.post_shift,
             coeffs: &self.coeffs,
             state: &mut self.state,
         };
-        biquad_cascade_df1_q15(&mut instance, src, dst);
+        biquad_cascade_df1(&mut instance, src, dst);
     }
 
     /// Resets the internal state.
