@@ -6,7 +6,8 @@
 //! branch, and the `EkfModel::*_with_input` defaults were not.
 
 use embedded_dsp::kalman::EkfModel;
-use embedded_dsp::pll::{ClampWrap, CostasLoop, IntPllState, Rpll, RpllConfig, SogiPll};
+use embedded_dsp::pipeline::{DspNode, Process, Split, SplitProcess};
+use embedded_dsp::pll::{ClampWrap, CostasLoop, IntPll, IntPllState, Rpll, RpllConfig, SogiPll};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SOGI-PLL
@@ -148,6 +149,83 @@ fn rpll_advances_with_and_without_timestamps() {
         assert_eq!((rpll.phase(), rpll.frequency()), (y, f));
     }
     assert!(seen_edge);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PLL pipeline composability
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn sogi_pll_reaches_dsp_node_through_the_pipeline_blankets() {
+    // f32 -> f32 with no external state: the stateless `SplitProcess` bridge should reach
+    // `Process` and `DspNode` through the blankets without any bespoke wiring.
+    let mut via_trait = SogiPll::new(50.0, 10_000.0, 1.414, 60.0, 1400.0);
+    let mut via_inherent = SogiPll::new(50.0, 10_000.0, 1.414, 60.0, 1400.0);
+    for n in 0..256 {
+        let x = (n as f32 * 0.01).sin();
+        assert_eq!(
+            DspNode::process_sample(&mut via_trait, x),
+            via_inherent.process(x)
+        );
+    }
+}
+
+#[test]
+fn costas_loop_reaches_process_but_not_dsp_node() {
+    // Output type `(f32, f32)` differs from the `f32` input, so this reaches `Process` but is
+    // not eligible for `DspNode` (which requires matching input/output types).
+    let mut via_trait = CostasLoop::new(100.0, 10_000.0, 50.0, 0.707);
+    let mut via_inherent = CostasLoop::new(100.0, 10_000.0, 50.0, 0.707);
+    for n in 0..256 {
+        let x = (n as f32 * 0.01).sin();
+        assert_eq!(
+            Process::process(&mut via_trait, x),
+            via_inherent.process_sample(x)
+        );
+    }
+}
+
+#[test]
+fn int_pll_split_process_matches_the_inherent_method() {
+    // `IntPll` (config) + `IntPllState` (explicit state) is exactly the split shape the trait
+    // models: verify the bridge and confirm `Split` lifts it into a self-contained `DspNode`.
+    let mut cfg = IntPll::from_bandwidth(5e-2, 4.0);
+    let mut state = IntPllState::default();
+    let mut state_ref = IntPllState::default();
+    let mut node = Split::new(cfg, IntPllState::default());
+
+    for i in 0..256 {
+        let input = i * 12_345;
+        let expected = cfg.process(&mut state_ref, input);
+        assert_eq!(
+            SplitProcess::process_with_state(&mut cfg, &mut state, input),
+            expected
+        );
+        assert_eq!(DspNode::process_sample(&mut node, input), expected);
+    }
+}
+
+#[test]
+fn rpll_split_process_matches_the_inherent_method() {
+    // Roles are reversed from `IntPll`: `RpllConfig` is `Self`, `Rpll` is the explicit state.
+    let mut cfg = RpllConfig {
+        dt2: 0,
+        shift_frequency: 1,
+        shift_phase: 1,
+    };
+    let mut state = Rpll::default();
+    let mut state_ref = Rpll::default();
+    let mut node = Split::new(cfg, Rpll::default());
+
+    for i in 0..64i32 {
+        let ts = if i % 8 == 0 { Some(i * 1_000) } else { None };
+        let expected = state_ref.process(&cfg, ts);
+        assert_eq!(
+            SplitProcess::process_with_state(&mut cfg, &mut state, ts),
+            expected
+        );
+        assert_eq!(Process::process(&mut node, ts), expected);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -387,22 +387,6 @@ impl<T: PartialOrd + Copy> Inplace<T> for Limiter<T> {}
 // Node Implementations for Built-in Filters and Controllers
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[cfg(feature = "controller")]
-impl SplitProcess<f32, f32, ()> for crate::controller::PidInstanceF32 {
-    #[inline(always)]
-    fn process_with_state(&mut self, _state: &mut (), input: f32) -> f32 {
-        self.process(input)
-    }
-}
-
-#[cfg(feature = "controller")]
-impl SplitProcess<q15, q15, ()> for crate::controller::PidInstanceQ15 {
-    #[inline(always)]
-    fn process_with_state(&mut self, _state: &mut (), input: q15) -> q15 {
-        self.process(input)
-    }
-}
-
 #[cfg(feature = "filtering")]
 impl SplitProcess<q15, q15, ()> for crate::filtering::DcBlockerQ15 {
     #[inline(always)]

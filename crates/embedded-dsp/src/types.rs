@@ -618,6 +618,16 @@ pub trait DspSample:
     /// [`from_accum`](Self::from_accum).
     fn madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum;
 
+    /// Multiply-accumulate, wrapping the fixed-point product at the sample's *native* width
+    /// before widening into the accumulator — the shape controllers like the PID recurrence use,
+    /// as opposed to [`madd`](Self::madd)'s full-width product kept for later shifting. For
+    /// fixed-point widths this is `x.wrapping_mul(c)` (the per-term result already scaled back to
+    /// the sample's Q-format, and wrapped rather than saturated) widened into the accumulator;
+    /// floats have nothing to wrap, so it is the same expression as `madd`. Pair with
+    /// [`from_accum_shifted`](Self::from_accum_shifted) at `shift = 0` to narrow the final sum:
+    /// each term already carries its own scaling, so no further shift is needed, only saturation.
+    fn wrapping_madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum;
+
     /// Narrow an accumulator back to a sample, saturating at the sample's range.
     fn from_accum(acc: Self::Accum) -> Self;
 
@@ -634,6 +644,16 @@ pub trait DspSample:
     /// Floats return the plain product.
     fn mul_high(x: Self, c: Self::Coeff) -> Self::Accum;
 
+    /// Multiply, shifting the raw product into the accumulator domain by an explicit amount
+    /// rather than the fixed `FRAC` [`mul_high`](Self::mul_high) uses.
+    ///
+    /// Some accumulation shapes shift each term by an amount that isn't `FRAC` (e.g. `FRAC + 2`
+    /// for a squared-magnitude sum, so two Q-format terms can be added without one more bit of
+    /// headroom than `FRAC` alone would leave) — this is `mul_high` generalized to that case. For
+    /// fixed-point widths it is `(x * c) >> shift`; floats have nothing to shift, so this is the
+    /// plain product, same as `mul_high`.
+    fn mul_shifted(x: Self, c: Self::Coeff, shift: u32) -> Self::Accum;
+
     /// Narrow an accumulator with an explicit right shift, saturating at the sample's range.
     ///
     /// `shift == 0` clamps without shifting; float widths ignore the shift. This is the
@@ -645,6 +665,15 @@ pub trait DspSample:
     /// The transposed DF-II biquad keeps its state pre-shifted (`s << shift`); floats ignore the
     /// shift and lift the value unchanged.
     fn accum_from_shifted(x: Self, shift: u32) -> Self::Accum;
+
+    /// Right-shift a value that is already in the accumulator domain, staying in that domain
+    /// (unlike [`from_accum_shifted`](Self::from_accum_shifted), which narrows back to `Self`).
+    ///
+    /// [`crate::complex_math::cmplx_dot_prod`] needs this: its per-width scale factor is applied
+    /// to each term's raw (unshifted) product *before* accumulating across the vector, not to the
+    /// final sum. Fixed-point widths shift; floats have no scale factor to apply, so this is a
+    /// no-op.
+    fn accum_shift(acc: Self::Accum, shift: u32) -> Self::Accum;
 
     /// Average an accumulated sum over `count` samples, in the sample's own domain.
     ///
@@ -658,6 +687,13 @@ pub trait DspSample:
     fn sat_sub(self, rhs: Self) -> Self;
     /// Saturating multiplication.
     fn sat_mul(self, rhs: Self) -> Self;
+    /// Saturating negation.
+    ///
+    /// For fixed-point widths, negating `MIN` overflows (there is no positive counterpart), so
+    /// this saturates to `MAX` there. Floats have nothing to saturate: this is plain negation,
+    /// preserving signed-zero exactly (`0.0 - x` would round `-0.0 - 0.0` to `+0.0`, which plain
+    /// negation does not).
+    fn sat_neg(self) -> Self;
     /// Saturating division.
     fn sat_div(self, rhs: Self) -> Self;
     /// Absolute value.
@@ -677,7 +713,22 @@ impl DspSample for f32 {
     const FRAC: u32 = 0;
 
     #[inline(always)]
+    fn sat_neg(self) -> Self {
+        -self
+    }
+
+    #[inline(always)]
+    fn accum_shift(acc: Self::Accum, _shift: u32) -> Self::Accum {
+        acc
+    }
+
+    #[inline(always)]
     fn madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
+        acc + x * c
+    }
+
+    #[inline(always)]
+    fn wrapping_madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
         acc + x * c
     }
 
@@ -698,6 +749,11 @@ impl DspSample for f32 {
 
     #[inline(always)]
     fn mul_high(x: Self, c: Self::Coeff) -> Self::Accum {
+        x * c
+    }
+
+    #[inline(always)]
+    fn mul_shifted(x: Self, c: Self::Coeff, _shift: u32) -> Self::Accum {
         x * c
     }
 
@@ -756,7 +812,22 @@ impl DspSample for f64 {
     const FRAC: u32 = 0;
 
     #[inline(always)]
+    fn sat_neg(self) -> Self {
+        -self
+    }
+
+    #[inline(always)]
+    fn accum_shift(acc: Self::Accum, _shift: u32) -> Self::Accum {
+        acc
+    }
+
+    #[inline(always)]
     fn madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
+        acc + x * c
+    }
+
+    #[inline(always)]
+    fn wrapping_madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
         acc + x * c
     }
 
@@ -773,6 +844,11 @@ impl DspSample for f64 {
     #[inline(always)]
     fn average_accum(sum: Self::Accum, count: usize) -> Self {
         sum / count as f64
+    }
+
+    #[inline(always)]
+    fn mul_shifted(x: Self, c: Self::Coeff, _shift: u32) -> Self::Accum {
+        x * c
     }
 
     #[inline(always)]
@@ -835,12 +911,29 @@ impl DspSample for q15 {
     const FRAC: u32 = 15;
 
     #[inline(always)]
+    fn sat_neg(self) -> Self {
+        self.saturating_neg()
+    }
+
+    #[inline(always)]
+    fn accum_shift(acc: Self::Accum, shift: u32) -> Self::Accum {
+        acc >> shift.min(63)
+    }
+
+    #[inline(always)]
     fn madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
         // Full Q30 product per term; the caller sums several before the single `>> 15` in
         // `from_accum`, which is why `Accum` is `i64` and not `i32`. A plain `i64` add is used
         // rather than a saturating one: overflow needs >2^33 full-scale terms, and a saturating
         // add would put a branch in the per-tap loop that the hand-written kernels never had.
         acc.wrapping_add(x.to_bits() as i64 * c.to_bits() as i64)
+    }
+
+    #[inline(always)]
+    fn wrapping_madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
+        // Per-term Q15 result, wrapped (not saturated) at native width like the hand-written PID
+        // kernel's `wrapping_mul`, then widened into the `i64` accumulator.
+        acc + x.wrapping_mul(c).to_bits() as i64
     }
 
     #[inline(always)]
@@ -872,6 +965,11 @@ impl DspSample for q15 {
     #[inline(always)]
     fn average_accum(sum: Self::Accum, count: usize) -> Self {
         Self::from_bits((sum / count as i64).clamp(i16::MIN as i64, i16::MAX as i64) as i16)
+    }
+
+    #[inline(always)]
+    fn mul_shifted(x: Self, c: Self::Coeff, shift: u32) -> Self::Accum {
+        (x.to_bits() as i64 * c.to_bits() as i64) >> shift.min(63)
     }
 
     #[inline(always)]
@@ -919,12 +1017,29 @@ impl DspSample for q31 {
     const FRAC: u32 = 31;
 
     #[inline(always)]
+    fn sat_neg(self) -> Self {
+        self.saturating_neg()
+    }
+
+    #[inline(always)]
+    fn accum_shift(acc: Self::Accum, shift: u32) -> Self::Accum {
+        acc >> shift.min(63)
+    }
+
+    #[inline(always)]
     fn madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
         // Full Q62 product per term; the caller sums before the single `>> 31` in `from_accum`.
         // A plain `i64` add keeps the per-tap loop branch-free; a pair of near-full-scale terms can
         // wrap the accumulator, which `from_accum` then re-saturates into range, matching the
         // hand-written fixed-point kernels.
         acc.wrapping_add(x.to_bits() as i64 * c.to_bits() as i64)
+    }
+
+    #[inline(always)]
+    fn wrapping_madd(acc: Self::Accum, x: Self, c: Self::Coeff) -> Self::Accum {
+        // Per-term Q31 result, wrapped (not saturated) at native width like the hand-written PID
+        // kernel's `wrapping_mul`, then widened into the `i64` accumulator.
+        acc + x.wrapping_mul(c).to_bits() as i64
     }
 
     #[inline(always)]
@@ -956,6 +1071,11 @@ impl DspSample for q31 {
     #[inline(always)]
     fn average_accum(sum: Self::Accum, count: usize) -> Self {
         Self::from_bits((sum / count as i64).clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+    }
+
+    #[inline(always)]
+    fn mul_shifted(x: Self, c: Self::Coeff, shift: u32) -> Self::Accum {
+        (x.to_bits() as i64 * c.to_bits() as i64) >> shift.min(63)
     }
 
     #[inline(always)]

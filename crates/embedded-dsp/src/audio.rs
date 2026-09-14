@@ -164,6 +164,17 @@ impl PeakEnvelopeFollower {
     }
 }
 
+/// The stateless-`SplitProcess` bridge for [`PeakEnvelopeFollower`], kept next to the type so the
+/// pipeline layer does not have to reach outward to wrap it. `Process` and
+/// [`DspNode`](crate::pipeline::DspNode) follow from the pipeline blankets.
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f32, f32, ()> for PeakEnvelopeFollower {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), x: f32) -> f32 {
+        PeakEnvelopeFollower::process(self, x)
+    }
+}
+
 /// RMS envelope follower: a single-pole exponential moving average of instantaneous power,
 /// reported as an RMS level.
 #[derive(Debug, Clone, Copy, Default)]
@@ -192,6 +203,16 @@ impl RmsEnvelopeFollower {
     /// Resets the running mean-square to zero.
     pub fn reset(&mut self) {
         self.mean_sq = 0.0;
+    }
+}
+
+/// The stateless-`SplitProcess` bridge for [`RmsEnvelopeFollower`] (see
+/// [`PeakEnvelopeFollower`]'s bridge).
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<f32, f32, ()> for RmsEnvelopeFollower {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), x: f32) -> f32 {
+        RmsEnvelopeFollower::process(self, x)
     }
 }
 
@@ -237,6 +258,16 @@ impl PeakEnvelopeFollowerQ15 {
     }
 }
 
+/// The stateless-`SplitProcess` bridge for [`PeakEnvelopeFollowerQ15`] (see
+/// [`PeakEnvelopeFollower`]'s bridge).
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<q15, q15, ()> for PeakEnvelopeFollowerQ15 {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), x: q15) -> q15 {
+        PeakEnvelopeFollowerQ15::process(self, x)
+    }
+}
+
 /// Q15 RMS envelope follower.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RmsEnvelopeFollowerQ15 {
@@ -268,6 +299,16 @@ impl RmsEnvelopeFollowerQ15 {
     /// Resets the internal state.
     pub fn reset(&mut self) {
         self.mean_sq = q15::ZERO;
+    }
+}
+
+/// The stateless-`SplitProcess` bridge for [`RmsEnvelopeFollowerQ15`] (see
+/// [`PeakEnvelopeFollower`]'s bridge).
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<q15, q15, ()> for RmsEnvelopeFollowerQ15 {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), x: q15) -> q15 {
+        RmsEnvelopeFollowerQ15::process(self, x)
     }
 }
 

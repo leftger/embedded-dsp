@@ -62,3 +62,37 @@ fn test_chirp_sweep_linear_and_exponential() {
         assert!((-1.0..=1.0).contains(&e));
     }
 }
+
+#[test]
+fn synthesis_generators_compose_through_split_process() {
+    // A generator has no real input, so `()` stands in for it: each of these reaches
+    // `Process`/`SplitProcess` (via the `()` input) but not `DspNode`, which requires the input and
+    // output types to match. Verify the trait path agrees with `next_sample` bit-for-bit.
+    let mut osc_trait = PolyBlepOscillator::new(44100.0, 440.0, PolyBlepWaveform::Sawtooth);
+    let mut osc_inherent = PolyBlepOscillator::new(44100.0, 440.0, PolyBlepWaveform::Sawtooth);
+    let mut white_trait = WhiteNoise::new(0xDEAD_BEEF);
+    let mut white_inherent = WhiteNoise::new(0xDEAD_BEEF);
+    let mut pink_trait = KellettPinkNoise::new(0xDEAD_BEEF);
+    let mut pink_inherent = KellettPinkNoise::new(0xDEAD_BEEF);
+    let mut chirp_trait = ChirpSweep::new(44100.0, 100.0, 1000.0, 0.1, true);
+    let mut chirp_inherent = ChirpSweep::new(44100.0, 100.0, 1000.0, 0.1, true);
+
+    for _ in 0..200 {
+        assert_eq!(
+            osc_trait.process_with_state(&mut (), ()),
+            osc_inherent.next_sample()
+        );
+        assert_eq!(
+            white_trait.process_with_state(&mut (), ()),
+            white_inherent.next_sample()
+        );
+        assert_eq!(
+            pink_trait.process_with_state(&mut (), ()),
+            pink_inherent.next_sample()
+        );
+        assert_eq!(
+            chirp_trait.process_with_state(&mut (), ()),
+            chirp_inherent.next_sample()
+        );
+    }
+}
