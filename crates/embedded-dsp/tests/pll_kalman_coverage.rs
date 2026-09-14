@@ -29,6 +29,7 @@ fn sogi_pll_reports_frequency_and_handles_negative_wrap() {
 
     let (alpha, beta) = pll.orthogonal_components();
     assert!(alpha.is_finite() && beta.is_finite());
+    assert!(pll.phase().is_finite());
 }
 
 #[test]

@@ -29,6 +29,18 @@ fn test_polyblep_oscillator_waveforms() {
 }
 
 #[test]
+fn test_chirp_sweep_exponential_with_equal_start_and_end_freq_uses_the_linear_fallback() {
+    // start_freq == end_freq makes the exponential rate ~0, exercising next_sample's
+    // `rate.abs() < 1e-6` fallback (a pure tone, since there's nothing to sweep).
+    let mut sweep = ChirpSweep::new(44100.0, 440.0, 440.0, 0.1, true);
+    for _ in 0..50 {
+        let s = sweep.next_sample();
+        assert!(s.is_finite());
+        assert!((-1.0..=1.0).contains(&s));
+    }
+}
+
+#[test]
 fn test_polyblep_oscillator_zero_frequency_skips_the_blep_correction() {
     // A zero frequency gives phase_step = 0, so poly_blep's `dt <= 0.0` early return runs (no
     // discontinuity correction needed since the phase never advances).
