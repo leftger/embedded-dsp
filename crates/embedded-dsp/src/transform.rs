@@ -13,8 +13,11 @@ fn rfft_can_pack_f32(n: usize) -> bool {
     n >= 4 && n.is_multiple_of(2) && cfft_f32_len_ok(n / 2) && n / 2 <= mixed_radix::MIXED_RADIX_MAX
 }
 
-/// Bit reversal function for interleaved complex array of size `2 * n`.
-pub fn bit_reversal(data: &mut [f32], n: usize) {
+/// Bit reversal function for interleaved complex arrays of size `2 * n`.
+///
+/// Pure index permutation: it swaps elements by position and never reads them as numbers, so this
+/// works unchanged for any element type (`f32`, `q15`, `q31`, ...).
+pub fn bit_reversal<T: Copy>(data: &mut [T], n: usize) {
     let mut j = 0;
     for i in 0..n {
         if i < j {
@@ -184,38 +187,6 @@ fn twiddle_q15(k: usize, n: usize) -> (i16, i16) {
     (COS_Q15[idx], SIN_Q15[idx])
 }
 
-fn bit_reversal_q15(data: &mut [q15], n: usize) {
-    let mut j = 0;
-    for i in 0..n {
-        if i < j {
-            data.swap(2 * i, 2 * j);
-            data.swap(2 * i + 1, 2 * j + 1);
-        }
-        let mut m = n >> 1;
-        while m >= 1 && j >= m {
-            j -= m;
-            m >>= 1;
-        }
-        j += m;
-    }
-}
-
-fn bit_reversal_q31(data: &mut [q31], n: usize) {
-    let mut j = 0;
-    for i in 0..n {
-        if i < j {
-            data.swap(2 * i, 2 * j);
-            data.swap(2 * i + 1, 2 * j + 1);
-        }
-        let mut m = n >> 1;
-        while m >= 1 && j >= m {
-            j -= m;
-            m >>= 1;
-        }
-        j += m;
-    }
-}
-
 #[inline]
 fn sat_q15(v: i32) -> q15 {
     q15::from_bits(v.clamp(i16::MIN as i32, i16::MAX as i32) as i16)
@@ -224,6 +195,134 @@ fn sat_q15(v: i32) -> q15 {
 #[inline]
 fn sat_q31(v: i64) -> q31 {
     q31::from_bits(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32)
+}
+
+/// One radix-2 DIT butterfly: reads `data[u_idx..u_idx+2]`/`data[v_idx..v_idx+2]`, rotates the `v`
+/// pair by the twiddle `(wr, wi)`, and writes both outputs back, narrowing with `stage_shift`.
+///
+/// Shared by [`cfft_q15`]/[`cfft_q31`] (`stage_shift` is always `1`) and
+/// [`cfft_bfp_q15`]/[`cfft_bfp_q31`] (`stage_shift` is a data-dependent `0` or `1`, computed once
+/// per stage by the caller).
+///
+/// The hand-written kernels compute the twiddle rotation as `(v_re*wr - v_im*wi) >> FRAC` — the
+/// *combined* difference shifted once, not each product shifted individually before combining
+/// (those are not bit-exact equivalent in general integer arithmetic, the same distinction as
+/// `cmplx_mag_squared`/`cmplx_dot_prod`). So this uses `T::madd` (raw, unshifted product) to build
+/// the difference, then `T::accum_shift` to narrow by `FRAC` *without* saturating (the result
+/// still participates in the `u ± t` combine before the kernels' only saturation point, at the
+/// very end) — not `T::mul_high`, which shifts per term.
+#[inline]
+fn cfft_fixed_butterfly<T: DspSample<Coeff = T>>(
+    data: &mut [T],
+    u_idx: usize,
+    v_idx: usize,
+    wr: T,
+    wi: T,
+    stage_shift: u32,
+) {
+    let u_re = data[u_idx];
+    let u_im = data[u_idx + 1];
+    let v_re = data[v_idx];
+    let v_im = data[v_idx + 1];
+
+    let acc_u_re = T::accum_from_shifted(u_re, 0);
+    let acc_u_im = T::accum_from_shifted(u_im, 0);
+
+    let raw_re = T::madd(T::Accum::default(), v_re, wr) - T::madd(T::Accum::default(), v_im, wi);
+    let raw_im = T::madd(T::Accum::default(), v_re, wi) + T::madd(T::Accum::default(), v_im, wr);
+    let t_re = T::accum_shift(raw_re, T::FRAC);
+    let t_im = T::accum_shift(raw_im, T::FRAC);
+
+    data[u_idx] = T::from_accum_shifted(acc_u_re + t_re, stage_shift);
+    data[u_idx + 1] = T::from_accum_shifted(acc_u_im + t_im, stage_shift);
+    data[v_idx] = T::from_accum_shifted(acc_u_re - t_re, stage_shift);
+    data[v_idx + 1] = T::from_accum_shifted(acc_u_im - t_im, stage_shift);
+}
+
+/// Shared radix-2 DIT complex FFT core for the fixed-point widths (`q15`/`q31`), generic over the
+/// per-stage downscale shift: `cfft_q15`/`cfft_q31` always shift by 1; `cfft_bfp_q15`/`cfft_bfp_q31`
+/// compute a data-dependent 0-or-1 shift per stage (`stage_shift` is called once per stage, before
+/// that stage's butterflies run, with `data` reflecting the *previous* stage's output).
+///
+/// Twiddles come from the shared Q15-precision table (`q31`'s twiddle precision is therefore
+/// limited to 16 bits, same as the hand-written kernels this replaces). `q31` negated its widened
+/// twiddle with plain (wrapping) negation and `q15` with `saturating_neg`; both are replaced here
+/// by `DspSample::sat_neg`, which is provably identical to either for this table — neither
+/// `COS_Q15` nor `SIN_Q15` ever contains `i16::MIN`, the only value where wrapping and saturating
+/// negation would differ.
+#[inline]
+fn cfft_fixed_core<T: DspSample<Coeff = T>>(
+    data: &mut [T],
+    n: usize,
+    ifft_flag: u8,
+    mut stage_shift: impl FnMut(&[T]) -> u32,
+) {
+    let mut len = 2;
+    while len <= n {
+        let half_len = len / 2;
+        let shift = stage_shift(&data[..2 * n]);
+
+        let mut i = 0;
+        while i < n {
+            for j in 0..half_len {
+                let (w_re_s, w_im_s) = twiddle_q15(j, len);
+                let wr = T::coeff_from_q15_bits(w_re_s);
+                let wi_raw = T::coeff_from_q15_bits(w_im_s);
+                let wi = if ifft_flag == 0 { wi_raw.sat_neg() } else { wi_raw };
+
+                cfft_fixed_butterfly(data, 2 * (i + j), 2 * (i + j + half_len), wr, wi, shift);
+            }
+            i += len;
+        }
+        len <<= 1;
+    }
+}
+
+fn cfft_fixed<T: DspSample<Coeff = T>>(data: &mut [T], n: usize, ifft_flag: u8, bit_reverse_flag: u8) {
+    if !(2..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || data.len() < 2 * n {
+        return;
+    }
+    if bit_reverse_flag != 0 {
+        bit_reversal(data, n);
+    }
+    cfft_fixed_core(data, n, ifft_flag, |_| 1);
+}
+
+fn cfft_bfp_fixed<T: DspSample<Coeff = T>>(
+    data: &mut [T],
+    n: usize,
+    ifft_flag: u8,
+    bit_reverse_flag: u8,
+) -> u16 {
+    if !(2..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || data.len() < 2 * n {
+        return 0;
+    }
+    if bit_reverse_flag != 0 {
+        bit_reversal(data, n);
+    }
+
+    let mut scale_count: u16 = 0;
+    // Half of the sample's full-scale magnitude, at accumulator precision: `T::ONE` is the
+    // sample's `MAX` for the fixed widths, so this is exactly the hand-written kernels' literal
+    // thresholds (`16383` for q15, `1073741823` for q31).
+    let half_max = T::accum_shift(T::accum_from_shifted(T::ONE, 0), 1);
+    cfft_fixed_core(data, n, ifft_flag, |stage_data| {
+        let mut max_val = T::Accum::default();
+        for &x in stage_data {
+            let v = T::accum_from_shifted(x.abs_val(), 0);
+            if v > max_val {
+                max_val = v;
+            }
+        }
+        if max_val > half_max {
+            scale_count += 1;
+            1
+        } else {
+            0
+        }
+    });
+
+    scale_count
 }
 
 /// In-place radix-2 DIT Complex FFT for Q31.
@@ -235,48 +334,7 @@ fn sat_q31(v: i64) -> q31 {
 ///
 /// `n` must be a power of two in `2..=512`. `data` is interleaved `[re, im, ...]`.
 pub fn cfft_q31(data: &mut [q31], n: usize, ifft_flag: u8, bit_reverse_flag: u8) {
-    if !(2..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || data.len() < 2 * n {
-        return;
-    }
-
-    if bit_reverse_flag != 0 {
-        bit_reversal_q31(data, n);
-    }
-
-    let mut len = 2;
-    while len <= n {
-        let half_len = len / 2;
-        let mut i = 0;
-        while i < n {
-            for j in 0..half_len {
-                let (w_re_s, w_im_s) = twiddle_q15(j, len);
-                let w_re = (w_re_s as i32) << 16;
-                let mut w_im = (w_im_s as i32) << 16;
-                if ifft_flag == 0 {
-                    w_im = -w_im;
-                }
-
-                let u_idx = 2 * (i + j);
-                let v_idx = 2 * (i + j + half_len);
-                let u_re = data[u_idx].to_bits() as i64;
-                let u_im = data[u_idx + 1].to_bits() as i64;
-                let v_re = data[v_idx].to_bits() as i64;
-                let v_im = data[v_idx + 1].to_bits() as i64;
-                let wr = w_re as i64;
-                let wi = w_im as i64;
-
-                let t_re = (v_re * wr - v_im * wi) >> 31;
-                let t_im = (v_re * wi + v_im * wr) >> 31;
-
-                data[u_idx] = sat_q31((u_re + t_re) >> 1);
-                data[u_idx + 1] = sat_q31((u_im + t_im) >> 1);
-                data[v_idx] = sat_q31((u_re - t_re) >> 1);
-                data[v_idx + 1] = sat_q31((u_im - t_im) >> 1);
-            }
-            i += len;
-        }
-        len <<= 1;
-    }
+    cfft_fixed(data, n, ifft_flag, bit_reverse_flag)
 }
 
 /// In-place radix-2 DIT Complex FFT for Q15.
@@ -284,46 +342,7 @@ pub fn cfft_q31(data: &mut [q31], n: usize, ifft_flag: u8, bit_reverse_flag: u8)
 /// Same scaling as [`cfft_q31`]: about `1/n` per forward or inverse transform.
 /// `n` must be a power of two in `2..=512`.
 pub fn cfft_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag: u8) {
-    if !(2..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || data.len() < 2 * n {
-        return;
-    }
-
-    if bit_reverse_flag != 0 {
-        bit_reversal_q15(data, n);
-    }
-
-    let mut len = 2;
-    while len <= n {
-        let half_len = len / 2;
-        let mut i = 0;
-        while i < n {
-            for j in 0..half_len {
-                let (w_re_s, mut w_im_s) = twiddle_q15(j, len);
-                if ifft_flag == 0 {
-                    w_im_s = w_im_s.saturating_neg();
-                }
-
-                let u_idx = 2 * (i + j);
-                let v_idx = 2 * (i + j + half_len);
-                let u_re = data[u_idx].to_bits() as i32;
-                let u_im = data[u_idx + 1].to_bits() as i32;
-                let v_re = data[v_idx].to_bits() as i32;
-                let v_im = data[v_idx + 1].to_bits() as i32;
-                let wr = w_re_s as i32;
-                let wi = w_im_s as i32;
-
-                let t_re = (v_re * wr - v_im * wi) >> 15;
-                let t_im = (v_re * wi + v_im * wr) >> 15;
-
-                data[u_idx] = sat_q15((u_re + t_re) >> 1);
-                data[u_idx + 1] = sat_q15((u_im + t_im) >> 1);
-                data[v_idx] = sat_q15((u_re - t_re) >> 1);
-                data[v_idx + 1] = sat_q15((u_im - t_im) >> 1);
-            }
-            i += len;
-        }
-        len <<= 1;
-    }
+    cfft_fixed(data, n, ifft_flag, bit_reverse_flag)
 }
 
 /// In-place Block Floating-Point (BFP) Complex FFT for Q15.
@@ -335,134 +354,14 @@ pub fn cfft_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag: u8)
 /// Returns the total scale count `scale_count: u16` (the block exponent).
 /// The true mathematical frequency amplitude is `output[k] * 2^{scale_count}`.
 pub fn cfft_bfp_q15(data: &mut [q15], n: usize, ifft_flag: u8, bit_reverse_flag: u8) -> u16 {
-    if !(2..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || data.len() < 2 * n {
-        return 0;
-    }
-
-    if bit_reverse_flag != 0 {
-        bit_reversal_q15(data, n);
-    }
-
-    let mut scale_count: u16 = 0;
-    let mut len = 2;
-    while len <= n {
-        let half_len = len / 2;
-
-        // Stage headroom check: find max absolute value
-        let mut max_val: i16 = 0;
-        for i in 0..2 * n {
-            let val = data[i].abs().to_bits();
-            if val > max_val {
-                max_val = val;
-            }
-        }
-
-        // Butterfly addition can double magnitude: if max_val > 16383, scale stage down by 1 bit.
-        let stage_shift = if max_val > 16383 {
-            scale_count += 1;
-            1
-        } else {
-            0
-        };
-
-        let mut i = 0;
-        while i < n {
-            for j in 0..half_len {
-                let (w_re_s, mut w_im_s) = twiddle_q15(j, len);
-                if ifft_flag == 0 {
-                    w_im_s = w_im_s.saturating_neg();
-                }
-
-                let u_idx = 2 * (i + j);
-                let v_idx = 2 * (i + j + half_len);
-                let u_re = data[u_idx].to_bits() as i32;
-                let u_im = data[u_idx + 1].to_bits() as i32;
-                let v_re = data[v_idx].to_bits() as i32;
-                let v_im = data[v_idx + 1].to_bits() as i32;
-                let wr = w_re_s as i32;
-                let wi = w_im_s as i32;
-
-                let t_re = (v_re * wr - v_im * wi) >> 15;
-                let t_im = (v_re * wi + v_im * wr) >> 15;
-
-                data[u_idx] = sat_q15((u_re + t_re) >> stage_shift);
-                data[u_idx + 1] = sat_q15((u_im + t_im) >> stage_shift);
-                data[v_idx] = sat_q15((u_re - t_re) >> stage_shift);
-                data[v_idx + 1] = sat_q15((u_im - t_im) >> stage_shift);
-            }
-            i += len;
-        }
-        len <<= 1;
-    }
-
-    scale_count
+    cfft_bfp_fixed(data, n, ifft_flag, bit_reverse_flag)
 }
 
 /// In-place Block Floating-Point (BFP) Complex FFT for Q31.
 ///
 /// Dynamically scales only when overflow is imminent, returning total `scale_count`.
 pub fn cfft_bfp_q31(data: &mut [q31], n: usize, ifft_flag: u8, bit_reverse_flag: u8) -> u16 {
-    if !(2..=TWIDDLE_N).contains(&n) || (n & (n - 1)) != 0 || data.len() < 2 * n {
-        return 0;
-    }
-
-    if bit_reverse_flag != 0 {
-        bit_reversal_q31(data, n);
-    }
-
-    let mut scale_count: u16 = 0;
-    let mut len = 2;
-    while len <= n {
-        let half_len = len / 2;
-
-        let mut max_val: i32 = 0;
-        for i in 0..2 * n {
-            let val = data[i].abs().to_bits();
-            if val > max_val {
-                max_val = val;
-            }
-        }
-
-        let stage_shift = if max_val > 1073741823 {
-            scale_count += 1;
-            1
-        } else {
-            0
-        };
-
-        let mut i = 0;
-        while i < n {
-            for j in 0..half_len {
-                let (w_re_s, w_im_s) = twiddle_q15(j, len);
-                let w_re = (w_re_s as i32) << 16;
-                let mut w_im = (w_im_s as i32) << 16;
-                if ifft_flag == 0 {
-                    w_im = -w_im;
-                }
-
-                let u_idx = 2 * (i + j);
-                let v_idx = 2 * (i + j + half_len);
-                let u_re = data[u_idx].to_bits() as i64;
-                let u_im = data[u_idx + 1].to_bits() as i64;
-                let v_re = data[v_idx].to_bits() as i64;
-                let v_im = data[v_idx + 1].to_bits() as i64;
-                let wr = w_re as i64;
-                let wi = w_im as i64;
-
-                let t_re = (v_re * wr - v_im * wi) >> 31;
-                let t_im = (v_re * wi + v_im * wr) >> 31;
-
-                data[u_idx] = sat_q31((u_re + t_re) >> stage_shift);
-                data[u_idx + 1] = sat_q31((u_im + t_im) >> stage_shift);
-                data[v_idx] = sat_q31((u_re - t_re) >> stage_shift);
-                data[v_idx + 1] = sat_q31((u_im - t_im) >> stage_shift);
-            }
-            i += len;
-        }
-        len <<= 1;
-    }
-
-    scale_count
+    cfft_bfp_fixed(data, n, ifft_flag, bit_reverse_flag)
 }
 
 /// Real Cepstrum: `c(n) = IFFT(ln |FFT(x)|)`.

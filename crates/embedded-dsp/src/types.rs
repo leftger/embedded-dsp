@@ -591,6 +591,7 @@ pub trait DspSample:
     /// [`from_accum`](Self::from_accum). This is therefore deliberately wider than one product.
     type Accum: Copy
         + Default
+        + PartialOrd
         + core::ops::Add<Output = Self::Accum>
         + core::ops::Sub<Output = Self::Accum>;
 
@@ -635,6 +636,16 @@ pub trait DspSample:
     ///
     /// Fixed-point widths clamp to `[-1, 1)` and quantize; floats convert and pass through.
     fn coeff_from_f32(c: f32) -> Self::Coeff;
+
+    /// Promote a Q15-precision fixed-point constant into a coefficient at this sample's native
+    /// precision.
+    ///
+    /// The fixed-point CFFTs share one Q15 twiddle table across widths rather than keeping a
+    /// separate, wider one for `q31` — `q31`'s twiddle precision is therefore limited to 16 bits
+    /// even though the sample width is 32. For `q15` this is a direct reinterpretation (the table
+    /// is already native precision); for `q31` it left-shifts by 16 bits into the high half of the
+    /// wider Q-format. Floats convert the value to a plain fraction of full scale.
+    fn coeff_from_q15_bits(bits: i16) -> Self::Coeff;
 
     /// High product of a sample and a coefficient, narrowed once into the accumulator domain.
     ///
@@ -743,6 +754,11 @@ impl DspSample for f32 {
     }
 
     #[inline(always)]
+    fn coeff_from_q15_bits(bits: i16) -> Self::Coeff {
+        bits as f32 / 32768.0
+    }
+
+    #[inline(always)]
     fn average_accum(sum: Self::Accum, count: usize) -> Self {
         sum / count as f32
     }
@@ -842,6 +858,11 @@ impl DspSample for f64 {
     }
 
     #[inline(always)]
+    fn coeff_from_q15_bits(bits: i16) -> Self::Coeff {
+        bits as f64 / 32768.0
+    }
+
+    #[inline(always)]
     fn average_accum(sum: Self::Accum, count: usize) -> Self {
         sum / count as f64
     }
@@ -909,6 +930,11 @@ impl DspSample for q15 {
     const ZERO: Self = Self::ZERO;
     const ONE: Self = Self::MAX;
     const FRAC: u32 = 15;
+
+    #[inline(always)]
+    fn coeff_from_q15_bits(bits: i16) -> Self::Coeff {
+        Self::from_bits(bits)
+    }
 
     #[inline(always)]
     fn sat_neg(self) -> Self {
@@ -1015,6 +1041,11 @@ impl DspSample for q31 {
     const ZERO: Self = Self::ZERO;
     const ONE: Self = Self::MAX;
     const FRAC: u32 = 31;
+
+    #[inline(always)]
+    fn coeff_from_q15_bits(bits: i16) -> Self::Coeff {
+        Self::from_bits((bits as i32) << 16)
+    }
 
     #[inline(always)]
     fn sat_neg(self) -> Self {
