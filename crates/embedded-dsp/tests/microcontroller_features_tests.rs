@@ -834,6 +834,39 @@ fn test_hilbert_transform_and_analytic_signal() {
 }
 
 #[test]
+fn hilbert_transform_q15_accumulates_in_i64_and_does_not_overflow() {
+    // Adversarial coefficients: every tap at q15::MAX. Once the delay line fills with full-scale
+    // samples, each of the 5 terms is a full Q30 product (~2^30); summed raw (before the single
+    // narrowing shift `DspSample::from_accum` applies) that's ~2^32.3, overflowing an `i32`
+    // accumulator (the hand-written `HilbertTransformQ15` this type replaced used one — see
+    // `python3 -c "print(32767*32767*5 > 2**31-1)"` => True). The generic `HilbertTransform<q15>`
+    // accumulates via `DspSample::madd`, whose `Accum` is `i64` for q15 specifically so a
+    // recurrence can sum several full-scale terms before that shift — this must saturate to
+    // `q15::MAX`, not silently wrap or panic on overflow.
+    const N: usize = 5;
+    let coeffs = [q15::from_bits(i16::MAX); N];
+    let mut state = [q15::ZERO; N];
+    let mut hilbert = HilbertTransformQ15::new(&coeffs, &mut state).unwrap();
+
+    // Prime the delay line: after N pushes of MAX, every state slot holds a full-scale sample.
+    for _ in 0..N {
+        hilbert.process_sample(q15::from_bits(i16::MAX));
+    }
+    let (_, quad) = hilbert.process_sample(q15::from_bits(i16::MAX));
+    assert_eq!(quad, q15::from_bits(i16::MAX), "should saturate, not wrap");
+
+    // Cross-check against a manual i64 reimplementation of the same recurrence.
+    let acc: i64 = (i16::MAX as i64) * (i16::MAX as i64) * N as i64;
+    let expected = (acc >> 15).clamp(i16::MIN as i64, i16::MAX as i64) as i16;
+    assert_eq!(quad.to_bits(), expected);
+    assert_eq!(
+        expected,
+        i16::MAX,
+        "sanity: the adversarial case must actually saturate"
+    );
+}
+
+#[test]
 fn test_additional_coverage_branches() {
     // 1. fast_pow2_f32 underflow saturation and overflow
     assert_eq!(fast_pow2_f32(-130.0), 0.0);

@@ -81,15 +81,15 @@ pub trait Inplace<X: Copy>: Process<X> {
 /// coefficient swapping.
 pub trait SplitProcess<X: Copy, Y = X, S: ?Sized = ()> {
     /// Process an input into an output using explicit state `state`.
-    fn process(&self, state: &mut S, x: X) -> Y;
+    fn process_with_state(&mut self, state: &mut S, x: X) -> Y;
 
     /// Process a block of input samples using explicit state `state`.
     #[inline]
-    fn block(&self, state: &mut S, x: &[X], y: &mut [Y]) {
+    fn block_with_state(&mut self, state: &mut S, x: &[X], y: &mut [Y]) {
         debug_assert_eq!(x.len(), y.len());
         let len = x.len().min(y.len());
         for i in 0..len {
-            y[i] = self.process(state, x[i]);
+            y[i] = self.process_with_state(state, x[i]);
         }
     }
 }
@@ -98,9 +98,50 @@ pub trait SplitProcess<X: Copy, Y = X, S: ?Sized = ()> {
 pub trait SplitInplace<X: Copy, S: ?Sized = ()>: SplitProcess<X, X, S> {
     /// Process slice `xy` in-place using explicit state `state`.
     #[inline]
-    fn inplace(&self, state: &mut S, xy: &mut [X]) {
+    fn inplace_with_state(&mut self, state: &mut S, xy: &mut [X]) {
         for sample in xy.iter_mut() {
-            *sample = self.process(state, *sample);
+            *sample = self.process_with_state(state, *sample);
+        }
+    }
+}
+
+/// Any stateless [`SplitProcess`] (`S = ()`) is an ordinary [`Process`]: the split vocabulary is the
+/// general one, and sample streaming is its degenerate case. A stateless stage implements
+/// `SplitProcess` once and inherits `Process` and, through it, [`DspNode`].
+impl<X: Copy, Y, C> Process<X, Y> for C
+where
+    C: SplitProcess<X, Y>,
+{
+    #[inline(always)]
+    fn process(&mut self, x: X) -> Y {
+        SplitProcess::process_with_state(self, &mut (), x)
+    }
+
+    #[inline(always)]
+    fn block(&mut self, x: &[X], y: &mut [Y]) {
+        SplitProcess::block_with_state(self, &mut (), x, y);
+    }
+}
+
+/// Any [`Process`] is a single-sample [`DspNode`], so the node vocabulary is derived from the
+/// streaming one rather than implemented per node.
+impl<T: Copy, N: Process<T, T>> DspNode<T> for N {
+    #[inline(always)]
+    fn process_sample(&mut self, input: T) -> T {
+        Process::process(self, input)
+    }
+
+    #[inline(always)]
+    fn process_block(&mut self, in_buf: &[T], out_buf: &mut [T]) {
+        // `DspNode::process_block` clamps to the shorter buffer, whereas `Process::block` requires
+        // equal lengths and may take a configuration's specialised path. Dispatch on that.
+        if in_buf.len() == out_buf.len() {
+            Process::block(self, in_buf, out_buf);
+        } else {
+            let len = in_buf.len().min(out_buf.len());
+            for i in 0..len {
+                out_buf[i] = self.process_sample(in_buf[i]);
+            }
         }
     }
 }
@@ -123,18 +164,31 @@ impl<C, S> Split<C, S> {
     }
 }
 
-impl<C, S, X: Copy, Y> Process<X, Y> for Split<C, S>
+/// [`Split`] is itself a stateless `SplitProcess` (`S = ()`): it owns the runtime state and drives
+/// its configuration with it, so it inherits `Process`/`DspNode` from the blankets above while
+/// still routing block/in-place work to the configuration's specialised paths.
+impl<C, S, X: Copy, Y> SplitProcess<X, Y, ()> for Split<C, S>
 where
     C: SplitProcess<X, Y, S>,
 {
     #[inline(always)]
-    fn process(&mut self, x: X) -> Y {
-        self.config.process(&mut self.state, x)
+    fn process_with_state(&mut self, _state: &mut (), x: X) -> Y {
+        self.config.process_with_state(&mut self.state, x)
     }
 
     #[inline(always)]
-    fn block(&mut self, x: &[X], y: &mut [Y]) {
-        self.config.block(&mut self.state, x, y);
+    fn block_with_state(&mut self, _state: &mut (), x: &[X], y: &mut [Y]) {
+        self.config.block_with_state(&mut self.state, x, y);
+    }
+}
+
+impl<C, S, X: Copy> SplitInplace<X, ()> for Split<C, S>
+where
+    C: SplitInplace<X, S>,
+{
+    #[inline(always)]
+    fn inplace_with_state(&mut self, _state: &mut (), xy: &mut [X]) {
+        self.config.inplace_with_state(&mut self.state, xy);
     }
 }
 
@@ -144,22 +198,7 @@ where
 {
     #[inline(always)]
     fn inplace(&mut self, xy: &mut [X]) {
-        self.config.inplace(&mut self.state, xy);
-    }
-}
-
-impl<T: Copy, C, S> DspNode<T> for Split<C, S>
-where
-    C: SplitProcess<T, T, S>,
-{
-    #[inline(always)]
-    fn process_sample(&mut self, input: T) -> T {
-        self.process(input)
-    }
-
-    #[inline(always)]
-    fn process_block(&mut self, in_buf: &[T], out_buf: &mut [T]) {
-        self.block(in_buf, out_buf);
+        self.config.inplace_with_state(&mut self.state, xy);
     }
 }
 
@@ -187,8 +226,8 @@ where
     C: SplitProcess<X, Y, S>,
 {
     #[inline]
-    fn process(&self, state: &mut [S; N], x: [X; N]) -> [Y; N] {
-        core::array::from_fn(|i| self.0.process(&mut state[i], x[i]))
+    fn process_with_state(&mut self, state: &mut [S; N], x: [X; N]) -> [Y; N] {
+        core::array::from_fn(|i| self.0.process_with_state(&mut state[i], x[i]))
     }
 }
 
@@ -212,8 +251,8 @@ where
     C1: SplitProcess<X, Y, S1>,
 {
     #[inline]
-    fn process(&self, (s0, s1): &mut (S0, S1), [x0, x1]: [X; 2]) -> [Y; 2] {
-        [self.0.process(s0, x0), self.1.process(s1, x1)]
+    fn process_with_state(&mut self, (s0, s1): &mut (S0, S1), [x0, x1]: [X; 2]) -> [Y; 2] {
+        [self.0.process_with_state(s0, x0), self.1.process_with_state(s1, x1)]
     }
 }
 
@@ -222,18 +261,11 @@ where
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
 pub struct Offset<T>(pub T);
 
-impl<T: DspSample> Process<T, T> for Offset<T> {
-    #[inline(always)]
-    fn process(&mut self, x: T) -> T {
-        x.sat_add(self.0)
-    }
-}
-
 impl<T: DspSample> Inplace<T> for Offset<T> {}
 
 impl<T: DspSample, S: ?Sized> SplitProcess<T, T, S> for Offset<T> {
     #[inline(always)]
-    fn process(&self, _state: &mut S, x: T) -> T {
+    fn process_with_state(&mut self, _state: &mut S, x: T) -> T {
         x.sat_add(self.0)
     }
 }
@@ -244,18 +276,11 @@ impl<T: DspSample, S: ?Sized> SplitInplace<T, S> for Offset<T> {}
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Identity;
 
-impl<X: Copy> Process<X, X> for Identity {
-    #[inline(always)]
-    fn process(&mut self, x: X) -> X {
-        x
-    }
-}
-
 impl<X: Copy> Inplace<X> for Identity {}
 
 impl<X: Copy, S: ?Sized> SplitProcess<X, X, S> for Identity {
     #[inline(always)]
-    fn process(&self, _state: &mut S, x: X) -> X {
+    fn process_with_state(&mut self, _state: &mut S, x: X) -> X {
         x
     }
 }
@@ -271,17 +296,9 @@ pub struct Chain<A, B> {
     pub second: B,
 }
 
-impl<T: Copy, A: DspNode<T>, B: DspNode<T>> DspNode<T> for Chain<A, B> {
+impl<T: Copy, A: Process<T, T>, B: Process<T, T>> SplitProcess<T, T, ()> for Chain<A, B> {
     #[inline(always)]
-    fn process_sample(&mut self, input: T) -> T {
-        let intermediate = self.first.process_sample(input);
-        self.second.process_sample(intermediate)
-    }
-}
-
-impl<T: Copy, A: Process<T, T>, B: Process<T, T>> Process<T, T> for Chain<A, B> {
-    #[inline(always)]
-    fn process(&mut self, input: T) -> T {
+    fn process_with_state(&mut self, _state: &mut (), input: T) -> T {
         let intermediate = self.first.process(input);
         self.second.process(intermediate)
     }
@@ -310,16 +327,9 @@ impl<T> Gain<T> {
     }
 }
 
-impl<T: DspSample> DspNode<T> for Gain<T> {
+impl<T: DspSample> SplitProcess<T, T, ()> for Gain<T> {
     #[inline(always)]
-    fn process_sample(&mut self, input: T) -> T {
-        input.sat_mul(self.gain)
-    }
-}
-
-impl<T: DspSample> Process<T, T> for Gain<T> {
-    #[inline(always)]
-    fn process(&mut self, input: T) -> T {
+    fn process_with_state(&mut self, _state: &mut (), input: T) -> T {
         input.sat_mul(self.gain)
     }
 }
@@ -358,22 +368,9 @@ impl<T> Limiter<T> {
     }
 }
 
-impl<T: PartialOrd + Copy> DspNode<T> for Limiter<T> {
+impl<T: PartialOrd + Copy> SplitProcess<T, T, ()> for Limiter<T> {
     #[inline(always)]
-    fn process_sample(&mut self, input: T) -> T {
-        if input < self.min {
-            self.min
-        } else if input > self.max {
-            self.max
-        } else {
-            input
-        }
-    }
-}
-
-impl<T: PartialOrd + Copy> Process<T, T> for Limiter<T> {
-    #[inline(always)]
-    fn process(&mut self, input: T) -> T {
+    fn process_with_state(&mut self, _state: &mut (), input: T) -> T {
         if input < self.min {
             self.min
         } else if input > self.max {
@@ -390,42 +387,10 @@ impl<T: PartialOrd + Copy> Inplace<T> for Limiter<T> {}
 // Node Implementations for Built-in Filters and Controllers
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[cfg(feature = "controller")]
-impl DspNode<f32> for crate::controller::PidInstanceF32 {
-    #[inline(always)]
-    fn process_sample(&mut self, input: f32) -> f32 {
-        self.process(input)
-    }
-}
-
-#[cfg(feature = "controller")]
-impl DspNode<q15> for crate::controller::PidInstanceQ15 {
-    #[inline(always)]
-    fn process_sample(&mut self, input: q15) -> q15 {
-        self.process(input)
-    }
-}
-
 #[cfg(feature = "filtering")]
-impl DspNode<f32> for crate::filtering::SinglePoleFilter {
+impl SplitProcess<q15, q15, ()> for crate::filtering::DcBlockerQ15 {
     #[inline(always)]
-    fn process_sample(&mut self, input: f32) -> f32 {
-        self.process(input)
-    }
-}
-
-#[cfg(feature = "filtering")]
-impl DspNode<q15> for crate::filtering::SinglePoleFilterQ15 {
-    #[inline(always)]
-    fn process_sample(&mut self, input: q15) -> q15 {
-        self.process(input)
-    }
-}
-
-#[cfg(feature = "filtering")]
-impl DspNode<q15> for crate::filtering::DcBlockerQ15 {
-    #[inline(always)]
-    fn process_sample(&mut self, input: q15) -> q15 {
+    fn process_with_state(&mut self, _state: &mut (), input: q15) -> q15 {
         self.process(input)
     }
 }
@@ -681,17 +646,17 @@ pub trait ViewInplace<X> {
 /// Split-state processing over typed views, the view-aware companion to [`SplitProcess`].
 pub trait SplitViewProcess<X, Y = X, S: ?Sized = ()> {
     /// Process one typed input view into one typed output view using `state`.
-    fn process_view(&self, state: &mut S, x: X, y: Y);
+    fn process_view_with_state(&mut self, state: &mut S, x: X, y: Y);
 }
 
 /// In-place split-state processing over typed views.
 pub trait SplitViewInplace<X, S: ?Sized = ()> {
     /// Process one typed view in place using `state`.
-    fn inplace_view(&self, state: &mut S, xy: X);
+    fn inplace_view_with_state(&mut self, state: &mut S, xy: X);
 }
 
 /// Frame-major: each frame is one sample of the underlying processor, so the flat storage is a
-/// plain block and this is just [`SplitProcess::block`].
+/// plain block and this is just [`SplitProcess::block_with_state`].
 impl<'a, 'b, X, Y, S: ?Sized, T, const L: usize>
     SplitViewProcess<View<'a, X, FrameMajor, L>, ViewMut<'b, Y, FrameMajor, L>, S> for T
 where
@@ -699,14 +664,14 @@ where
     T: SplitProcess<X, Y, S>,
 {
     #[inline]
-    fn process_view(
-        &self,
+    fn process_view_with_state(
+        &mut self,
         state: &mut S,
         x: View<'a, X, FrameMajor, L>,
         mut y: ViewMut<'b, Y, FrameMajor, L>,
     ) {
         debug_assert_eq!(x.frames(), y.frames());
-        self.block(state, x.flat(), y.flat_mut());
+        self.block_with_state(state, x.flat(), y.flat_mut());
     }
 }
 
@@ -717,8 +682,8 @@ where
     T: SplitInplace<X, S>,
 {
     #[inline]
-    fn inplace_view(&self, state: &mut S, mut xy: ViewMut<'a, X, FrameMajor, L>) {
-        self.inplace(state, xy.flat_mut());
+    fn inplace_view_with_state(&mut self, state: &mut S, mut xy: ViewMut<'a, X, FrameMajor, L>) {
+        self.inplace_with_state(state, xy.flat_mut());
     }
 }
 
@@ -728,7 +693,7 @@ where
 {
     #[inline]
     fn process_view(&mut self, x: X, y: Y) {
-        self.config.process_view(&mut self.state, x, y);
+        self.config.process_view_with_state(&mut self.state, x, y);
     }
 }
 
@@ -738,7 +703,7 @@ where
 {
     #[inline]
     fn inplace_view(&mut self, xy: X) {
-        self.config.inplace_view(&mut self.state, xy);
+        self.config.inplace_view_with_state(&mut self.state, xy);
     }
 }
 
@@ -803,8 +768,8 @@ where
     C1: SplitProcess<X, Y, S1>,
 {
     #[inline]
-    fn process(&self, (s0, s1): &mut (S0, S1), [x0, x1]: [X; 2]) -> [Y; 2] {
-        [self.0 .0.process(s0, x0), self.0 .1.process(s1, x1)]
+    fn process_with_state(&mut self, (s0, s1): &mut (S0, S1), [x0, x1]: [X; 2]) -> [Y; 2] {
+        [self.0 .0.process_with_state(s0, x0), self.0 .1.process_with_state(s1, x1)]
     }
 }
 
@@ -813,8 +778,8 @@ where
     C: SplitProcess<X, Y, S>,
 {
     #[inline]
-    fn process(&self, state: &mut [S; N], x: [X; N]) -> [Y; N] {
-        core::array::from_fn(|i| self.0[i].process(&mut state[i], x[i]))
+    fn process_with_state(&mut self, state: &mut [S; N], x: [X; N]) -> [Y; N] {
+        core::array::from_fn(|i| self.0[i].process_with_state(&mut state[i], x[i]))
     }
 }
 
@@ -839,8 +804,8 @@ where
     C1: SplitProcess<X, Y, S1>,
 {
     #[inline]
-    fn process(&self, (s0, s1): &mut (S0, S1), [x0, x1]: [X; 2]) -> [Y; 2] {
-        [self.0 .0.process(s0, x0), self.0 .1.process(s1, x1)]
+    fn process_with_state(&mut self, (s0, s1): &mut (S0, S1), [x0, x1]: [X; 2]) -> [Y; 2] {
+        [self.0 .0.process_with_state(s0, x0), self.0 .1.process_with_state(s1, x1)]
     }
 }
 
@@ -849,8 +814,8 @@ where
     C: SplitProcess<X, Y, S>,
 {
     #[inline]
-    fn process(&self, state: &mut [S; N], x: [X; N]) -> [Y; N] {
-        core::array::from_fn(|i| self.0[i].process(&mut state[i], x[i]))
+    fn process_with_state(&mut self, state: &mut [S; N], x: [X; N]) -> [Y; N] {
+        core::array::from_fn(|i| self.0[i].process_with_state(&mut state[i], x[i]))
     }
 }
 
@@ -864,15 +829,15 @@ where
     C: SplitProcess<X, Y, S>,
 {
     #[inline]
-    fn process_view(
-        &self,
+    fn process_view_with_state(
+        &mut self,
         state: &mut [S; N],
         x: View<'a, X, LaneMajor, N>,
         mut y: ViewMut<'b, Y, LaneMajor, N>,
     ) {
         debug_assert_eq!(x.frames(), y.frames());
         for (i, s) in state.iter_mut().enumerate() {
-            self.0.block(s, x.lane(i), y.lane_mut(i));
+            self.0.block_with_state(s, x.lane(i), y.lane_mut(i));
         }
     }
 }
@@ -884,9 +849,9 @@ where
     C: SplitInplace<X, S>,
 {
     #[inline]
-    fn inplace_view(&self, state: &mut [S; N], mut xy: ViewMut<'a, X, LaneMajor, N>) {
+    fn inplace_view_with_state(&mut self, state: &mut [S; N], mut xy: ViewMut<'a, X, LaneMajor, N>) {
         for (i, s) in state.iter_mut().enumerate() {
-            self.0.inplace(s, xy.lane_mut(i));
+            self.0.inplace_with_state(s, xy.lane_mut(i));
         }
     }
 }
@@ -900,15 +865,15 @@ where
     C1: SplitProcess<X, Y, S1>,
 {
     #[inline]
-    fn process_view(
-        &self,
+    fn process_view_with_state(
+        &mut self,
         state: &mut (S0, S1),
         x: View<'a, X, LaneMajor, 2>,
         mut y: ViewMut<'b, Y, LaneMajor, 2>,
     ) {
         debug_assert_eq!(x.frames(), y.frames());
-        self.0 .0.block(&mut state.0, x.lane(0), y.lane_mut(0));
-        self.0 .1.block(&mut state.1, x.lane(1), y.lane_mut(1));
+        self.0 .0.block_with_state(&mut state.0, x.lane(0), y.lane_mut(0));
+        self.0 .1.block_with_state(&mut state.1, x.lane(1), y.lane_mut(1));
     }
 }
 
@@ -920,15 +885,15 @@ where
     C: SplitProcess<X, Y, S>,
 {
     #[inline]
-    fn process_view(
-        &self,
+    fn process_view_with_state(
+        &mut self,
         state: &mut [S; N],
         x: View<'a, X, LaneMajor, N>,
         mut y: ViewMut<'b, Y, LaneMajor, N>,
     ) {
         debug_assert_eq!(x.frames(), y.frames());
-        for ((c, s), i) in self.0.iter().zip(state.iter_mut()).zip(0..) {
-            c.block(s, x.lane(i), y.lane_mut(i));
+        for ((c, s), i) in self.0.iter_mut().zip(state.iter_mut()).zip(0..) {
+            c.block_with_state(s, x.lane(i), y.lane_mut(i));
         }
     }
 }
@@ -945,7 +910,7 @@ where
     X: Copy,
 {
     #[inline(always)]
-    fn process(&self, state: &mut S, x: X) -> Y {
+    fn process_with_state(&mut self, state: &mut S, x: X) -> Y {
         (self.0)(state, x)
     }
 }
@@ -993,16 +958,16 @@ impl<X, const N: usize> Buffer<[X; N]> {
 }
 
 /// Delay line.
-impl<X: Copy, const N: usize> Process<X> for Buffer<[X; N]> {
+impl<X: Copy, const N: usize> SplitProcess<X, X, ()> for Buffer<[X; N]> {
     #[inline]
-    fn process(&mut self, x: X) -> X {
+    fn process_with_state(&mut self, _state: &mut (), x: X) -> X {
         const { assert!(N > 0) };
         let y = core::mem::replace(&mut self.buffer[self.idx], x);
         self.idx = (self.idx + 1) % N;
         y
     }
 
-    fn block(&mut self, x: &[X], y: &mut [X]) {
+    fn block_with_state(&mut self, _state: &mut (), x: &[X], y: &mut [X]) {
         const { assert!(N > 0) };
         debug_assert_eq!(x.len(), y.len());
         let mut x = x;
@@ -1065,9 +1030,11 @@ impl<X: Copy, const N: usize> Inplace<X> for Buffer<[X; N]> {
 }
 
 /// The delay line applied to an array shape.
-impl<X: Copy, const N: usize, const M: usize> Process<[X; M]> for Buffer<[X; N]> {
+impl<X: Copy, const N: usize, const M: usize> SplitProcess<[X; M], [X; M], ()>
+    for Buffer<[X; N]>
+{
     #[inline]
-    fn process(&mut self, x: [X; M]) -> [X; M] {
+    fn process_with_state(&mut self, _state: &mut (), x: [X; M]) -> [X; M] {
         let mut y = x;
         <Self as Process<X>>::block(self, &x, &mut y);
         y
@@ -1075,9 +1042,9 @@ impl<X: Copy, const N: usize, const M: usize> Process<[X; M]> for Buffer<[X; N]>
 }
 
 /// Accumulate into chunks: `Some(chunk)` every `N` samples, `None` otherwise.
-impl<X: Copy, const N: usize> Process<X, Option<[X; N]>> for Buffer<[X; N]> {
+impl<X: Copy, const N: usize> SplitProcess<X, Option<[X; N]>, ()> for Buffer<[X; N]> {
     #[inline]
-    fn process(&mut self, x: X) -> Option<[X; N]> {
+    fn process_with_state(&mut self, _state: &mut (), x: X) -> Option<[X; N]> {
         const { assert!(N > 0) };
         self.buffer[self.idx] = x;
         self.idx += 1;
@@ -1089,7 +1056,7 @@ impl<X: Copy, const N: usize> Process<X, Option<[X; N]>> for Buffer<[X; N]> {
         }
     }
 
-    fn block(&mut self, x: &[X], y: &mut [Option<[X; N]>]) {
+    fn block_with_state(&mut self, _state: &mut (), x: &[X], y: &mut [Option<[X; N]>]) {
         const { assert!(N > 0) };
         debug_assert_eq!(x.len(), y.len());
         let mut x = x;
@@ -1127,9 +1094,9 @@ impl<X: Copy, const N: usize> Process<X, Option<[X; N]>> for Buffer<[X; N]> {
 }
 
 /// Stream a chunk back out: `Some(chunk)` loads the buffer, `None` keeps draining it.
-impl<X: Copy, const N: usize> Process<Option<[X; N]>, X> for Buffer<[X; N]> {
+impl<X: Copy, const N: usize> SplitProcess<Option<[X; N]>, X, ()> for Buffer<[X; N]> {
     #[inline]
-    fn process(&mut self, x: Option<[X; N]>) -> X {
+    fn process_with_state(&mut self, _state: &mut (), x: Option<[X; N]>) -> X {
         const { assert!(N > 0) };
         if let Some(chunk) = x {
             self.buffer = chunk;
@@ -1140,7 +1107,7 @@ impl<X: Copy, const N: usize> Process<Option<[X; N]>, X> for Buffer<[X; N]> {
         self.buffer[self.idx]
     }
 
-    fn block(&mut self, x: &[Option<[X; N]>], y: &mut [X]) {
+    fn block_with_state(&mut self, _state: &mut (), x: &[Option<[X; N]>], y: &mut [X]) {
         const { assert!(N > 0) };
         debug_assert_eq!(x.len(), y.len());
         let mut i = 0;
@@ -1185,7 +1152,7 @@ where
     C: SplitProcess<[X; Q], [Y; R], S>,
 {
     #[inline]
-    fn process(&self, state: &mut S, x: [X; N]) -> [Y; M] {
+    fn process_with_state(&mut self, state: &mut S, x: [X; N]) -> [Y; M] {
         const { assert!(Q > 0) };
         const { assert!(R > 0) };
         const { assert!(N.is_multiple_of(Q)) };
@@ -1200,13 +1167,13 @@ where
             unreachable!()
         };
         for (chunk, slot) in chunks.iter().zip(out) {
-            *slot = self.0.process(state, *chunk);
+            *slot = self.0.process_with_state(state, *chunk);
         }
         y
     }
 
     #[inline]
-    fn block(&self, state: &mut S, x: &[[X; N]], y: &mut [[Y; M]]) {
+    fn block_with_state(&mut self, state: &mut S, x: &[[X; N]], y: &mut [[Y; M]]) {
         const { assert!(Q > 0) };
         const { assert!(R > 0) };
         const { assert!(N.is_multiple_of(Q)) };
@@ -1219,7 +1186,7 @@ where
         let (out_chunks, []) = y.as_flattened_mut().as_chunks_mut::<R>() else {
             unreachable!()
         };
-        self.0.block(state, in_chunks, out_chunks);
+        self.0.block_with_state(state, in_chunks, out_chunks);
     }
 }
 
@@ -1230,11 +1197,11 @@ where
     Self: SplitProcess<[X; N], [X; N], S>,
 {
     #[inline]
-    fn inplace(&self, state: &mut S, xy: &mut [[X; N]]) {
+    fn inplace_with_state(&mut self, state: &mut S, xy: &mut [[X; N]]) {
         let (samples, []) = xy.as_flattened_mut().as_chunks_mut::<1>() else {
             unreachable!()
         };
-        self.0.inplace(state, samples);
+        self.0.inplace_with_state(state, samples);
     }
 }
 
@@ -1273,7 +1240,7 @@ impl<C, S> Split<PerFrame<C>, S> {
         debug_assert_eq!(x.frames(), y.frames());
         self.config
             .0
-            .block(&mut self.state, x.as_frames(), y.as_frames_mut());
+            .block_with_state(&mut self.state, x.as_frames(), y.as_frames_mut());
     }
 
     /// Process a frame-major view in place, one frame at a time.
@@ -1283,7 +1250,7 @@ impl<C, S> Split<PerFrame<C>, S> {
         X: Copy,
         C: SplitInplace<[X; L], S>,
     {
-        self.config.0.inplace(&mut self.state, xy.as_frames_mut());
+        self.config.0.inplace_with_state(&mut self.state, xy.as_frames_mut());
     }
 }
 
@@ -1297,7 +1264,7 @@ mod tests {
     struct RunningSum;
 
     impl SplitProcess<i32, i32, i32> for RunningSum {
-        fn process(&self, state: &mut i32, x: i32) -> i32 {
+        fn process_with_state(&mut self, state: &mut i32, x: i32) -> i32 {
             *state += x;
             *state
         }
@@ -1503,7 +1470,7 @@ mod tests {
     struct SwapFrame;
 
     impl SplitProcess<[f32; 2], [f32; 2], ()> for SwapFrame {
-        fn process(&self, _state: &mut (), [a, b]: [f32; 2]) -> [f32; 2] {
+        fn process_with_state(&mut self, _state: &mut (), [a, b]: [f32; 2]) -> [f32; 2] {
             [b, a]
         }
     }
@@ -1512,13 +1479,13 @@ mod tests {
 
     #[test]
     fn fn_split_process_adapts_a_closure() {
-        let proc = FnSplitProcess(|state: &mut i32, x: i32| {
+        let mut proc = FnSplitProcess(|state: &mut i32, x: i32| {
             *state += x;
             *state
         });
         let mut state = 0;
-        assert_eq!(proc.process(&mut state, 2), 2);
-        assert_eq!(proc.process(&mut state, 3), 5);
+        assert_eq!(proc.process_with_state(&mut state, 2), 2);
+        assert_eq!(proc.process_with_state(&mut state, 3), 5);
     }
 
     #[test]

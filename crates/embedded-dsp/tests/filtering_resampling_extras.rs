@@ -36,14 +36,14 @@ fn wdf_runs_every_adapter_architecture() {
     // Each `g` is chosen so the architecture's quantized `a` lands inside the
     // representable -0.5..=0 range (A needs g in 0.5..1, C needs g in -0.5..0).
     let g = [0.5f64, 0.5, 0.5, 0.0, -0.5, -0.5, -0.5, 0.0];
-    let wdf = Wdf::<8, M>::quantize(&g).expect("coefficients must quantize");
+    let mut wdf = Wdf::<8, M>::quantize(&g).expect("coefficients must quantize");
 
     let mut state = WdfState::<8>::default();
     assert_eq!(state.z, [0i32; 8]);
 
     let mut x = 1 << 20;
     for _ in 0..32 {
-        x = SplitProcess::process(&wdf, &mut state, x);
+        x = SplitProcess::process_with_state(&mut wdf, &mut state, x);
     }
     assert!(
         state.z.iter().any(|&v| v != 0),
@@ -125,10 +125,10 @@ fn fast_convolve_falls_back_to_time_domain_when_fft_is_too_large() {
 
 #[test]
 fn biquad_split_process_adapters_delegate_to_the_direct_forms() {
-    let biquad32 = Biquad::new(0.5f32, 0.25, 0.125, 0.5, -0.25);
-    let clamp32 = BiquadClamp::new(Biquad::new(2.0f32, 0.0, 0.0, 0.0, 0.0), -1.0, 1.0, 0.0);
-    let biquad64 = Biquad::new(0.5f64, 0.25, 0.125, 0.5, -0.25);
-    let clamp64 = BiquadClamp::new(Biquad::new(2.0f64, 0.0, 0.0, 0.0, 0.0), -1.0, 1.0, 0.0);
+    let mut biquad32 = Biquad::new(0.5f32, 0.25, 0.125, 0.5, -0.25);
+    let mut clamp32 = BiquadClamp::new(Biquad::new(2.0f32, 0.0, 0.0, 0.0, 0.0), -1.0, 1.0, 0.0);
+    let mut biquad64 = Biquad::new(0.5f64, 0.25, 0.125, 0.5, -0.25);
+    let mut clamp64 = BiquadClamp::new(Biquad::new(2.0f64, 0.0, 0.0, 0.0, 0.0), -1.0, 1.0, 0.0);
 
     let mut df1_32 = DirectForm1::<f32>::new();
     let mut df2t_32 = DirectForm2Transposed::<f32>::new();
@@ -136,16 +136,40 @@ fn biquad_split_process_adapters_delegate_to_the_direct_forms() {
     let mut df2t_64 = DirectForm2Transposed::<f64>::new();
 
     // y = b0 * x with zero history.
-    assert_eq!(SplitProcess::process(&biquad32, &mut df1_32, 1.0), 0.5);
-    assert_eq!(SplitProcess::process(&biquad32, &mut df2t_32, 1.0), 0.5);
-    assert_eq!(SplitProcess::process(&biquad64, &mut df1_64, 1.0), 0.5);
-    assert_eq!(SplitProcess::process(&biquad64, &mut df2t_64, 1.0), 0.5);
+    assert_eq!(
+        SplitProcess::process_with_state(&mut biquad32, &mut df1_32, 1.0),
+        0.5
+    );
+    assert_eq!(
+        SplitProcess::process_with_state(&mut biquad32, &mut df2t_32, 1.0),
+        0.5
+    );
+    assert_eq!(
+        SplitProcess::process_with_state(&mut biquad64, &mut df1_64, 1.0),
+        0.5
+    );
+    assert_eq!(
+        SplitProcess::process_with_state(&mut biquad64, &mut df2t_64, 1.0),
+        0.5
+    );
 
     // Gain of 2 with +/-1 clamps.
-    assert_eq!(SplitProcess::process(&clamp32, &mut df1_32, 0.5), 1.0);
-    assert_eq!(SplitProcess::process(&clamp32, &mut df2t_32, 0.5), 1.0);
-    assert_eq!(SplitProcess::process(&clamp64, &mut df1_64, 0.5), 1.0);
-    assert_eq!(SplitProcess::process(&clamp64, &mut df2t_64, 0.5), 1.0);
+    assert_eq!(
+        SplitProcess::process_with_state(&mut clamp32, &mut df1_32, 0.5),
+        1.0
+    );
+    assert_eq!(
+        SplitProcess::process_with_state(&mut clamp32, &mut df2t_32, 0.5),
+        1.0
+    );
+    assert_eq!(
+        SplitProcess::process_with_state(&mut clamp64, &mut df1_64, 0.5),
+        1.0
+    );
+    assert_eq!(
+        SplitProcess::process_with_state(&mut clamp64, &mut df2t_64, 0.5),
+        1.0
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -125,10 +125,10 @@ fn test_pipeline_nodes_exhaustive() {
     );
     let _p_q15 = pid_q15.process_sample(q15::from_bits(500));
 
-    let mut filter_f32 = SinglePoleFilter::lowpass(0.1);
+    let mut filter_f32 = SinglePoleFilter::<f32>::lowpass(0.1);
     assert!(filter_f32.process_sample(1.0).is_finite());
 
-    let mut filter_q15 = SinglePoleFilterQ15::lowpass(q15::from_bits(3000));
+    let mut filter_q15 = SinglePoleFilter::<q15>::lowpass(q15::from_bits(3000));
     let _f_q15 = filter_q15.process_sample(q15::from_bits(1000));
 
     let mut dc_blocker = DcBlockerQ15::new(q15::from_bits(32000));

@@ -448,3 +448,8 @@ required-features = ["libm", "cordic"]
 name = "kalman_compose"
 path = "tests/kalman_compose.rs"
 required-features = ["libm", "kalman"]
+
+[[test]]
+name = "cfft_fixed_collapse_regression"
+path = "tests/cfft_fixed_collapse_regression.rs"
+required-features = ["libm", "transform"]

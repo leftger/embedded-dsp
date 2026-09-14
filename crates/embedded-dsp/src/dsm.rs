@@ -76,3 +76,14 @@ impl<const K: usize> Dsm<K> {
         self.c = [0i8; K];
     }
 }
+
+/// The stateless-`SplitProcess` bridge for [`Dsm`], kept next to the type so the pipeline layer
+/// does not have to reach outward to wrap it. `u32 -> i8` is a genuine width change, not a
+/// same-type stage, so this yields `Process<u32, i8>` but not `DspNode` (which requires `X = Y`).
+#[cfg(feature = "pipeline")]
+impl<const K: usize> crate::pipeline::SplitProcess<u32, i8, ()> for Dsm<K> {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), input: u32) -> i8 {
+        Dsm::process(self, input)
+    }
+}

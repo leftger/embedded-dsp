@@ -133,6 +133,18 @@ impl PolyBlepOscillator {
     }
 }
 
+/// The stateless-`SplitProcess` bridge for [`PolyBlepOscillator`], kept next to the type so the
+/// pipeline layer does not have to reach outward to wrap it. A generator has no real input, so
+/// `()` stands in for it; this reaches `Process` but not
+/// [`DspNode`](crate::pipeline::DspNode), which requires the input and output types to match.
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<(), f32, ()> for PolyBlepOscillator {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), _input: ()) -> f32 {
+        self.next_sample()
+    }
+}
+
 /// Zero-allocation Xorshift32 Pseudo-Random Noise Generator (White Noise).
 #[derive(Debug, Clone)]
 pub struct WhiteNoise {
@@ -155,6 +167,16 @@ impl WhiteNoise {
         x ^= x << 5;
         self.state = x;
         (x as f32 / 2147483648.0) - 1.0
+    }
+}
+
+/// The stateless-`SplitProcess` bridge for [`WhiteNoise`] (see [`PolyBlepOscillator`]'s bridge for
+/// why the input is `()`).
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<(), f32, ()> for WhiteNoise {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), _input: ()) -> f32 {
+        self.next_sample()
     }
 }
 
@@ -201,6 +223,16 @@ impl KellettPinkNoise {
         self.b6 = white * 0.115926;
 
         (pink * 0.11).clamp(-1.0, 1.0)
+    }
+}
+
+/// The stateless-`SplitProcess` bridge for [`KellettPinkNoise`] (see [`PolyBlepOscillator`]'s
+/// bridge for why the input is `()`).
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<(), f32, ()> for KellettPinkNoise {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), _input: ()) -> f32 {
+        self.next_sample()
     }
 }
 
@@ -255,6 +287,16 @@ impl ChirpSweep {
         let sample = sinf(phase);
         self.current_time += 1.0 / self.sample_rate;
         sample
+    }
+}
+
+/// The stateless-`SplitProcess` bridge for [`ChirpSweep`] (see [`PolyBlepOscillator`]'s bridge for
+/// why the input is `()`).
+#[cfg(feature = "pipeline")]
+impl crate::pipeline::SplitProcess<(), f32, ()> for ChirpSweep {
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), _input: ()) -> f32 {
+        self.next_sample()
     }
 }
 

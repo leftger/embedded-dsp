@@ -86,6 +86,20 @@ impl<const MICS: usize, const MAX_DELAY: usize> Default for DelayAndSumBeamforme
     }
 }
 
+/// The stateless-`SplitProcess` bridge for [`DelayAndSumBeamformer`], kept next to the type so the
+/// pipeline layer does not have to reach outward to wrap it. `[f32; MICS] -> f32` collapses
+/// multiple channels into one, a genuine type change, so this reaches `Process` but not
+/// [`DspNode`](crate::pipeline::DspNode), which requires the input and output types to match.
+#[cfg(feature = "pipeline")]
+impl<const MICS: usize, const MAX_DELAY: usize> crate::pipeline::SplitProcess<[f32; MICS], f32, ()>
+    for DelayAndSumBeamformer<MICS, MAX_DELAY>
+{
+    #[inline(always)]
+    fn process_with_state(&mut self, _state: &mut (), mic_inputs: [f32; MICS]) -> f32 {
+        DelayAndSumBeamformer::process_sample(self, &mic_inputs)
+    }
+}
+
 /// Generalized Cross-Correlation with Phase Transform (GCC-PHAT) for Time Difference of Arrival (TDoA).
 ///
 /// Computes the normalized cross-correlation:
