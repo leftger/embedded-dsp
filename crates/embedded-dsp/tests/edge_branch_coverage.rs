@@ -88,6 +88,12 @@ fn barycenter_handles_its_input_paths() {
         barycenter_f32(&points, &weights, &mut center, 0, 2),
         Status::Success
     );
+
+    // Declared dimensions exceed what the input slices actually hold.
+    assert_eq!(
+        barycenter_f32(&points, &weights, &mut center, 3, 2),
+        Status::LengthError
+    );
 }
 
 #[test]

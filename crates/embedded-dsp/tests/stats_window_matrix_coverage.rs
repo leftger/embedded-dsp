@@ -235,6 +235,36 @@ fn matrix_add_and_sub_reject_empty_shapes() {
     let mut o15 = MatrixInstanceMut::new(0, 0, &mut o15d);
     assert_eq!(mat_add_q15(&a15, &b15, &mut o15), Status::SizeMismatch);
     assert_eq!(mat_sub_q15(&a15, &b15, &mut o15), Status::SizeMismatch);
+
+    // Matching dims (so SizeMismatch doesn't fire) but a backing slice shorter than num_rows *
+    // num_cols claims, triggering the LengthError guard instead.
+    let short31: [q31; 2] = [q31::ZERO; 2];
+    let mut short31_out: [q31; 2] = [q31::ZERO; 2];
+    let a31_short = MatrixInstance::new(2, 2, &short31);
+    let b31_short = MatrixInstance::new(2, 2, &short31);
+    let mut out31_short = MatrixInstanceMut::new(2, 2, &mut short31_out);
+    assert_eq!(
+        mat_add_q31(&a31_short, &b31_short, &mut out31_short),
+        Status::LengthError
+    );
+    assert_eq!(
+        mat_sub_q31(&a31_short, &b31_short, &mut out31_short),
+        Status::LengthError
+    );
+
+    let short15: [q15; 2] = [q15::ZERO; 2];
+    let mut short15_out: [q15; 2] = [q15::ZERO; 2];
+    let a15_short = MatrixInstance::new(2, 2, &short15);
+    let b15_short = MatrixInstance::new(2, 2, &short15);
+    let mut out15_short = MatrixInstanceMut::new(2, 2, &mut short15_out);
+    assert_eq!(
+        mat_add_q15(&a15_short, &b15_short, &mut out15_short),
+        Status::LengthError
+    );
+    assert_eq!(
+        mat_sub_q15(&a15_short, &b15_short, &mut out15_short),
+        Status::LengthError
+    );
 }
 
 #[test]

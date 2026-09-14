@@ -132,6 +132,13 @@ fn interpolation_coverage() {
     assert_eq!(spline.interpolate(-1.0), 1.0);
     assert_eq!(spline.interpolate(5.0), 8.0);
     let _ = spline.interpolate(1.5);
+
+    let empty_spline = SplineInstanceF32 {
+        x: &[],
+        y: &[],
+        coeffs: &[],
+    };
+    assert_eq!(empty_spline.interpolate(0.0), 0.0);
 }
 
 #[test]

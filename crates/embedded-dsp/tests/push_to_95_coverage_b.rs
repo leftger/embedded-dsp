@@ -374,6 +374,11 @@ fn test_spatial_exhaustive() {
         convolve2d_f32(&src_img, &mut convolved, 3, 3, &kernel, 3, 3, true),
         Status::Success
     );
+    // `normalize = false` skips the kernel-weight-sum normalization branch.
+    assert_eq!(
+        convolve2d_f32(&src_img, &mut convolved, 3, 3, &kernel, 3, 3, false),
+        Status::Success
+    );
 
     let mut nonlin_out = [0.0f32; 9];
     assert_eq!(
@@ -388,11 +393,58 @@ fn test_spatial_exhaustive() {
         nonlin2d_filter_f32(&src_img, &mut nonlin_out, 3, 3, 3, NonlinFilterType::Median),
         Status::Success
     );
+    // Descending image reorders where the extrema land relative to the kernel tap-visitation
+    // order, exercising the "found a new min/max after the first tap" branches.
+    let src_img_desc = [9.0f32, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
+    assert_eq!(
+        nonlin2d_filter_f32(
+            &src_img_desc,
+            &mut nonlin_out,
+            3,
+            3,
+            3,
+            NonlinFilterType::Min
+        ),
+        Status::Success
+    );
+    assert_eq!(
+        nonlin2d_filter_f32(
+            &src_img_desc,
+            &mut nonlin_out,
+            3,
+            3,
+            3,
+            NonlinFilterType::Max
+        ),
+        Status::Success
+    );
+    // ArgumentError: even k_size.
+    assert_eq!(
+        nonlin2d_filter_f32(&src_img, &mut nonlin_out, 3, 3, 2, NonlinFilterType::Min),
+        Status::ArgumentError
+    );
+    // LengthError: declared dims exceed what the buffers hold.
+    assert_eq!(
+        nonlin2d_filter_f32(
+            &src_img[..4],
+            &mut nonlin_out,
+            3,
+            3,
+            3,
+            NonlinFilterType::Min
+        ),
+        Status::LengthError
+    );
 
     let mut edges = [0.0f32; 9];
     assert_eq!(
         sobel_edge_detection_f32(&src_img, &mut edges, 3, 3, 2.0),
         Status::Success
+    );
+    // LengthError: declared dims exceed what the buffers hold.
+    assert_eq!(
+        sobel_edge_detection_f32(&src_img[..4], &mut edges, 3, 3, 2.0),
+        Status::LengthError
     );
 
     let mut hist_bins = [0usize; 5];
