@@ -208,6 +208,119 @@ fn test_types_and_dspsample_exhaustive() {
 }
 
 #[test]
+fn test_dspsample_stage6_primitives_exhaustive() {
+    // `sat_neg`: plain negation for floats (preserving signed zero), saturating for fixed widths.
+    assert_eq!(<f32 as DspSample>::sat_neg(1.5), -1.5);
+    assert!(<f32 as DspSample>::sat_neg(0.0).is_sign_negative());
+    assert_eq!(<f64 as DspSample>::sat_neg(1.5), -1.5);
+    assert!(<f64 as DspSample>::sat_neg(0.0).is_sign_negative());
+    assert_eq!(
+        <q15 as DspSample>::sat_neg(q15::from_bits(i16::MIN)),
+        q15::from_bits(i16::MAX)
+    );
+    assert_eq!(
+        <q15 as DspSample>::sat_neg(q15::from_bits(100)),
+        q15::from_bits(-100)
+    );
+    assert_eq!(
+        <q31 as DspSample>::sat_neg(q31::from_bits(i32::MIN)),
+        q31::from_bits(i32::MAX)
+    );
+    assert_eq!(
+        <q31 as DspSample>::sat_neg(q31::from_bits(100)),
+        q31::from_bits(-100)
+    );
+
+    // `wrapping_madd`: wrap the fixed-point product at native width before widening; identical to
+    // `madd` for floats since there's nothing to wrap.
+    assert_eq!(<f32 as DspSample>::wrapping_madd(0.5, 2.0, 3.0), 6.5);
+    assert_eq!(<f64 as DspSample>::wrapping_madd(0.5, 2.0, 3.0), 6.5);
+    assert_eq!(
+        <q15 as DspSample>::wrapping_madd(0, q15::from_bits(i16::MIN), q15::from_bits(i16::MIN)),
+        i16::MIN as i64,
+        "MIN*MIN must wrap, not saturate"
+    );
+    assert_eq!(
+        <q31 as DspSample>::wrapping_madd(0, q31::from_bits(i32::MIN), q31::from_bits(i32::MIN)),
+        i32::MIN as i64,
+        "MIN*MIN must wrap, not saturate"
+    );
+
+    // `mul_shifted`: `mul_high` generalized to an explicit shift instead of the fixed `FRAC`.
+    assert_eq!(<f32 as DspSample>::mul_shifted(2.0, 3.0, 5), 6.0);
+    assert_eq!(<f64 as DspSample>::mul_shifted(2.0, 3.0, 5), 6.0);
+    assert_eq!(
+        <q15 as DspSample>::mul_shifted(q15::from_bits(1000), q15::from_bits(2000), 17),
+        (1000i64 * 2000) >> 17
+    );
+    assert_eq!(
+        <q31 as DspSample>::mul_shifted(q31::from_bits(1000), q31::from_bits(2000), 33),
+        (1000i64 * 2000) >> 33
+    );
+
+    // `accum_shift`: shift a value already in the accumulator domain, staying there.
+    assert_eq!(<f32 as DspSample>::accum_shift(6.5, 3), 6.5);
+    assert_eq!(<f64 as DspSample>::accum_shift(6.5, 3), 6.5);
+    assert_eq!(<q15 as DspSample>::accum_shift(1000i64, 3), 1000i64 >> 3);
+    assert_eq!(<q31 as DspSample>::accum_shift(1000i64, 3), 1000i64 >> 3);
+
+    // `coeff_from_q15_bits`: promote a shared Q15-precision twiddle-table entry to this sample's
+    // native coefficient width.
+    assert_eq!(<f32 as DspSample>::coeff_from_q15_bits(16384), 0.5);
+    assert_eq!(<f64 as DspSample>::coeff_from_q15_bits(16384), 0.5);
+    assert_eq!(
+        <q15 as DspSample>::coeff_from_q15_bits(1000),
+        q15::from_bits(1000)
+    );
+    assert_eq!(
+        <q31 as DspSample>::coeff_from_q15_bits(1000),
+        q31::from_bits(1000 << 16)
+    );
+
+    // `f64`'s remaining `DspSample` methods (pre-existing since Stage 3, but never directly
+    // exercised anywhere else in the suite).
+    assert_eq!(<f64 as DspSample>::average_accum(6.0, 3), 2.0);
+    assert_eq!(<f64 as DspSample>::mul_high(2.0, 3.0), 6.0);
+    assert_eq!(<f64 as DspSample>::from_accum_shifted(6.5, 3), 6.5);
+    assert_eq!(<f64 as DspSample>::accum_from_shifted(6.5, 3), 6.5);
+    assert_eq!(<f64 as DspSample>::abs_val(-5.0), 5.0);
+    assert_eq!(<f64 as DspSample>::abs_val(5.0), 5.0);
+}
+
+#[test]
+fn test_pid_instance_derived_trait_impls() {
+    // `PidInstance<T>`'s manual Clone/Copy/Debug/PartialEq/Default (the derive macros can't add
+    // bounds on associated types like `T::Coeff`, so these are hand-written).
+    let a = PidInstanceF32::new(1.0, 0.1, 0.01);
+    let b = a;
+    #[allow(clippy::clone_on_copy)]
+    let c = a.clone();
+    assert_eq!(a, b);
+    assert_eq!(a, c);
+    assert!(format!("{a:?}").contains("PidInstance"));
+
+    let mut d = PidInstanceF32::default();
+    assert_ne!(a, d);
+    d.kp = a.kp;
+    d.ki = a.ki;
+    d.kd = a.kd;
+    d.init(1);
+    assert_eq!(a, d);
+
+    let e = PidInstanceQ15::new(q15::from_bits(100), q15::from_bits(10), q15::from_bits(1));
+    let f = e;
+    assert_eq!(e, f);
+    assert!(format!("{e:?}").contains("PidInstance"));
+    assert_eq!(PidInstanceQ15::default(), PidInstanceQ15::default());
+
+    let g = PidInstanceQ31::new(q31::from_bits(100), q31::from_bits(10), q31::from_bits(1));
+    let h = g;
+    assert_eq!(g, h);
+    assert!(format!("{g:?}").contains("PidInstance"));
+    assert_eq!(PidInstanceQ31::default(), PidInstanceQ31::default());
+}
+
+#[test]
 fn test_resampling_exhaustive() {
     let mut cic_dec = CicDecimator::<3>::new(4);
     assert!(cic_dec.gain() > 0);

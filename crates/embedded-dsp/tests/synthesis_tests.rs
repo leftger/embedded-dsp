@@ -29,6 +29,23 @@ fn test_polyblep_oscillator_waveforms() {
 }
 
 #[test]
+fn test_polyblep_oscillator_zero_frequency_skips_the_blep_correction() {
+    // A zero frequency gives phase_step = 0, so poly_blep's `dt <= 0.0` early return runs (no
+    // discontinuity correction needed since the phase never advances).
+    for wf in [
+        PolyBlepWaveform::Sawtooth,
+        PolyBlepWaveform::Square,
+        PolyBlepWaveform::Triangle,
+    ] {
+        let mut osc = PolyBlepOscillator::new(44100.0, 0.0, wf);
+        for _ in 0..8 {
+            let s = osc.next_sample();
+            assert!(s.is_finite());
+        }
+    }
+}
+
+#[test]
 fn test_white_and_pink_noise_generators() {
     let mut white = WhiteNoise::new(12345);
     let mut pink = KellettPinkNoise::new(54321);

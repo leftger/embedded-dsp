@@ -395,6 +395,33 @@ fn test_hbf_interpolator_cascade_dc() {
 }
 
 #[test]
+fn test_hbf_interpolator_cascade_every_stage_count_settles_to_unity_dc() {
+    // Exercise every early-return branch in HbfIntCascade::process (STAGES = 1..=5), not just the
+    // depth-3 case above.
+    let src = [1.0f32; 64];
+
+    let mut c1 = HbfIntCascade::<1>::new();
+    let mut d1 = [0.0f32; 128];
+    c1.process(&src, &mut d1);
+    assert!(d1[110..128].iter().all(|&y| (y - 1.0).abs() < 1e-3));
+
+    let mut c2 = HbfIntCascade::<2>::default();
+    let mut d2 = [0.0f32; 256];
+    c2.process(&src, &mut d2);
+    assert!(d2[230..256].iter().all(|&y| (y - 1.0).abs() < 1e-3));
+
+    let mut c4 = HbfIntCascade::<4>::new();
+    let mut d4 = [0.0f32; 1024];
+    c4.process(&src, &mut d4);
+    assert!(d4[960..1024].iter().all(|&y| (y - 1.0).abs() < 1e-3));
+
+    let mut c5 = HbfIntCascade::<5>::new();
+    let mut d5 = [0.0f32; 2048];
+    c5.process(&src, &mut d5);
+    assert!(d5[1920..2048].iter().all(|&y| (y - 1.0).abs() < 1e-3));
+}
+
+#[test]
 fn test_hbf_decimator_cascade_stopband() {
     // Cascade depth 3: fs_low = fs_high / 8.
     let mut cascade = HbfDecCascade::<3>::new();
@@ -423,6 +450,17 @@ fn test_hbf_decimator_cascade_stopband() {
     let rms: f32 = dst[32..n_low].iter().map(|&v| v * v).sum::<f32>() / (n_low - 32) as f32;
     let rms = rms.sqrt();
     assert!(rms < 1e-4, "stopband tone must be rejected, RMS was {rms}");
+}
+
+#[test]
+fn test_hbf_decimator_cascade_stages_one_settles_to_unity_dc() {
+    // Exercises HbfDecCascade::process's STAGES == 1 early-return branch (STAGES 2/3/4/5 are
+    // already covered above and elsewhere).
+    let mut cascade = HbfDecCascade::<1>::new();
+    let src = [1.0f32; 128];
+    let mut dst = [0.0f32; 64];
+    cascade.process(&src, &mut dst);
+    assert!(dst[48..64].iter().all(|&y| (y - 1.0).abs() < 1e-3));
 }
 
 #[test]
