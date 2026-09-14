@@ -151,29 +151,98 @@ fn bench_cfft(rec: &mut Recorder) {
     );
 }
 
+/// Faithful pre-genericization `fir_q15`: per-term `(state * coeff) >> 15` summed in `i64`,
+/// exactly as the deleted scalar `FirInstanceQ15`/`fir_q15` did before Stage 3. Kept only so the
+/// generic `fir::<q15>` path can be measured against it in the same process (see `bench_fir_q15`).
+struct LegacyFirQ15<'a> {
+    num_taps: usize,
+    coeffs: &'a [q15],
+    state: &'a mut [q15],
+}
+
+impl<'a> LegacyFirQ15<'a> {
+    // `#[inline(never)]`, not `#[inline(always)]`: the real historical `fir_q15` was an ordinary
+    // exported function with no inline hint, so it was never constant-folded/unrolled at its call
+    // sites. Forcing this twin to inline here would let the optimizer fold `num_taps` to a
+    // compile-time constant and unroll — an advantage the original never had, and not one the
+    // generic `fir::<q15>` (a real, non-inlined function call) has either.
+    #[inline(never)]
+    fn run(&mut self, src: &[q15], dst: &mut [q15]) {
+        let block_size = src.len().min(dst.len());
+        for i in 0..block_size {
+            for k in (1..self.num_taps).rev() {
+                self.state[k] = self.state[k - 1];
+            }
+            self.state[0] = src[i];
+
+            let mut acc: i64 = 0;
+            for k in 0..self.num_taps {
+                acc += (self.state[k].to_bits() as i64 * self.coeffs[k].to_bits() as i64) >> 15;
+            }
+            dst[i] = q15::from_bits(acc.clamp(i16::MIN as i64, i16::MAX as i64) as i16);
+        }
+    }
+}
+
 fn bench_fir_q15(rec: &mut Recorder) {
     const TAPS: usize = 32;
     const SAMPLES: usize = 512;
     let coeffs = [q15::from_bits(1000); TAPS];
-    let mut state = [q15::ZERO; TAPS];
     let src = [q15::from_bits(2000); SAMPLES];
-    let mut dst = [q15::ZERO; SAMPLES];
-
-    let mut fir = FirInstanceQ15::init(TAPS as u16, &coeffs, &mut state);
-
     let iterations = 2_000;
-    let start = Instant::now();
-    for _ in 0..iterations {
-        fir_q15(&mut fir, &src, &mut dst);
+
+    // Interleaved rounds with best-of, same discipline as `bench_single_pole`: a ratio near 1.0
+    // means the generic trait-dispatched loop emits the same code the deleted scalar twin did.
+    let mut best_generic = 0.0f64;
+    let mut best_legacy = 0.0f64;
+    let (mut generic_sum, mut legacy_sum) = (0i64, 0i64);
+    for _round in 0..4 {
+        let mut legacy_state = [q15::ZERO; TAPS];
+        let mut legacy_dst = [q15::ZERO; SAMPLES];
+        let mut legacy = LegacyFirQ15 {
+            num_taps: TAPS,
+            coeffs: &coeffs,
+            state: &mut legacy_state,
+        };
+        let start = Instant::now();
+        for _ in 0..iterations {
+            legacy.run(black_box(&src), &mut legacy_dst);
+            // `dst` is fully overwritten every call and otherwise only read after the loop, so
+            // without this an inlined callee can dead-store-eliminate every round but the last —
+            // black-boxing it forces every round to actually execute (matches `bench_single_pole`,
+            // which consumes its output immediately instead of only after the loop).
+            black_box(&legacy_dst);
+        }
+        let elapsed = start.elapsed();
+        best_legacy = best_legacy.max((iterations * SAMPLES) as f64 / elapsed.as_secs_f64());
+        legacy_sum = legacy_dst.iter().map(|s| s.to_bits() as i64).sum();
+
+        let mut state = [q15::ZERO; TAPS];
+        let mut dst = [q15::ZERO; SAMPLES];
+        let mut fir = FirInstanceQ15::init(TAPS as u16, &coeffs, &mut state);
+        let start = Instant::now();
+        for _ in 0..iterations {
+            fir_q15(&mut fir, black_box(&src), &mut dst);
+            black_box(&dst);
+        }
+        let elapsed = start.elapsed();
+        best_generic = best_generic.max((iterations * SAMPLES) as f64 / elapsed.as_secs_f64());
+        generic_sum = dst.iter().map(|s| s.to_bits() as i64).sum();
     }
-    let elapsed = start.elapsed();
-    let samples_per_sec = (iterations as f64 * SAMPLES as f64) / elapsed.as_secs_f64();
+
     println!(
-        "FIR 32-tap Q15:       {:.2} MSamples/sec ({:?})",
-        samples_per_sec / 1e6,
-        elapsed
+        "FIR 32-tap Q15:       {:.2} MSamples/s generic vs {:.2} legacy ({:.3}x, sum={}/{})",
+        best_generic / 1e6,
+        best_legacy / 1e6,
+        best_generic / best_legacy,
+        generic_sum,
+        legacy_sum
     );
-    rec.record("fir_q15", samples_per_sec);
+    assert_eq!(
+        generic_sum, legacy_sum,
+        "generic q15 FIR diverged from legacy"
+    );
+    rec.record("fir_q15", best_generic);
 }
 
 fn bench_cordic_vs_lut(rec: &mut Recorder) {
