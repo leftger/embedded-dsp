@@ -4,17 +4,18 @@ on:
   push:
     tags:
       - "v*"
-
-permissions:
-  contents: write
-
-env:
-  CARGO_TERM_COLOR: always
+  # Manual runs are a rehearsal: they exercise the Trusted Publishing OIDC
+  # exchange and package the crate, but never upload. Real publishes only run
+  # from a `v*` tag push.
+  workflow_dispatch:
 
 jobs:
   release:
     name: Create GitHub Release & Publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # softprops/action-gh-release creates the release
+      id-token: write # OIDC token exchanged for a short-lived crates.io token
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -24,13 +25,37 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Publish to crates.io
-        if: env.CARGO_REGISTRY_TOKEN != ''
+      # Exchanges this workflow's GitHub OIDC identity for a short-lived,
+      # crate-scoped crates.io token (no long-lived secret). Requires a Trusted
+      # Publisher on crates.io configured as: owner `leftger`, repository
+      # `embedded-dsp`, workflow `release.yml`. Must run in the same job as the
+      # publish step below, because the issued token expires quickly.
+      #
+      # On `workflow_dispatch` this step is the whole rehearsal: if the crates.io
+      # Trusted Publisher config is wrong, the OIDC exchange fails here.
+      - name: Authenticate to crates.io (Trusted Publishing)
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      # Manual runs stop at packaging. `--dry-run` builds and verifies the
+      # packaged crate but never uploads it, so a bad manifest or feature set
+      # fails here instead of mid-release.
+      - name: Package (dry run)
+        if: github.event_name == 'workflow_dispatch'
+        run: cargo publish -p embedded-dsp --dry-run
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish -p embedded-dsp --token "${CARGO_REGISTRY_TOKEN}"
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+      # Guarded on `push` as well as the tag ref, so a manual dispatch — even one
+      # aimed at a tag — can never upload.
+      - name: Publish to crates.io
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: cargo publish -p embedded-dsp
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
       - name: Create GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
