@@ -19,7 +19,7 @@ A high-performance **`#![no_std]` Rust Digital Signal Processing library** desig
 ## Highlights
 
 - **`#![no_std]` First**: Pure `core` compatibility with zero heap allocations.
-- **Fixed & Float Parity**: CMSIS-style `f32`, `f64`, and `q7`/`q15`/`q31` — interoperable with the [`fixed`](https://crates.io/crates/fixed) crate (optional `fixed` feature, enabled by default) with zero-dependency fallback newtypes — plus the polymorphic `DspSample` trait. Filters, PID, Hilbert transform, CFFT/BFP and complex-math are implemented once as generic `DspSample` code and verified bit-exact against the per-width kernels they replace; the old `F32`/`Q15`/`Q31` names remain as type aliases.
+- **Fixed & Float Parity**: CMSIS-style `f32`, `f64`, and `q7`/`q15`/`q31` — interoperable with the [`fixed`](https://crates.io/crates/fixed) crate (optional `fixed` feature, enabled by default) with zero-dependency fallback newtypes — plus the polymorphic `DspSample` trait. Filters, PID, Hilbert transform, CFFT/BFP and complex-math are implemented once as generic `DspSample` code and verified bit-exact against the per-width kernels they replace, and the 0.5-era width-suffixed aliases and wrappers were removed in 0.6 (see [MIGRATING.md](MIGRATING.md)).
 - **Hardware Acceleration**: ARM Cortex-M assembly intrinsics (`smlad`, `smlald`, `ssat`, `qadd16`) via `cortex-m-dsp`, with portable SWAR vector fallbacks.
 - **Pure-Integer CORDIC Engine**: Shift-and-add `sin`, `cos`, `atan2`, polar conversion, and `sqrt` requiring no hardware multipliers.
 - **Streaming Pipelines**: Zero-allocation [`DspNode`](crates/embedded-dsp/src/pipeline.rs) composable processing chains (`Chain`, `Gain`, `Limiter`).
@@ -121,7 +121,7 @@ block-capable stage — most likely the FIRs — needs it.
 | Category | Key Algorithms & Structs |
 | :--- | :--- |
 | **Filtering & Design** | FIR, Biquad IIR (DF-I & Transposed DF-II), LMS/NLMS, Butterworth/Chebyshev/elliptic design, Kaiser-windowed sinc FIR, RRC/RC/GMSK-TX pulses, Windowed-Sinc, $L_\infty/L_2$ SOS Quantization & SQNR analysis, DC Blocker. |
-| **Spectral & Transforms** | CFFT, RFFT (packed), Block Floating-Point FFT (`cfft_bfp_q15/q31`), Hilbert Transform FIR & Analytic Signal (generic `HilbertTransform<T>`, `F32`/`Q15` aliases), Real Cepstrum, DCT-IV, FWHT, Haar, Hartley, Daubechies-4 DWT, Welch & Burg AR PSD. |
+| **Spectral & Transforms** | CFFT, RFFT (packed), Block Floating-Point FFT (`cfft_bfp_q15/q31`), Hilbert Transform FIR & Analytic Signal (generic `HilbertTransform<T>`), Real Cepstrum, DCT-IV, FWHT, Haar, Hartley, Daubechies-4 DWT, Welch & Burg AR PSD. |
 | **Audio & Voice** | Goertzel tone detector, Mel & Generalized filterbanks, MFCC, Q15 VAD, Dynamics Compressor with soft knee, Noise Gate, streaming AGC. |
 | **Control & Power** | FOC current/speed PID, Clarke & Park transforms, SOGI-PLL (grid synchronization/resolvers), Costas Loop carrier recovery. |
 | **Analog modem** | FM phase-accum mod/demod, DSB-AM envelope, SSB USB/LSB (reuses Hilbert transformer). |

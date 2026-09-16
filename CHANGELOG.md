@@ -3,7 +3,7 @@
 All notable changes to this project are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [0.6.0] - 2026-09-13
+## [0.6.0] - 2026-09-16
 
 ### Added
 
@@ -40,20 +40,17 @@ All notable changes to this project are documented in this file. The format foll
 - **`CostasLoop::process_sample` returns the low-pass filtered I/Q arms** (demodulated baseband) rather than the raw mixer outputs.
 - **`CostasLoop`'s effective loop bandwidth is capped at `center_freq_hz / 20`**: `loop_bandwidth_hz` is an upper bound, since the arm filter's lag destabilises larger values. Documented on the type.
 - **`SinglePoleFilter` is generic over `DspSample`**: `SinglePoleFilter<T>` now serves both the `f32` and `q15` recurrences and `SinglePoleFilterQ15` is removed. Constructors are per-width (`SinglePoleFilter::<f32>::lowpass`, `SinglePoleFilter::<q15>::lowpass`/`lowpass_from_f32`), with a coefficient-taking `SinglePoleFilter::<T>::new` for other widths; the `DspNode` bridge moved out of `pipeline` and next to the type. The `q15` path is bit-identical to the old twin and unchanged in speed (266 MSamples/s before and after).
-- **FIR and the biquad cascades are generic over `DspSample`**: `FirInstance<'a, T>`, `BiquadCascadeInstance<'a, T>`, and `BiquadCascadeDf2tInstance<'a, T>` replace nine `*F32`/`*Q15`/`*Q31` twins. The old names remain as type aliases and `fir_f32`/`fir_q15`/`biquad_cascade_df1_q15`/… as thin wrappers, so existing call sites are unchanged; the fixed-point cascades gained `with_post_shift` (`init` is the zero-headroom form). Each generic loop is bit-for-bit identical to the kernel it replaces.
-- **LMS/NLMS and the recursive moving average are generic over `DspSample`**: `LmsInstance`/`NlmsInstance` (built on `AdaptiveSample`) and `RecursiveMovingAverage<T, N>` replace four width twins, again keeping the old names as aliases/wrappers. The q15 paths are bit-exact with the kernels they replace; `RecursiveMovingAverage::<N>` becomes `RecursiveMovingAverage::<f32, N>`.
+- **FIR and the biquad cascades are generic over `DspSample`**: `FirInstance<'a, T>`, `BiquadCascadeInstance<'a, T>`, and `BiquadCascadeDf2tInstance<'a, T>` replace nine `*F32`/`*Q15`/`*Q31` twins. The pre-0.6 width-suffixed aliases and thin wrappers were removed before this release (see **Removed**), so call the generic API directly; the fixed-point cascades gained `with_post_shift` (`init` is the zero-headroom form). Each generic loop is bit-for-bit identical to the kernel it replaces.
+- **LMS/NLMS and the recursive moving average are generic over `DspSample`**: `LmsInstance`/`NlmsInstance` (built on `AdaptiveSample`) and `RecursiveMovingAverage<T, N>` replace four width twins (their width-suffixed aliases were removed as well; see **Removed**). The q15 paths are bit-exact with the kernels they replace; `RecursiveMovingAverage::<N>` becomes `RecursiveMovingAverage::<f32, N>`.
 - **One composition vocabulary (`pipeline`)**: `Process`/`Inplace` are now blanket-derived from `SplitProcess`/`SplitInplace` — a stateless stage implements `SplitProcess<X, Y, ()>` once and inherits `Process` (and, through the second blanket, `DspNode`) — so `Split`, `Chain`, `Gain`, `Limiter`, `Offset`, `Identity`, `Buffer`, `SinglePoleFilter<T>`, `PidInstanceF32/Q15`, and `DcBlockerQ15` lost their hand-written bridges. The split vocabulary's receivers became `&mut self` and its methods were renamed to keep method resolution unambiguous: `SplitProcess::process`/`block` → `process_with_state`/`block_with_state`, `SplitInplace::inplace` → `inplace_with_state`, `SplitViewProcess::process_view` → `process_view_with_state`, `SplitViewInplace::inplace_view` → `inplace_view_with_state`. `DspNode::process_block`'s shorter-buffer clamp and the specialised `Buffer`/`ChunkInOut` block/in-place paths are preserved.
+- **`filtering` is split into family submodules** (`fir`, `biquad`, `convolution`, `adaptive`, `recursive`, `lockin`, `int_filters`, `normal_form`, `wdf`) behind a re-exporting facade; `embedded_dsp::filtering::*` and the crate-root glob are unchanged. The integration-test suite is likewise consolidated from 46 files into 36 domain-named files, with every test and its `required-features` preserved.
+- **docs.rs shows feature-gate badges** for every module (`#[cfg_attr(docsrs, doc(cfg(...)))]`).
 
 ### Removed
 
 - **The duplicate `filtering::Dsm` and `filtering::XorShift32` are gone.** They shadowed the dedicated `dsm::Dsm` / `dither::XorShift32` modules, so only one of each could be re-exported at the crate root. The dedicated modules are now the single implementation, re-exported at the crate root as before, and `filtering` re-exports neither name. `dsm::Dsm` is `Default` + `process()` + `reset()` — the historical `new()`/`process_sample()` names are deliberately **not** carried over. `dither::XorShift32` gains the `next_f32()` / `tpdf_dither_f32()` helpers that only the removed duplicate had.
 
 - **The sample-genericization compatibility layer is removed.** The width-suffixed instance aliases (`FirInstanceF32/Q31/Q15`, `BiquadCascadeInstanceF32/Q15/Q31`, `BiquadCascadeDf2tInstanceF32/Q15/Q31`, `LmsInstanceF32/Q15`, `NlmsInstanceF32/Q15`, `PidInstanceF32/Q31/Q15`, `HilbertTransformF32/Q15`, `RecursiveMovingAverageQ15`) and their thin width wrappers (`fir_f32/q31/q15`, `biquad_cascade_df1_*`, `biquad_cascade_df2t_*`, `lms_*`, `lms_leaky_*`, `nlms_*`, `pid_f32/q31/q15`) are gone. Call the generic API directly instead: `FirInstance<f32>`, `BiquadCascadeInstance<q15>`, `LmsInstance<f32>`, `HilbertTransform<'_, f32>`, `RecursiveMovingAverage<q15, N>`, and the free functions `fir` / `biquad_cascade_df1` / `biquad_cascade_df2t` / `lms` / `lms_leaky` / `nlms`; PID updates are `PidInstance::<T>::process`.
-
-### Changed
-
-- **`filtering` is split into family submodules** (`fir`, `biquad`, `convolution`, `adaptive`, `recursive`, `lockin`, `int_filters`, `normal_form`, `wdf`) behind a re-exporting facade; `embedded_dsp::filtering::*` and the crate-root glob are unchanged. The integration-test suite is likewise consolidated from 46 files into 36 domain-named files, with every test and its `required-features` preserved.
-- **docs.rs shows feature-gate badges** for every module (`#[cfg_attr(docsrs, doc(cfg(...)))]`).
 
 ## [0.5.1] - 2026-09-06
 
