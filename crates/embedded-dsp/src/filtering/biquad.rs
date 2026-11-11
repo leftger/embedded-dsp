@@ -96,6 +96,60 @@ pub fn biquad_cascade_df1<T: DspSample>(
     }
 }
 
+/// Pre-settles the delay states of all stages in a Direct Form I biquad cascade
+/// to match the steady-state response of a constant DC input `x0`.
+///
+/// Propagates the DC steady-state output of each stage as the input to the subsequent stage.
+/// Eliminates startup transient jolts when filtering sensors with a DC offset.
+pub fn biquad_cascade_df1_settle_f32(
+    instance: &mut BiquadCascadeInstance<'_, f32>,
+    x0: f32,
+) -> Result<f32, Status> {
+    if !x0.is_finite() {
+        return Err(Status::NanInf);
+    }
+    let num_stages = instance.num_stages as usize;
+    let mut current_x = x0;
+    for stage in 0..num_stages {
+        let b0 = instance.coeffs[stage * 5];
+        let b1 = instance.coeffs[stage * 5 + 1];
+        let b2 = instance.coeffs[stage * 5 + 2];
+        let a1 = instance.coeffs[stage * 5 + 3];
+        let a2 = instance.coeffs[stage * 5 + 4];
+
+        let denom = 1.0 - a1 - a2;
+        if denom.abs() < 1e-12 {
+            return Err(Status::Singular);
+        }
+        let y_stage = current_x * (b0 + b1 + b2) / denom;
+        instance.state[stage * 4] = current_x;
+        instance.state[stage * 4 + 1] = current_x;
+        instance.state[stage * 4 + 2] = y_stage;
+        instance.state[stage * 4 + 3] = y_stage;
+        current_x = y_stage;
+    }
+    Ok(current_x)
+}
+
+/// Biquad cascade, Direct Form I, with non-finite sample check.
+///
+/// Returns `Err(Status::NanInf)` if any input sample is non-finite (NaN or Inf),
+/// leaving filter state uncorrupted.
+pub fn biquad_cascade_df1_checked(
+    instance: &mut BiquadCascadeInstance<'_, f32>,
+    src: &[f32],
+    dst: &mut [f32],
+) -> Result<(), Status> {
+    let block_size = src.len().min(dst.len());
+    for &x in &src[..block_size] {
+        if !x.is_finite() {
+            return Err(Status::NanInf);
+        }
+    }
+    biquad_cascade_df1(instance, src, dst);
+    Ok(())
+}
+
 
 
 /// Instance structure for the biquad cascade, transposed Direct Form II, generic over the sample
@@ -182,6 +236,58 @@ pub fn biquad_cascade_df2t<T: DspSample>(
         }
         dst[i] = in_val;
     }
+}
+
+/// Pre-settles the delay states of all stages in a transposed Direct Form II biquad cascade
+/// to match the steady-state response of a constant DC input `x0`.
+///
+/// Propagates the DC steady-state output of each stage as the input to the subsequent stage.
+/// Eliminates startup transient jolts when filtering sensors with a DC offset.
+pub fn biquad_cascade_df2t_settle_f32(
+    instance: &mut BiquadCascadeDf2tInstance<'_, f32>,
+    x0: f32,
+) -> Result<f32, Status> {
+    if !x0.is_finite() {
+        return Err(Status::NanInf);
+    }
+    let num_stages = instance.num_stages as usize;
+    let mut current_x = x0;
+    for stage in 0..num_stages {
+        let b0 = instance.coeffs[stage * 5];
+        let b1 = instance.coeffs[stage * 5 + 1];
+        let b2 = instance.coeffs[stage * 5 + 2];
+        let a1 = instance.coeffs[stage * 5 + 3];
+        let a2 = instance.coeffs[stage * 5 + 4];
+
+        let denom = 1.0 - a1 - a2;
+        if denom.abs() < 1e-12 {
+            return Err(Status::Singular);
+        }
+        let y_stage = current_x * (b0 + b1 + b2) / denom;
+        instance.state[stage * 2] = (b1 + b2) * current_x + (a1 + a2) * y_stage;
+        instance.state[stage * 2 + 1] = b2 * current_x + a2 * y_stage;
+        current_x = y_stage;
+    }
+    Ok(current_x)
+}
+
+/// Biquad cascade, transposed Direct Form II, with non-finite sample check.
+///
+/// Returns `Err(Status::NanInf)` if any input sample is non-finite (NaN or Inf),
+/// leaving filter state uncorrupted.
+pub fn biquad_cascade_df2t_checked(
+    instance: &mut BiquadCascadeDf2tInstance<'_, f32>,
+    src: &[f32],
+    dst: &mut [f32],
+) -> Result<(), Status> {
+    let block_size = src.len().min(dst.len());
+    for &x in &src[..block_size] {
+        if !x.is_finite() {
+            return Err(Status::NanInf);
+        }
+    }
+    biquad_cascade_df2t(instance, src, dst);
+    Ok(())
 }
 
 
@@ -273,6 +379,20 @@ impl<T: Copy> Biquad<T> {
     }
 }
 
+impl DirectForm1<f32> {
+    /// Settle Direct Form 1 state to the steady-state response of `biquad` for DC input `x0`.
+    pub fn settle(&mut self, biquad: &Biquad<f32>, x0: f32) -> Result<f32, Status> {
+        biquad.settle_to_df1(self, x0)
+    }
+}
+
+impl DirectForm2Transposed<f32> {
+    /// Settle Direct Form 2 Transposed state to the steady-state response of `biquad` for DC input `x0`.
+    pub fn settle(&mut self, biquad: &Biquad<f32>, x0: f32) -> Result<f32, Status> {
+        biquad.settle_to_df2t(self, x0)
+    }
+}
+
 impl Biquad<f32> {
     /// Process a single input sample through Direct Form 1 state.
     #[inline(always)]
@@ -284,6 +404,16 @@ impl Biquad<f32> {
         y0
     }
 
+    /// Process a single input sample through Direct Form 1 state with non-finite sample check.
+    /// Returns `Err(Status::NanInf)` if `x0` is NaN or Inf without corrupting filter history.
+    #[inline(always)]
+    pub fn process_df1_checked(&self, state: &mut DirectForm1<f32>, x0: f32) -> Result<f32, Status> {
+        if !x0.is_finite() {
+            return Err(Status::NanInf);
+        }
+        Ok(self.process_df1(state, x0))
+    }
+
     /// Process a single input sample through Direct Form 2 Transposed state.
     #[inline(always)]
     pub fn process_df2t(&self, state: &mut DirectForm2Transposed<f32>, x0: f32) -> f32 {
@@ -292,6 +422,51 @@ impl Biquad<f32> {
         state.s[0] = b1 * x0 + a1 * y0 + state.s[1];
         state.s[1] = b2 * x0 + a2 * y0;
         y0
+    }
+
+    /// Process a single input sample through Direct Form 2 Transposed state with non-finite sample check.
+    /// Returns `Err(Status::NanInf)` if `x0` is NaN or Inf without corrupting filter registers.
+    #[inline(always)]
+    pub fn process_df2t_checked(&self, state: &mut DirectForm2Transposed<f32>, x0: f32) -> Result<f32, Status> {
+        if !x0.is_finite() {
+            return Err(Status::NanInf);
+        }
+        Ok(self.process_df2t(state, x0))
+    }
+
+    /// Settle the Direct Form 2 Transposed state to the steady-state response for DC input `x0`.
+    ///
+    /// Analytically pre-calculates the delay state registers so that the filter is immediately
+    /// in steady state with zero startup transient or glitch.
+    /// Returns the steady-state output `y0 = x0 * (b0 + b1 + b2) / (1.0 - a1 - a2)`.
+    pub fn settle_to_df2t(&self, state: &mut DirectForm2Transposed<f32>, x0: f32) -> Result<f32, Status> {
+        if !x0.is_finite() {
+            return Err(Status::NanInf);
+        }
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let denom = 1.0 - a1 - a2;
+        if denom.abs() < 1e-12 {
+            return Err(Status::Singular);
+        }
+        let y0 = x0 * (b0 + b1 + b2) / denom;
+        state.s[0] = (b1 + b2) * x0 + (a1 + a2) * y0;
+        state.s[1] = b2 * x0 + a2 * y0;
+        Ok(y0)
+    }
+
+    /// Settle the Direct Form 1 state to the steady-state response for DC input `x0`.
+    pub fn settle_to_df1(&self, state: &mut DirectForm1<f32>, x0: f32) -> Result<f32, Status> {
+        if !x0.is_finite() {
+            return Err(Status::NanInf);
+        }
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let denom = 1.0 - a1 - a2;
+        if denom.abs() < 1e-12 {
+            return Err(Status::Singular);
+        }
+        let y0 = x0 * (b0 + b1 + b2) / denom;
+        state.xy = [x0, x0, y0, y0];
+        Ok(y0)
     }
 }
 
@@ -306,6 +481,15 @@ impl Biquad<f64> {
         y0
     }
 
+    /// Process a single input sample through Direct Form 1 state with non-finite sample check.
+    #[inline(always)]
+    pub fn process_df1_checked(&self, state: &mut DirectForm1<f64>, x0: f64) -> Result<f64, Status> {
+        if !x0.is_finite() {
+            return Err(Status::NanInf);
+        }
+        Ok(self.process_df1(state, x0))
+    }
+
     /// Process a single input sample through Direct Form 2 Transposed state.
     #[inline(always)]
     pub fn process_df2t(&self, state: &mut DirectForm2Transposed<f64>, x0: f64) -> f64 {
@@ -314,6 +498,46 @@ impl Biquad<f64> {
         state.s[0] = b1 * x0 + a1 * y0 + state.s[1];
         state.s[1] = b2 * x0 + a2 * y0;
         y0
+    }
+
+    /// Process a single input sample through Direct Form 2 Transposed state with non-finite sample check.
+    #[inline(always)]
+    pub fn process_df2t_checked(&self, state: &mut DirectForm2Transposed<f64>, x0: f64) -> Result<f64, Status> {
+        if !x0.is_finite() {
+            return Err(Status::NanInf);
+        }
+        Ok(self.process_df2t(state, x0))
+    }
+
+    /// Settle the Direct Form 2 Transposed state to the steady-state response for DC input `x0`.
+    pub fn settle_to_df2t(&self, state: &mut DirectForm2Transposed<f64>, x0: f64) -> Result<f64, Status> {
+        if !x0.is_finite() {
+            return Err(Status::NanInf);
+        }
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let denom = 1.0 - a1 - a2;
+        if denom.abs() < 1e-12 {
+            return Err(Status::Singular);
+        }
+        let y0 = x0 * (b0 + b1 + b2) / denom;
+        state.s[0] = (b1 + b2) * x0 + (a1 + a2) * y0;
+        state.s[1] = b2 * x0 + a2 * y0;
+        Ok(y0)
+    }
+
+    /// Settle the Direct Form 1 state to the steady-state response for DC input `x0`.
+    pub fn settle_to_df1(&self, state: &mut DirectForm1<f64>, x0: f64) -> Result<f64, Status> {
+        if !x0.is_finite() {
+            return Err(Status::NanInf);
+        }
+        let [b0, b1, b2, a1, a2] = self.ba;
+        let denom = 1.0 - a1 - a2;
+        if denom.abs() < 1e-12 {
+            return Err(Status::Singular);
+        }
+        let y0 = x0 * (b0 + b1 + b2) / denom;
+        state.xy = [x0, x0, y0, y0];
+        Ok(y0)
     }
 }
 

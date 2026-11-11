@@ -24,11 +24,11 @@
 //! - **Statistics**: Mean, variance, standard deviation, RMS, power, min/max, entropy, Kullback-Leibler, LogSumExp.
 //! - **Support**: Vector copy, fill, type conversions (Q7, Q15, Q31, F32), sort, barycenter, weighted sum.
 //! - **Matrix**: Matrix addition, subtraction, multiplication, scale, transpose, Gauss-Jordan inverse.
-//! - **Filtering**: FIR, Biquad IIR Direct Form I and transposed DF-II (f32/q15/q31), LMS / leaky LMS / NLMS, Convolution, Correlation, streaming overlap-scrap `FastFirF32`, single-pole recursive filters (f32/q15), Q15 DC blocker, O(1) recursive moving average, and a double-sampled State Variable Filter (simultaneous LP/HP/BP/notch/peak, sweepable cutoff/resonance).
-//! - **Filter Design**: Biquad Lowpass, Highpass, Bandpass, Notch, Peaking EQ, Allpass, Butterworth, Chebyshev, 2nd-order elliptic low-pass, Kaiser-windowed sinc FIR, RRC/RC/GMSK-TX pulse shaping, and arbitrary-response (frequency-sampling) design.
+//! - **Filtering**: FIR, Biquad IIR Direct Form I and transposed DF-II (f32/q15/q31) with steady-state settling (`settle_to`) and non-finite sample protection (`process_*_checked`), LMS / leaky LMS / NLMS, Convolution, Correlation, streaming overlap-scrap `FastFirF32`, single-pole recursive filters (f32/q15), Q15 DC blocker, O(1) recursive moving average, double-sampled State Variable Filter, and signal conditioning primitives (`Deadband`, `Hysteresis`, `SlewRateLimiter`, `RunningMedian`, `SavitzkyGolay`).
+//! - **Filter Design**: Biquad Lowpass, Highpass, Bandpass, Notch, Peaking EQ, Allpass, Butterworth, Chebyshev, 2nd-order elliptic low-pass, harmonic notch cascade (`harmonic_notch_coeffs`), Kaiser-windowed sinc FIR, RRC/RC/GMSK-TX pulse shaping, and arbitrary-response (frequency-sampling) design.
 //! - **Filter Analysis**: Frequency response (DTFT) evaluation for FIR/biquad filters, FIR group delay, and pole-based IIR stability checks.
 //! - **Resampling & Multi-rate**: CIC Decimator & Interpolator, linear fractional resampler, arbitrary-rate polyphase resampler, Gardner symbol timing recovery.
-//! - **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, and trait-based `ExtendedKalmanFilter` (EKF).
+//! - **Kalman Filtering**: 1D/2D helpers, const-generic linear `KalmanFilter<N, M>`, trait-based `ExtendedKalmanFilter` (EKF), and `UnscentedKalmanFilter` (UKF) with stack-allocated Cholesky factor.
 //! - **Const Generics**: Compile-time fixed-size `FirFilter<N>`, `FirFilterQ15<N>`, `BiquadCascade<N>`, `BiquadCascadeQ15`, and `Matrix<R, C>`.
 //! - **Transform**: In-place Complex FFT (CFFT) including mixed-radix 2/3/4/5-smooth lengths, packed Real FFT / inverse (`rfft_f32`/`irfft_f32`, `rfft_q15`/`irfft_q15`), DCT-IV, Bit reversal, Fixed-point FFT (Q15/Q31), Haar transform, Hartley transform, and a generalized wavelet transform (Daubechies-4).
 //! - **Companding**: µ-law and A-law curves plus ITU-T G.711 `u8` encode/decode.
@@ -37,7 +37,7 @@
 //! - **Spatial & 2D Signal Processing**: 2D DCT/IDCT, 2D Convolution, 2D Non-linear Filtering (Min/Max/Median), Sobel edge detection, 2D Histogram, MSE, PSNR.
 //! - **Controller**: PID motor controller, Clarke/Park (f32 and q15).
 //! - **Interpolation**: Linear, Bilinear, Cubic spline interpolation.
-//! - **Quaternion**: Norm, normalization, product, conjugate, inverse, rotation matrix conversion, and `nalgebra` interop (`nalgebra` feature).
+//! - **Quaternion & Attitude Fusion**: Norm, normalization, product, conjugate, inverse, rotation matrix conversion, 6-DoF/9-DoF Mahony filter (`MahonyFilter`), Madgwick AHRS (`MadgwickFilter`), and `nalgebra` interop (`nalgebra` feature).
 //! - **Window**: Hanning, Hamming, Blackman, Blackman-Harris, Bartlett, Welch, Flat-top generators (f32), plus Q15 Hanning/Hamming/Blackman/Bartlett.
 //! - **Distance**: Euclidean, Cosine, Chebyshev, Manhattan, Minkowski, Jaccard, Hamming, Canberra, Bray-Curtis.
 //! - **FEC**: CRC-8/16/24/32, 8-bit checksum, Hamming(7,4).

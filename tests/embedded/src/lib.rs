@@ -98,3 +98,58 @@ pub fn bench_inplace<P: Inplace<X>, X: Copy + Default>(proc: &mut P) -> CyclesRe
     ret.inplace_chunk = timeit(|| proc.inplace(&mut y));
     ret
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stack Painting and High-Water Mark (HWM) Memory Measurement
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Sentinel byte written across unused stack memory to detect peak usage.
+pub const STACK_PAINT_BYTE: u8 = 0xAA;
+
+/// Returns an address close to the caller's stack pointer.
+#[inline(never)]
+pub fn current_sp() -> usize {
+    let local = 0u8;
+    core::ptr::addr_of!(local) as usize
+}
+
+/// Paints stack memory between `bottom` and `top` with `STACK_PAINT_BYTE`.
+#[inline(never)]
+pub fn paint_stack(bottom: usize, top: usize) {
+    let mut addr = bottom;
+    while addr < top {
+        unsafe {
+            core::ptr::write_volatile(addr as *mut u8, STACK_PAINT_BYTE);
+        }
+        addr += 1;
+    }
+}
+
+/// Computes the peak stack usage (in bytes) within painted interval `[bottom, top)`.
+#[inline(never)]
+pub fn measure_stack_hwm(bottom: usize, top: usize) -> usize {
+    let mut addr = bottom;
+    while addr < top {
+        let byte = unsafe { core::ptr::read_volatile(addr as *const u8) };
+        if byte != STACK_PAINT_BYTE {
+            break;
+        }
+        addr += 1;
+    }
+    top.saturating_sub(addr)
+}
+
+/// Executes closure `f`, measuring the maximum stack high-water mark (HWM) used.
+///
+/// Leaves `guard` bytes below the caller's stack frame untouched, paints a `window`
+/// of bytes below that, runs `f`, and calculates how deep the stack pointer penetrated.
+pub fn run_with_stack_hwm<R, F: FnOnce() -> R>(guard: usize, window: usize, f: F) -> (R, usize) {
+    let top = current_sp().saturating_sub(guard);
+    let bottom = top.saturating_sub(window);
+    paint_stack(bottom, top);
+
+    let res = f();
+
+    let used = measure_stack_hwm(bottom, top);
+    (res, used)
+}

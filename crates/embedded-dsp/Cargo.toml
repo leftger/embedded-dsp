@@ -199,6 +199,11 @@ name = "costas_loop_tracking"
 path = "tests/costas_loop_tracking.rs"
 required-features = ["libm", "pll"]
 
+[[test]]
+name = "multicalc_inspo_features"
+path = "tests/multicalc_inspo_features.rs"
+required-features = ["libm", "filtering", "kalman", "quaternion", "filter-design"]
+
 [[example]]
 name = "basic_usage"
 path = "examples/basic_usage.rs"

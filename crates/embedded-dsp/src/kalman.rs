@@ -913,3 +913,314 @@ fn forward_solve_lower<const M: usize>(l: &[[f32; M]; M], b: &[f32; M], out: &mu
     }
     true
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unscented Kalman Filter (UKF)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Model trait driving the [`UnscentedKalmanFilter`].
+///
+/// Implements nonlinear system state transitions and measurement equations.
+/// No analytical or numerical Jacobians required.
+pub trait UkfModel<const STATES: usize, const MEAS: usize> {
+    /// State transition function: `x_{k+1} = f(x_k, dt)`.
+    fn f(&self, x: &[f32; STATES], dt: f32) -> [f32; STATES];
+
+    /// Measurement function: `z_k = h(x_k)`.
+    fn h(&self, x: &[f32; STATES]) -> [f32; MEAS];
+}
+
+/// Unscented Kalman Filter (UKF) for derivative-free nonlinear state estimation.
+///
+/// Uses the Scaled Unscented Transform (Julier, Uhlmann, Van der Merwe) to propagate
+/// mean and covariance through non-linear functions using deterministic sigma points.
+///
+/// Constraints: `STATES <= 16`, `MEAS <= 16`.
+#[derive(Debug, Clone, Copy)]
+pub struct UnscentedKalmanFilter<const STATES: usize, const MEAS: usize> {
+    /// State estimate vector `x`.
+    pub x: [f32; STATES],
+    /// State covariance matrix `P`.
+    pub p: [[f32; STATES]; STATES],
+    /// Process noise covariance `Q`.
+    pub q: [[f32; STATES]; STATES],
+    /// Measurement noise covariance `R`.
+    pub r: [[f32; MEAS]; MEAS],
+    /// Primary scaling parameter alpha (determines spread of sigma points, typically 1e-3).
+    pub alpha: f32,
+    /// Secondary scaling parameter beta (incorporates prior knowledge, 2.0 is optimal for Gaussians).
+    pub beta: f32,
+    /// Tertiary scaling parameter kappa (secondary scaling parameter, typically 0.0).
+    pub kappa: f32,
+}
+
+/// Maximum number of sigma points for UKF: `2 * STATES + 1` for `STATES <= 16`.
+pub const UKF_MAX_SIGMA_POINTS: usize = 33;
+
+impl<const STATES: usize, const MEAS: usize> UnscentedKalmanFilter<STATES, MEAS> {
+    /// Maximum number of sigma points: `2 * STATES + 1` for `STATES <= 16`.
+    pub const MAX_SIGMA_POINTS: usize = UKF_MAX_SIGMA_POINTS;
+
+    /// Creates a new UKF instance with default scaling parameters (`alpha = 1.0`, `beta = 2.0`, `kappa = 0.0`).
+    pub fn new(
+        x0: [f32; STATES],
+        p0: [[f32; STATES]; STATES],
+        q: [[f32; STATES]; STATES],
+        r: [[f32; MEAS]; MEAS],
+    ) -> Self {
+        Self::with_parameters(x0, p0, q, r, 1.0, 2.0, 0.0)
+    }
+
+    /// Creates a new UKF instance with custom unscented transform parameters.
+    pub fn with_parameters(
+        x0: [f32; STATES],
+        p0: [[f32; STATES]; STATES],
+        q: [[f32; STATES]; STATES],
+        r: [[f32; MEAS]; MEAS],
+        alpha: f32,
+        beta: f32,
+        kappa: f32,
+    ) -> Self {
+        Self {
+            x: x0,
+            p: p0,
+            q,
+            r,
+            alpha,
+            beta,
+            kappa,
+        }
+    }
+
+    /// Computes unscented weights `(W_m, W_c, gamma)` where `gamma = sqrt(STATES + lambda)`.
+    fn weights(&self) -> ([f32; UKF_MAX_SIGMA_POINTS], [f32; UKF_MAX_SIGMA_POINTS], f32) {
+        let n = STATES as f32;
+        let lambda = self.alpha * self.alpha * (n + self.kappa) - n;
+        let c = n + lambda;
+        let gamma = if c > 1e-12 { c.sqrt() } else { 1e-6 };
+
+        let mut wm = [0.0f32; UKF_MAX_SIGMA_POINTS];
+        let mut wc = [0.0f32; UKF_MAX_SIGMA_POINTS];
+
+        wm[0] = lambda / c;
+        wc[0] = lambda / c + (1.0 - self.alpha * self.alpha + self.beta);
+
+        let w_i = 0.5 / c;
+        for i in 1..(2 * STATES + 1) {
+            wm[i] = w_i;
+            wc[i] = w_i;
+        }
+
+        (wm, wc, gamma)
+    }
+
+    /// Generates `2 * STATES + 1` sigma points from mean `x` and covariance `P`.
+    fn generate_sigma_points(&self, gamma: f32) -> Result<[[f32; STATES]; UKF_MAX_SIGMA_POINTS], Status> {
+        let mut pts = [[0.0f32; STATES]; UKF_MAX_SIGMA_POINTS];
+        pts[0] = self.x;
+
+        // Cholesky decomposition of P: P = L * L^T
+        let mut l = [[0.0f32; STATES]; STATES];
+        for j in 0..STATES {
+            let mut sum = 0.0f32;
+            for k in 0..j {
+                sum += l[j][k] * l[j][k];
+            }
+            let d = self.p[j][j] - sum;
+            if d <= 0.0 {
+                return Err(Status::DecompositionFailure);
+            }
+            let diag = d.sqrt();
+            l[j][j] = diag;
+            for i in (j + 1)..STATES {
+                let mut s = 0.0f32;
+                for k in 0..j {
+                    s += l[i][k] * l[j][k];
+                }
+                l[i][j] = (self.p[i][j] - s) / diag;
+            }
+        }
+
+        for j in 0..STATES {
+            for i in 0..STATES {
+                pts[1 + j][i] = self.x[i] + gamma * l[i][j];
+                pts[1 + STATES + j][i] = self.x[i] - gamma * l[i][j];
+            }
+        }
+
+        Ok(pts)
+    }
+
+    /// Prediction step: propagates sigma points through nonlinear transition `model.f`.
+    pub fn predict(&mut self, model: &impl UkfModel<STATES, MEAS>, dt: f32) -> Status {
+        if STATES == 0 || STATES > 16 || MEAS == 0 || MEAS > 16 {
+            return Status::ArgumentError;
+        }
+
+        let (wm, wc, gamma) = self.weights();
+        let pts = match self.generate_sigma_points(gamma) {
+            Ok(p) => p,
+            Err(e) => return e,
+        };
+
+        let num_pts = 2 * STATES + 1;
+        let mut y = [[0.0f32; STATES]; UKF_MAX_SIGMA_POINTS];
+        for i in 0..num_pts {
+            y[i] = model.f(&pts[i], dt);
+        }
+
+        // Compute predicted mean: x_pred = sum(W_m * y)
+        let mut x_pred = [0.0f32; STATES];
+        for i in 0..num_pts {
+            for j in 0..STATES {
+                x_pred[j] += wm[i] * y[i][j];
+            }
+        }
+
+        // Compute predicted covariance: P_pred = Q + sum(W_c * (y - x_pred) * (y - x_pred)^T)
+        let mut p_pred = self.q;
+        for i in 0..num_pts {
+            let mut diff = [0.0f32; STATES];
+            for j in 0..STATES {
+                diff[j] = y[i][j] - x_pred[j];
+            }
+            for r in 0..STATES {
+                for c in 0..STATES {
+                    p_pred[r][c] += wc[i] * diff[r] * diff[c];
+                }
+            }
+        }
+
+        self.x = x_pred;
+        self.p = p_pred;
+        Status::Success
+    }
+
+    /// Measurement update step: incorporates sensor reading `z` through `model.h`.
+    pub fn update(&mut self, model: &impl UkfModel<STATES, MEAS>, z: &[f32; MEAS]) -> Status {
+        if STATES == 0 || STATES > 16 || MEAS == 0 || MEAS > 16 {
+            return Status::ArgumentError;
+        }
+
+        let (wm, wc, gamma) = self.weights();
+        let pts = match self.generate_sigma_points(gamma) {
+            Ok(p) => p,
+            Err(e) => return e,
+        };
+
+        let num_pts = 2 * STATES + 1;
+        let mut z_pts = [[0.0f32; MEAS]; UKF_MAX_SIGMA_POINTS];
+        for i in 0..num_pts {
+            z_pts[i] = model.h(&pts[i]);
+        }
+
+        // Predicted measurement: z_pred = sum(W_m * z_pts)
+        let mut z_pred = [0.0f32; MEAS];
+        for i in 0..num_pts {
+            for j in 0..MEAS {
+                z_pred[j] += wm[i] * z_pts[i][j];
+            }
+        }
+
+        // Innovation covariance S = R + sum(W_c * (z_pts - z_pred) * (z_pts - z_pred)^T)
+        let mut s = self.r;
+        // Cross-covariance P_xz = sum(W_c * (pts - x) * (z_pts - z_pred)^T)
+        let mut p_xz = [[0.0f32; MEAS]; STATES];
+
+        for i in 0..num_pts {
+            let mut z_diff = [0.0f32; MEAS];
+            for j in 0..MEAS {
+                z_diff[j] = z_pts[i][j] - z_pred[j];
+            }
+            let mut x_diff = [0.0f32; STATES];
+            for j in 0..STATES {
+                x_diff[j] = pts[i][j] - self.x[j];
+            }
+
+            for r in 0..MEAS {
+                for c in 0..MEAS {
+                    s[r][c] += wc[i] * z_diff[r] * z_diff[c];
+                }
+            }
+
+            for r in 0..STATES {
+                for c in 0..MEAS {
+                    p_xz[r][c] += wc[i] * x_diff[r] * z_diff[c];
+                }
+            }
+        }
+
+        // Invert S (MEAS x MEAS)
+        let mut s_inv = [[0.0f32; MEAS]; MEAS];
+        let inv_status = invert_mxm(&s, &mut s_inv);
+        if inv_status != Status::Success {
+            return inv_status;
+        }
+
+        // Kalman gain K = P_xz * S_inv (STATES x MEAS)
+        let mut k = [[0.0f32; MEAS]; STATES];
+        for r in 0..STATES {
+            for c in 0..MEAS {
+                let mut sum = 0.0f32;
+                for j in 0..MEAS {
+                    sum += p_xz[r][j] * s_inv[j][c];
+                }
+                k[r][c] = sum;
+            }
+        }
+
+        // State update: x = x + K * (z - z_pred)
+        let mut y_innov = [0.0f32; MEAS];
+        for j in 0..MEAS {
+            y_innov[j] = z[j] - z_pred[j];
+        }
+
+        for r in 0..STATES {
+            let mut correction = 0.0f32;
+            for j in 0..MEAS {
+                correction += k[r][j] * y_innov[j];
+            }
+            self.x[r] += correction;
+        }
+
+        // Covariance update: P = P - K * S * K^T
+        let mut ks = [[0.0f32; MEAS]; STATES];
+        for r in 0..STATES {
+            for c in 0..MEAS {
+                let mut sum = 0.0f32;
+                for j in 0..MEAS {
+                    sum += k[r][j] * s[j][c];
+                }
+                ks[r][c] = sum;
+            }
+        }
+
+        let mut kskt = [[0.0f32; STATES]; STATES];
+        for r in 0..STATES {
+            for c in 0..STATES {
+                let mut sum = 0.0f32;
+                for j in 0..MEAS {
+                    sum += ks[r][j] * k[c][j];
+                }
+                kskt[r][c] = sum;
+            }
+        }
+
+        for r in 0..STATES {
+            for c in 0..STATES {
+                self.p[r][c] -= kskt[r][c];
+            }
+        }
+
+        // Enforce exact symmetry
+        for r in 0..STATES {
+            for c in (r + 1)..STATES {
+                let avg = 0.5 * (self.p[r][c] + self.p[c][r]);
+                self.p[r][c] = avg;
+                self.p[c][r] = avg;
+            }
+        }
+
+        Status::Success
+    }
+}

@@ -7,6 +7,7 @@
 
 mod adaptive;
 mod biquad;
+mod conditioning;
 mod convolution;
 mod fir;
 mod int_filters;
@@ -17,6 +18,7 @@ mod wdf;
 
 pub use adaptive::*;
 pub use biquad::*;
+pub use conditioning::*;
 pub use convolution::*;
 pub use fir::*;
 pub use int_filters::*;

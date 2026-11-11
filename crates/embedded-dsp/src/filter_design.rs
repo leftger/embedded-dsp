@@ -76,6 +76,35 @@ pub fn biquad_notch_coeffs(center_freq: f32, sample_rate: f32, q: f32) -> [f32; 
     [b0, b1, b2, a1, a2]
 }
 
+/// Computes cascaded notch filter coefficients for a base frequency and its harmonics (1x, 2x, 3x, ...),
+/// up to `N` harmonics, ensuring each harmonic frequency is strictly below the Nyquist limit (`sample_rate / 2.0`).
+///
+/// Returns an array of `N` biquad coefficient sets `[b0, b1, b2, a1, a2]` and the count of active harmonic
+/// filters computed. Any unused slots beyond the Nyquist limit are filled with pass-through coefficients `[1.0, 0.0, 0.0, 0.0, 0.0]`.
+///
+/// Ideal for suppressing motor rotational vibration harmonics in multicopters and precision motor drives.
+pub fn harmonic_notch_coeffs<const N: usize>(
+    base_freq: f32,
+    sample_rate: f32,
+    q: f32,
+) -> ([[f32; 5]; N], usize) {
+    let mut out = [[1.0, 0.0, 0.0, 0.0, 0.0]; N];
+    let nyquist = sample_rate * 0.5;
+    let mut count = 0;
+    if base_freq <= 0.0 || sample_rate <= 0.0 || q <= 0.0 {
+        return (out, 0);
+    }
+    for k in 1..=N {
+        let f = base_freq * (k as f32);
+        if f >= nyquist {
+            break;
+        }
+        out[k - 1] = biquad_notch_coeffs(f, sample_rate, q);
+        count += 1;
+    }
+    (out, count)
+}
+
 /// Computes Direct Form I Biquad coefficients `[b0, b1, b2, a1, a2]` for a Peaking EQ Filter.
 pub fn biquad_peaking_coeffs(center_freq: f32, sample_rate: f32, q: f32, gain_db: f32) -> [f32; 5] {
     let w0 = 2.0 * core::f32::consts::PI * center_freq / sample_rate;

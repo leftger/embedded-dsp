@@ -1,0 +1,33 @@
+# Embedded-DSP Size and Stack High-Water Mark (HWM) Budgets
+#
+# Target triples:
+#   thumbv7em-none-eabihf  Cortex-M4F / Cortex-M7 with hardware FPU
+#   thumbv7em-none-eabi    Cortex-M4 without hardware FPU (soft-float libm)
+#   thumbv6m-none-eabi     Cortex-M0 / Cortex-M0+ (pure integer / soft-float)
+#
+# text_bytes: maximum acceptable release .text section size
+# stack_bytes: peak stack high-water mark observed during benchmark execution
+
+tolerance_pct = 10
+
+[embedded-dsp-bench.thumbv7em-none-eabihf]
+text_bytes = 180000
+stack_bytes_biquad_df2t = 512
+stack_bytes_conditioning = 512
+stack_bytes_savitzky_median = 768
+stack_bytes_attitude = 768
+stack_bytes_ukf = 1536
+
+[embedded-dsp-bench.thumbv7em-none-eabi]
+text_bytes = 160000
+stack_bytes_biquad_df2t = 512
+stack_bytes_conditioning = 512
+stack_bytes_savitzky_median = 768
+stack_bytes_attitude = 768
+stack_bytes_ukf = 1536
+
+[embedded-dsp-bench.thumbv6m-none-eabi]
+text_bytes = 65000
+stack_bytes_biquad_df2t = 256
+stack_bytes_conditioning = 256
+stack_bytes_savitzky_median = 512
